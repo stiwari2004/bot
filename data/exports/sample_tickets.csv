@@ -1,0 +1,4 @@
+id,description,resolution,category,priority,created_date,resolved_date
+TICKET-001,Users reporting slow login times to the application,Restarted authentication service and cleared cache,Performance,Medium,2024-01-15,2024-01-15
+TICKET-002,Database connection timeout errors,Increased connection pool size and optimized queries,Database,High,2024-01-16,2024-01-16
+TICKET-003,Disk space running low on server,Cleaned up log files and increased disk space,Infrastructure,High,2024-01-17,2024-01-17

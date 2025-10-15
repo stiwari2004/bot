@@ -1,0 +1,19 @@
+{
+  "#it-support": [
+    {
+      "user": "john.doe",
+      "text": "Having issues with the application login",
+      "ts": "1642234567.123456"
+    },
+    {
+      "user": "jane.smith",
+      "text": "Try restarting the auth service, that usually fixes it",
+      "ts": "1642234600.123456"
+    },
+    {
+      "user": "john.doe",
+      "text": "That worked! Thanks",
+      "ts": "1642234700.123456"
+    }
+  ]
+}
