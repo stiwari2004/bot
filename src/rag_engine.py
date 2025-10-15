@@ -198,3 +198,4 @@ class TroubleshootingRAGEngine:
         except Exception as e:
             self.logger.error(f"Error clearing knowledge base: {e}")
             return False
+

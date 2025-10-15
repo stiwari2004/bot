@@ -293,3 +293,4 @@ class SimpleTroubleshootingGUI:
 if __name__ == "__main__":
     app = SimpleTroubleshootingGUI()
     app.run()
+

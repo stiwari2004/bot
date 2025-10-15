@@ -123,3 +123,4 @@ This is the foundation for your troubleshooting RAG system. Future enhancements 
 ## Support
 
 Check the Logs tab in the GUI for detailed error messages and system information.
+

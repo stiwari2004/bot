@@ -107,3 +107,4 @@ def get_file_info(file_path: str) -> Dict[str, Any]:
         'modified': stat.st_mtime,
         'extension': os.path.splitext(file_path)[1].lower()
     }
+
