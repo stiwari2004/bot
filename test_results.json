@@ -1,0 +1,72 @@
+{
+  "total_tests": 9,
+  "passed_tests": 9,
+  "success_rate": 100.0,
+  "results": [
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": "Status: healthy"
+    },
+    {
+      "test": "Detailed Health Check",
+      "success": true,
+      "details": "Database: connected"
+    },
+    {
+      "test": "Sample Data Creation",
+      "success": true,
+      "details": "Documents: 3, Chunks: 3"
+    },
+    {
+      "test": "Search: 'network connectivity problems'",
+      "success": true,
+      "details": "Found 5 results"
+    },
+    {
+      "test": "Search: 'database connection issues'",
+      "success": true,
+      "details": "Found 5 results"
+    },
+    {
+      "test": "Search: 'server performance problems'",
+      "success": true,
+      "details": "Found 5 results"
+    },
+    {
+      "test": "Runbook: 'server is running slow and use...'",
+      "success": true,
+      "details": "Confidence: 0.72"
+    },
+    {
+      "test": "Runbook: 'database connection timeout er...'",
+      "success": true,
+      "details": "Confidence: 0.83"
+    },
+    {
+      "test": "Runbook: 'network connectivity issues in...'",
+      "success": true,
+      "details": "Confidence: 0.68"
+    },
+    {
+      "test": "Runbook Listing",
+      "success": true,
+      "details": "Found 4 runbooks"
+    },
+    {
+      "test": "File Upload",
+      "success": true,
+      "details": "Document ID: 18"
+    },
+    {
+      "test": "System Stats",
+      "success": true,
+      "details": "Documents: 18, Chunks: 16"
+    },
+    {
+      "test": "Frontend Access",
+      "success": true,
+      "details": "Next.js app is running"
+    }
+  ]
+}
