@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { BookOpenIcon, EyeIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { API_BASE_URL } from '@/lib/config';
 
 interface Runbook {
   id: number;
@@ -29,7 +30,7 @@ export function RunbookList() {
 
   const fetchRunbooks = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/v1/runbooks/demo/');
+      const response = await fetch(`${API_BASE_URL}/api/v1/runbooks/demo/`);
       if (!response.ok) {
         throw new Error('Failed to fetch runbooks');
       }
@@ -46,7 +47,7 @@ export function RunbookList() {
     if (!confirm('Are you sure you want to delete this runbook?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/runbooks/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/runbooks/${id}`, {
         method: 'DELETE',
       });
 

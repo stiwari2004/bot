@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { CloudArrowUpIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { API_BASE_URL } from '@/lib/config';
 
 interface FileUploadProps {
   onFileUploaded?: () => void;
@@ -49,7 +50,7 @@ export function FileUpload({ onFileUploaded }: FileUploadProps) {
       formData.append('source_type', sourceType);
       if (title) formData.append('title', title);
 
-      const response = await fetch('http://localhost:8000/api/v1/demo/upload-demo', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/demo/upload-demo`, {
         method: 'POST',
         body: formData,
       });

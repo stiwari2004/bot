@@ -1,24 +1,32 @@
-FROM node:20-alpine
+FROM node:20-bullseye-slim
 
 WORKDIR /app
 
-# Install dependencies for building
-RUN apk add --no-cache libc6-compat
+# Install system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    python3 \
+    build-essential \
+ && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci --only=production && \
+    npm install lightningcss@latest --production && \
+    npm install @tailwindcss/oxide-linux-arm64-gnu@latest --production || true
 
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application (disable lightningcss native issues if any)
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_DISABLE_LIGHTNINGCSS=1
+ENV NEXT_DISABLE_TURBOPACK=1
+ENV TAILWIND_DISABLE_OXIDE=1
+ENV NEXT_DISABLE_TURBOPACK=1
 RUN npm run build
 
-# Expose port
 EXPOSE 3000
-
-# Start production server
 CMD ["npm", "start"]

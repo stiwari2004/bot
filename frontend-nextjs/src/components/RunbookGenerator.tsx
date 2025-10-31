@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { BookOpenIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { API_BASE_URL } from '@/lib/config';
 
 interface RunbookResponse {
   id: number;
@@ -10,9 +11,13 @@ interface RunbookResponse {
   confidence: number;
   meta_data: {
     issue_description: string;
-    sources_used: number;
-    search_query: string;
+    sources_used?: number;
+    search_query?: string;
     generated_by: string;
+    service?: string;
+    env?: string;
+    risk?: string;
+    runbook_spec?: any;
   };
   created_at: string;
 }
@@ -23,7 +28,10 @@ interface RunbookGeneratorProps {
 
 export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) {
   const [issueDescription, setIssueDescription] = useState('');
-  const [topK, setTopK] = useState(5);
+  // Always generate Agent-Ready runbooks
+  const [serviceType, setServiceType] = useState('auto');
+  const [envType, setEnvType] = useState('prod');
+  const [riskLevel, setRiskLevel] = useState('low');
   const [runbook, setRunbook] = useState<RunbookResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,12 +44,17 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
     setError(null);
 
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/v1/runbooks/demo/generate?issue_description=${encodeURIComponent(issueDescription)}&top_k=${topK}`,
-        {
-          method: 'POST',
-        }
-      );
+      const url = `${API_BASE_URL}/api/v1/runbooks/demo/generate-agent`;
+      const params = new URLSearchParams({
+        issue_description: issueDescription,
+        service: serviceType,
+        env: envType,
+        risk: riskLevel
+      });
+
+      const response = await fetch(`${url}?${params}`, {
+        method: 'POST',
+      });
 
       if (!response.ok) {
         throw new Error('Runbook generation failed');
@@ -93,20 +106,66 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
             />
           </div>
           
-          <div>
-            <label htmlFor="top-k" className="block text-sm font-medium text-gray-700 mb-2">
-              Number of Knowledge Sources (1-20)
-            </label>
-            <input
-              type="number"
-              id="top-k"
-              value={topK}
-              onChange={(e) => setTopK(parseInt(e.target.value))}
-              min="1"
-              max="20"
-              className="block w-32 px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+          {/* Agent-ready only */}
+
+          {
+            <>
+              <div>
+                <label htmlFor="service-type" className="block text-sm font-medium text-gray-700 mb-2">
+                  Service Type
+                </label>
+                <select
+                  id="service-type"
+                  value={serviceType}
+                  onChange={(e) => setServiceType(e.target.value)}
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="auto">Auto-detect (Recommended)</option>
+                  <option value="server">Server</option>
+                  <option value="network">Network</option>
+                  <option value="database">Database</option>
+                  <option value="web">Web Application</option>
+                  <option value="storage">Storage</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="env-type" className="block text-sm font-medium text-gray-700 mb-2">
+                    Environment
+                  </label>
+                  <select
+                    id="env-type"
+                    value={envType}
+                    onChange={(e) => setEnvType(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="prod">Production</option>
+                    <option value="staging">Staging</option>
+                    <option value="dev">Development</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="risk-level" className="block text-sm font-medium text-gray-700 mb-2">
+                    Risk Level
+                  </label>
+                  <select
+                    id="risk-level"
+                    value={riskLevel}
+                    onChange={(e) => setRiskLevel(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+            </>
+          }
+
+          {/* Traditional path removed */}
         </div>
 
         <div className="mt-6">
@@ -138,9 +197,16 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
                 Confidence: {(runbook.confidence * 100).toFixed(0)}%
               </span>
-              <span className="text-sm text-gray-500">
-                Sources: {runbook.meta_data.sources_used}
-              </span>
+              {runbook.meta_data.sources_used && (
+                <span className="text-sm text-gray-500">
+                  Sources: {runbook.meta_data.sources_used}
+                </span>
+              )}
+              {runbook.meta_data.service && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  {runbook.meta_data.service.toUpperCase()}
+                </span>
+              )}
             </div>
           </div>
 

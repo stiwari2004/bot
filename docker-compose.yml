@@ -29,6 +29,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/troubleshooting_ai
       - SECRET_KEY=your-secret-key-change-in-production
+      - LLM_PROVIDER=llamacpp
+      - LLAMACPP_BASE_URL=http://host.docker.internal:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,19 +51,8 @@ services:
     depends_on:
       - backend
 
-  # Ollama (Optional - for local LLM)
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    profiles:
-      - llm
+
 
 volumes:
   postgres_data:
-  ollama_data:
 

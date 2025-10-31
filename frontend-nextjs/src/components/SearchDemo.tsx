@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { MagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { API_BASE_URL } from '@/lib/config';
 
 interface SearchResult {
   text: string;
@@ -33,7 +34,7 @@ export function SearchDemo() {
       const formData = new FormData();
       formData.append('query', query);
 
-      const response = await fetch('http://localhost:8000/api/v1/demo/search-demo', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/demo/search-demo`, {
         method: 'POST',
         body: formData,
       });

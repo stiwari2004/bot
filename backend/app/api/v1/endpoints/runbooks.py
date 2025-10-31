@@ -16,27 +16,32 @@ from app.models.runbook import Runbook
 router = APIRouter()
 
 
-@router.post("/generate", response_model=RunbookResponse)
-async def generate_runbook(
+## Removed legacy generation endpoint to avoid confusion; use /generate-agent only
+
+
+@router.post("/generate-agent", response_model=RunbookResponse)
+async def generate_agent_runbook(
     issue_description: str,
-    top_k: int = Query(5, ge=1, le=20),
-    source_types: Optional[List[str]] = Query(None),
+    service: str = Query(..., description="Service type: server|network|database|web|storage|auto"),
+    env: str = Query(..., description="Environment: prod|staging|dev"),
+    risk: str = Query(..., description="Risk: low|medium|high"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate a runbook from issue description using RAG"""
+    """Generate an agent-ready YAML runbook (atomic, executable)."""
     try:
         generator = RunbookGeneratorService()
-        runbook = await generator.generate_runbook(
+        runbook = await generator.generate_agent_runbook(
             issue_description=issue_description,
             tenant_id=current_user.tenant_id,
             db=db,
-            top_k=top_k,
-            source_types=source_types
+            service=service,
+            env=env,
+            risk=risk
         )
         return runbook
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Runbook generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {str(e)}")
 
 
 @router.get("/", response_model=List[RunbookResponse])
@@ -172,26 +177,31 @@ async def delete_runbook(
 
 
 # Demo endpoints (no authentication required)
-@router.post("/demo/generate", response_model=RunbookResponse)
-async def generate_runbook_demo(
+## Removed legacy demo generation endpoint; use /demo/generate-agent only
+
+
+@router.post("/demo/generate-agent", response_model=RunbookResponse)
+async def generate_agent_runbook_demo(
     issue_description: str,
-    top_k: int = Query(5, ge=1, le=20),
-    source_types: Optional[List[str]] = Query(None),
+    service: str = Query(..., description="Service type: server|network|database|web|storage|auto"),
+    env: str = Query(..., description="Environment: prod|staging|dev"),
+    risk: str = Query(..., description="Risk: low|medium|high"),
     db: Session = Depends(get_db)
 ):
-    """Generate a runbook from issue description using RAG (demo endpoint)"""
+    """Generate an agent-ready YAML runbook (demo tenant)."""
     try:
         generator = RunbookGeneratorService()
-        runbook = await generator.generate_runbook(
+        runbook = await generator.generate_agent_runbook(
             issue_description=issue_description,
-            tenant_id=1,  # Demo tenant
+            tenant_id=1,
             db=db,
-            top_k=top_k,
-            source_types=source_types
+            service=service,
+            env=env,
+            risk=risk
         )
         return runbook
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Runbook generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {str(e)}")
 
 
 @router.get("/demo/", response_model=List[RunbookResponse])

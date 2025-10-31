@@ -15,9 +15,14 @@ import { RunbookList } from '@/components/RunbookList';
 import { FileUpload } from '@/components/FileUpload';
 import { SystemStats } from '@/components/SystemStats';
 
+type Stats = {
+  total_documents?: number;
+  total_chunks?: number;
+};
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState('search');
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
     fetchStats();
@@ -25,9 +30,10 @@ export default function Home() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/v1/demo/stats');
+      // Use Next.js rewrite to avoid hardcoding host/port
+      const response = await fetch(`/api/v1/demo/stats`);
       const data = await response.json();
-      setStats(data);
+      setStats(data as Stats);
     } catch (error) {
       console.error('Failed to fetch stats:', error);
     }

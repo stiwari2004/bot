@@ -162,10 +162,15 @@ async def get_stats(
     try:
         from app.models.document import Document
         from app.models.chunk import Chunk
+        from app.models.runbook import Runbook
         
         # Count documents and chunks (using tenant_id = 1 for demo)
         doc_count = db.query(Document).filter(Document.tenant_id == 1).count()
         chunk_count = db.query(Chunk).join(Document).filter(Document.tenant_id == 1).count()
+        runbook_count = db.query(Runbook).filter(
+            Runbook.tenant_id == 1,
+            Runbook.is_active == "active"
+        ).count()
         
         # Count by source type
         source_stats = {}
@@ -179,6 +184,7 @@ async def get_stats(
         return {
             "total_documents": doc_count,
             "total_chunks": chunk_count,
+            "total_runbooks": runbook_count,
             "by_source_type": source_stats
         }
         

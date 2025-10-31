@@ -1,0 +1,46 @@
+system = "You are a YAML generator for agent-executable troubleshooting runbooks. Return ONLY valid YAML. No markdown, no code fences."
+
+user_template = """
+Generate a troubleshooting runbook YAML.
+
+Issue: {issue_description}
+Service: {service}, Environment: {env}, Risk: {risk}
+
+Context (knowledge snippets):
+{context}
+
+YAML structure (copy exactly; lists must start with '- '):
+runbook_id: rb-{service}-issue
+version: 1.0.0
+title: Fix [Issue]
+service: {service}
+env: {env}
+risk: {risk}
+description: Brief description without quotes
+inputs:
+- name: server_name
+  type: string
+  required: true
+  description: Target server
+prechecks:
+- description: Basic health check
+  command: uptime
+  expected_output: load averages present
+steps:
+- name: Check CPU
+  type: command
+  command: top -b -n 1 | head -n 20
+  expected_output: process list
+- name: Check Memory
+  type: command
+  command: free -h
+  expected_output: memory stats
+postchecks:
+- description: Verify resolution
+  command: uptime
+  expected_output: system responsive
+
+IMPORTANT: Output ONLY raw YAML; no backticks, no markdown.
+"""
+
+

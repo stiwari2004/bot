@@ -16,7 +16,7 @@ Vector Store (Postgres+pgvector for POC, Qdrant for production)
         ↓
 Retriever (semantic search + reranker: cross-encoder)
         ↓
-LLM (Open-source: LLaMA 3.1 via Ollama - local, free)
+LLM Provider (pluggable): POC uses llama.cpp (local, OpenAI-compatible). Providers can be swapped (e.g., OpenAI, Claude, others) via configuration.
         ↓
 Runbook Generation/Update + Citations
 ```
@@ -26,14 +26,14 @@ Runbook Generation/Update + Citations
 ### POC Phase (v1)
 - **Postgres + pgvector**: Everything in one database
 - **sentence-transformers**: Local embeddings (E5-large-v2 or all-mpnet-base-v2)
-- **Ollama + LLaMA 3.1 8B**: Local LLM
+- **llama.cpp**: Local LLM server (Qwen2.5 1.5B in POC); OpenAI-compatible API
 - **FastAPI**: Backend API
 - **React + TypeScript**: Frontend
 
 ### Production Phase (v2)
 - **Postgres**: Users, tenants, runbooks, audit logs
 - **Qdrant**: Vector embeddings and search
-- **Same LLM/Embedding stack**: No API costs
+- **LLM Provider Abstraction**: Swap providers (OpenAI, Claude, local llama.cpp) via config without code changes
 
 ## Database Schema (Postgres + pgvector)
 
@@ -121,3 +121,15 @@ class QdrantVectorStore(VectorStore):
 - **Search**: Semantic search with filters and citations
 - **Runbook Management**: View, edit, version, export runbooks
 - **Multi-tenant**: Isolated data per organization
+
+## Operational Modes (3-Phase)
+
+- **Assistant (Draft Creation)**: If a matching runbook doesn’t exist, the system performs RAG (semantic retrieval) and prompts the LLM provider to generate an agent-executable YAML runbook draft following the standard schema.
+- **Human-in-the-Loop (Review/Approval)**: Draft runbooks are reviewed and optionally edited. Upon approval, the runbook is versioned and marked active for execution.
+- **Autonomous Bot (Execution)**: Approved runbooks are executed by the agent. Results, outputs, and audit logs are captured; failures trigger escalation or rollback.
+
+## LLM Provider Abstraction
+
+- The backend uses a provider interface to call an OpenAI-compatible chat API.
+- POC: llama.cpp locally (http://localhost:8080) with a small GGUF model.
+- Future: switch to providers such as OpenAI or Claude by changing configuration (API base URL/keys) without altering application logic.
