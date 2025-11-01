@@ -42,6 +42,7 @@ async def init_db():
     try:
         # Import all models to ensure they're registered
         from app.models import tenant, user, document, chunk, embedding, runbook, execution, audit
+        from app.models import system_config, runbook_usage, runbook_similarity, runbook_citation
         
         # Enable pgvector extension
         with engine.connect() as conn:

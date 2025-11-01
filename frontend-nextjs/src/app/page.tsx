@@ -7,13 +7,15 @@ import {
   PlusIcon,
   Cog6ToothIcon,
   ChartBarIcon,
-  BookOpenIcon
+  BookOpenIcon,
+  BoltIcon
 } from '@heroicons/react/24/outline';
 import { SearchDemo } from '@/components/SearchDemo';
 import { RunbookGenerator } from '@/components/RunbookGenerator';
 import { RunbookList } from '@/components/RunbookList';
 import { FileUpload } from '@/components/FileUpload';
 import { SystemStats } from '@/components/SystemStats';
+import { TicketAnalyzer } from '@/components/TicketAnalyzer';
 
 type Stats = {
   total_documents?: number;
@@ -21,7 +23,7 @@ type Stats = {
 };
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState('search');
+  const [activeTab, setActiveTab] = useState('ticket');
   const [stats, setStats] = useState<Stats | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);  // Force re-render of child components
 
@@ -46,6 +48,7 @@ export default function Home() {
   };
 
   const tabs = [
+    { id: 'ticket', name: 'Ticket Analysis', icon: BoltIcon },
     { id: 'search', name: 'Search Knowledge', icon: MagnifyingGlassIcon },
     { id: 'runbook', name: 'Generate Runbook', icon: BookOpenIcon },
     { id: 'runbooks', name: 'View Runbooks', icon: DocumentTextIcon },
@@ -140,6 +143,7 @@ export default function Home() {
 
         {/* Tab Content */}
         <div className="bg-white rounded-lg shadow">
+          {activeTab === 'ticket' && <TicketAnalyzer />}
           {activeTab === 'search' && <SearchDemo />}
           {activeTab === 'runbook' && <RunbookGenerator onRunbookGenerated={handleRunbookGenerated} />}
           {activeTab === 'runbooks' && <RunbookList key={refreshKey} />}

@@ -128,10 +128,39 @@ async def delete_runbook_demo(
 @router.post("/demo/{runbook_id}/approve", response_model=RunbookResponse)
 async def approve_runbook_demo(
     runbook_id: int,
+    force_approval: bool = False,
     db: Session = Depends(get_db)
 ):
-    """Approve and publish a draft runbook for demo tenant"""
+    """Approve and publish a draft runbook for demo tenant with duplicate detection"""
     try:
+        from app.services.duplicate_detector import DuplicateDetectorService
+        
+        # Check for duplicates before approval
+        if not force_approval:
+            from app.services.config_service import ConfigService
+            
+            duplicate_service = DuplicateDetectorService()
+            should_block, duplicates = await duplicate_service.should_block_approval(
+                runbook_id=runbook_id,
+                tenant_id=1,  # Demo tenant
+                db=db
+            )
+            
+            if should_block:
+                # Get threshold from config
+                threshold = ConfigService.get_duplicate_threshold(db, 1)
+                
+                # Return error with duplicate information
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "duplicate_detected",
+                        "message": f"Similar runbook(s) already exist. Confidence threshold not met.",
+                        "similar_runbooks": duplicates,
+                        "threshold": threshold
+                    }
+                )
+        
         generator = RunbookGeneratorService()
         runbook = await generator.approve_and_index_runbook(
             runbook_id=runbook_id,
