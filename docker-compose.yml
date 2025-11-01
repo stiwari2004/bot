@@ -44,10 +44,12 @@ services:
     build:
       context: ./frontend-nextjs
       dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=production
     depends_on:
       - backend
 

@@ -2,6 +2,7 @@
 Runbook generation service using RAG pipeline
 """
 import json
+import re
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -11,7 +12,10 @@ from app.schemas.runbook import RunbookCreate, RunbookResponse
 from app.models.runbook import Runbook
 from app.services.vector_store import VectorStoreService
 from app.services.llm_service import get_llm_service
+from app.core.logging import get_logger
 import yaml
+
+logger = get_logger(__name__)
 
 
 class RunbookGeneratorService:
@@ -30,13 +34,14 @@ class RunbookGeneratorService:
     ) -> RunbookResponse:
         """Generate a runbook from issue description using RAG"""
         
-        # Step 1: Search for relevant knowledge
-        search_results = await self.vector_service.search(
+        # Step 1: Search for relevant knowledge (using hybrid search)
+        search_results = await self.vector_service.hybrid_search(
             query=issue_description,
             tenant_id=tenant_id,
             db=db,
             top_k=top_k,
-            source_types=source_types
+            source_types=source_types,
+            use_reranking=True
         )
         
         # Step 2: Generate runbook content using retrieved knowledge
@@ -91,20 +96,21 @@ class RunbookGeneratorService:
         if service == "auto":
             service = await self._detect_service_type(issue_description)
 
-        # RAG: retrieve top context to condition the LLM
-        search_results = await self.vector_service.search(
+        # RAG: retrieve top context to condition the LLM (using hybrid search)
+        search_results = await self.vector_service.hybrid_search(
             query=issue_description,
             tenant_id=tenant_id,
             db=db,
             top_k=top_k,
             source_types=None,
+            use_reranking=True
         )
         context = self._build_context(search_results) if search_results else ""
 
         # Ask LLM to produce YAML runbook per schema
         llm = get_llm_service()
         try:
-            print(f"LLM provider: {type(llm).__name__} base={getattr(llm, 'base_url', None)} model_id={getattr(llm, 'model_id', None)}")
+            logger.debug(f"LLM provider: {type(llm).__name__} base={getattr(llm, 'base_url', None)} model_id={getattr(llm, 'model_id', None)}")
         except Exception:
             pass
         ai_yaml = await llm.generate_yaml_runbook(
@@ -115,7 +121,7 @@ class RunbookGeneratorService:
             context=context,
         )
         
-        print(f"LLM returned YAML length={len(ai_yaml) if ai_yaml else 0}, first 500 chars: {ai_yaml[:500] if ai_yaml else 'None'}")
+        logger.debug(f"LLM returned YAML length={len(ai_yaml) if ai_yaml else 0}, first 500 chars: {ai_yaml[:500] if ai_yaml else 'None'}")
 
         # Strip code fences if present
         if ai_yaml and ai_yaml.strip().startswith("```"):
@@ -127,7 +133,10 @@ class RunbookGeneratorService:
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             ai_yaml = "\n".join(lines)
-            print(f"After stripping fences: length={len(ai_yaml)}, first 200: {ai_yaml[:200]}")
+            logger.debug(f"After stripping fences: length={len(ai_yaml)}, first 200: {ai_yaml[:200]}")
+        
+        # Sanitize LLM output: remove problematic patterns from description fields
+        ai_yaml = self._sanitize_description_field(ai_yaml)
 
         # Validate YAML. If invalid, DO NOT fallback - return error to surface LLM wiring issues
         try:
@@ -135,10 +144,10 @@ class RunbookGeneratorService:
                 raise ValueError("empty ai yaml")
             spec = yaml.safe_load(ai_yaml)
             if not isinstance(spec, dict):
-                print(f"YAML did not parse to dict: type={type(spec)}, value={str(spec)[:200]}")
+                logger.error(f"YAML did not parse to dict: type={type(spec)}, value={str(spec)[:200]}")
                 raise ValueError("invalid spec shape - not a dict")
             if "steps" not in spec:
-                print(f"YAML dict missing 'steps' key: keys={list(spec.keys())}")
+                logger.error(f"YAML dict missing 'steps' key: keys={list(spec.keys())}")
                 raise ValueError("invalid spec shape - missing steps")
             
             # Post-process: fix common LLM YAML formatting issues
@@ -153,12 +162,12 @@ class RunbookGeneratorService:
                         "description": f"Parameter: {name}"
                     })
                 spec["inputs"] = fixed_inputs
-                print(f"Fixed inputs: converted dict to list format with {len(fixed_inputs)} items")
+                logger.debug(f"Fixed inputs: converted dict to list format with {len(fixed_inputs)} items")
             
             # Fix postchecks if it's a single dict instead of a list
             if "postchecks" in spec and isinstance(spec["postchecks"], dict):
                 spec["postchecks"] = [spec["postchecks"]]
-                print("Fixed postchecks: converted single dict to list format")
+                logger.debug("Fixed postchecks: converted single dict to list format")
             
             # Ensure required fields with defaults
             if "env" not in spec:
@@ -166,10 +175,23 @@ class RunbookGeneratorService:
             if "risk" not in spec:
                 spec["risk"] = risk
             
+            # Validate runbook structure and command safety
+            try:
+                from app.schemas.runbook_yaml import RunbookValidator
+                validated_spec, warnings = RunbookValidator.validate_runbook(spec, auto_assign_severity=True)
+                if warnings:
+                    logger.warning(f"Runbook validation warnings: {warnings}")
+                # Use validated spec (converts to model and back, but ensures valid structure)
+                spec = validated_spec.model_dump(mode='json', exclude_none=True)
+                logger.info(f"Runbook validated: {len(spec.get('steps', []))} steps, all commands checked")
+            except Exception as e:
+                logger.warning(f"Runbook validation failed but continuing: {type(e).__name__}: {e}")
+                # Continue but note the validation issue
+            
             runbook_yaml = yaml.safe_dump(spec, sort_keys=False, default_flow_style=False, width=120)
             generation_mode = "ai"
         except Exception as e:
-            print(f"AI YAML invalid or empty – rejecting request (no fallback): {type(e).__name__}: {e}")
+            logger.error(f"AI YAML invalid or empty – rejecting request (no fallback): {type(e).__name__}: {e}")
             raise HTTPException(status_code=502, detail=f"LLM YAML generation failed: {type(e).__name__}: {str(e)[:200]}")
 
         # Persist as Markdown (code fence) for readability while storing JSON spec in meta_data
@@ -360,7 +382,7 @@ class RunbookGeneratorService:
     async def _detect_service_type(self, issue_description: str) -> str:
         """Detect service type using keyword matching only (LLM disabled due to inaccuracy)."""
         keyword_guess = self._keyword_classify_service_type(issue_description)
-        print(f"Service detection: returning keyword={keyword_guess} (LLM classification disabled)")
+        logger.debug(f"Service detection: returning keyword={keyword_guess} (LLM classification disabled)")
         return keyword_guess
     
     def _keyword_classify_service_type(self, issue_description: str) -> str:
@@ -1120,6 +1142,44 @@ Based on similar incidents and knowledge base, this issue typically occurs due t
         
         return min(confidence, 0.95)  # Cap at 95%
     
+    def _sanitize_description_field(self, yaml_content: str) -> str:
+        """Clean up description fields that LLMs sometimes corrupt.
+        
+        Common issues:
+        - Adding junk text like "Service: server" after the description
+        - Including extra colons in descriptions
+        """
+        if not yaml_content:
+            return yaml_content
+        
+        lines = yaml_content.split("\n")
+        sanitized_lines = []
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # Check if this is a description line
+            if stripped.startswith("description:") and ":" in stripped:
+                # Extract the value part
+                parts = stripped.split("description:", 1)
+                if len(parts) > 1:
+                    value = parts[1].strip()
+                    
+                    # Remove common patterns that LLMs add incorrectly
+                    # Pattern: "text. Service: service" should become just "text"
+                    value = re.sub(r'\s*\.?\s*Service:\s*\w+\s*\.?$', '', value, flags=re.IGNORECASE)
+                    value = re.sub(r'\s*\.?\s*Environment:\s*\w+\s*\.?$', '', value, flags=re.IGNORECASE)
+                    value = re.sub(r'\s*\.?\s*Env:\s*\w+\s*\.?$', '', value, flags=re.IGNORECASE)
+                    
+                    # Reconstruct the line
+                    sanitized_lines.append("description: " + value)
+                else:
+                    sanitized_lines.append(line)
+            else:
+                sanitized_lines.append(line)
+        
+        return "\n".join(sanitized_lines)
+
     def _generate_fallback_content(self, issue: str) -> str:
         """Generate fallback content when no search results"""
         return f"""# Troubleshooting Runbook

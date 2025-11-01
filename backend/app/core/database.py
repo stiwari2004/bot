@@ -7,6 +7,9 @@ from sqlalchemy.orm import sessionmaker
 import asyncio
 
 from app.core.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Create database engine (standard pooled engine for Postgres)
 engine = create_engine(
@@ -53,8 +56,8 @@ async def init_db():
         # with SessionLocal() as db:
         #     seed_default_data(db)
             
-        print("Database initialized successfully")
+        logger.info("Database initialized successfully")
     except Exception as e:
-        print(f"Database initialization failed: {e}")
+        logger.error(f"Database initialization failed: {e}")
         raise
 

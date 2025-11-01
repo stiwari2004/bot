@@ -27,7 +27,7 @@ async def upload_file(
         ingestion_service = IngestionService()
         
         # Validate file type
-        allowed_types = ["slack", "ticket", "log", "doc"]
+        allowed_types = ["slack", "ticket", "jira", "servicenow", "log", "doc"]
         if source_type not in allowed_types:
             raise HTTPException(
                 status_code=400, 

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Troubleshooting AI Agent"
     VERSION: str = "1.0.0"
     DEBUG: bool = True
+    LOG_LEVEL: str = "INFO"
     
     # Database
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/troubleshooting_ai"
@@ -28,8 +29,8 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
     
     # Vector Store
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384
+    EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
+    EMBEDDING_DIMENSION: int = 1024
     CHUNK_SIZE: int = 512
     CHUNK_OVERLAP: int = 50
     

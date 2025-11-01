@@ -9,17 +9,25 @@ import uvicorn
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.logging import setup_logging, get_logger
+from app.middleware.request_id import RequestIDMiddleware
 from app.api.v1.api import api_router
+
+# Setup structured logging
+setup_logging(settings.LOG_LEVEL)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
+    logger.info("Starting up Troubleshooting AI Agent")
     await init_db()
+    logger.info("Database initialized")
     yield
     # Shutdown
-    pass
+    logger.info("Shutting down Troubleshooting AI Agent")
 
 
 # Create FastAPI application
@@ -29,6 +37,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Request ID middleware (must be first)
+app.add_middleware(RequestIDMiddleware)
 
 # CORS middleware
 app.add_middleware(

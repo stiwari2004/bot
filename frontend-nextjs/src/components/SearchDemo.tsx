@@ -1,8 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { MagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
-import { API_BASE_URL } from '@/lib/config';
 
 interface SearchResult {
   text: string;
@@ -17,11 +16,66 @@ interface SearchResponse {
   results: SearchResult[];
 }
 
+// Color mapping for source types
+const sourceColors: Record<string, string> = {
+  'runbook': 'bg-purple-100 text-purple-800',
+  'doc': 'bg-green-100 text-green-800',
+  'slack': 'bg-pink-100 text-pink-800',
+  'ticket': 'bg-orange-100 text-orange-800',
+  'jira': 'bg-blue-100 text-blue-800',
+  'servicenow': 'bg-yellow-100 text-yellow-800',
+  'log': 'bg-red-100 text-red-800',
+};
+
+// Highlight search terms in text
+function highlightText(text: string, query: string): JSX.Element[] {
+  if (!query.trim()) {
+    return [<span key="0">{text}</span>];
+  }
+  
+  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+  const parts: JSX.Element[] = [];
+  let lastIndex = 0;
+  let keyIndex = 0;
+  
+  // Create a regex pattern to match any of the query words
+  const pattern = new RegExp(`(${queryWords.join('|')})`, 'gi');
+  const matches = Array.from(text.matchAll(pattern));
+  
+  for (const match of matches) {
+    const matchIndex = match.index!;
+    const matchLength = match[0].length;
+    
+    // Add text before the match
+    if (matchIndex > lastIndex) {
+      parts.push(<span key={`text-${keyIndex++}`}>{text.substring(lastIndex, matchIndex)}</span>);
+    }
+    
+    // Add the highlighted match
+    parts.push(
+      <mark key={`highlight-${keyIndex++}`} className="bg-yellow-200 font-semibold">
+        {text.substring(matchIndex, matchIndex + matchLength)}
+      </mark>
+    );
+    
+    lastIndex = matchIndex + matchLength;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(<span key={`text-${keyIndex++}`}>{text.substring(lastIndex)}</span>);
+  }
+  
+  return parts.length > 0 ? parts : [<span key="0">{text}</span>];
+}
+
 export function SearchDemo() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'score' | 'relevance'>('score');
+  const [filterSource, setFilterSource] = useState<string | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +88,7 @@ export function SearchDemo() {
       const formData = new FormData();
       formData.append('query', query);
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/demo/search-demo`, {
+      const response = await fetch(`/api/v1/demo/search-demo`, {
         method: 'POST',
         body: formData,
       });
@@ -51,6 +105,31 @@ export function SearchDemo() {
       setLoading(false);
     }
   };
+
+  // Compute filtered and sorted results
+  const processedResults = useMemo(() => {
+    if (!results) return [];
+    
+    let filtered = results.results;
+    
+    // Filter by source if selected
+    if (filterSource) {
+      filtered = filtered.filter(r => r.source === filterSource);
+    }
+    
+    // Sort by score (already sorted by backend, but we maintain it)
+    if (sortBy === 'score') {
+      filtered = [...filtered].sort((a, b) => b.score - a.score);
+    }
+    
+    return filtered;
+  }, [results, filterSource, sortBy]);
+
+  // Get unique source types from results
+  const availableSources = useMemo(() => {
+    if (!results) return [];
+    return Array.from(new Set(results.results.map(r => r.source))).sort();
+  }, [results]);
 
   return (
     <div className="p-6">
@@ -99,15 +178,55 @@ export function SearchDemo() {
         <div>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">
-              Search Results ({results.results_count})
+              Search Results ({processedResults.length}{filterSource ? ` of ${results.results_count}` : ''})
             </h3>
-            <span className="text-sm text-gray-500">
-              Query: "{results.query}"
-            </span>
+            <div className="flex items-center gap-4">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'score' | 'relevance')}
+                className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="score">Sort by Score</option>
+                <option value="relevance">Sort by Relevance</option>
+              </select>
+              <span className="text-sm text-gray-500">
+                Query: "{results.query}"
+              </span>
+            </div>
           </div>
 
+          {/* Source filters */}
+          {availableSources.length > 0 && (
+            <div className="mb-4 flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-gray-700">Filter by source:</span>
+              <button
+                onClick={() => setFilterSource(null)}
+                className={`text-sm px-3 py-1 rounded-full transition-colors ${
+                  filterSource === null
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                All
+              </button>
+              {availableSources.map((source) => (
+                <button
+                  key={source}
+                  onClick={() => setFilterSource(source)}
+                  className={`text-sm px-3 py-1 rounded-full transition-colors ${sourceColors[source] || 'bg-gray-100 text-gray-800'} ${
+                    filterSource === source
+                      ? 'ring-2 ring-blue-500 ring-offset-1'
+                      : 'hover:opacity-80'
+                  }`}
+                >
+                  {source}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="space-y-4">
-            {results.results.map((result, index) => (
+            {processedResults.map((result, index) => (
               <div
                 key={index}
                 className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
@@ -118,7 +237,9 @@ export function SearchDemo() {
                     <h4 className="font-medium text-gray-900">{result.title}</h4>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      sourceColors[result.source] || 'bg-gray-100 text-gray-800'
+                    }`}>
                       {result.source}
                     </span>
                     <span className="text-sm text-gray-500">
@@ -127,10 +248,12 @@ export function SearchDemo() {
                   </div>
                 </div>
                 <p className="text-gray-700 text-sm leading-relaxed">
-                  {result.text.length > 200 
-                    ? `${result.text.substring(0, 200)}...` 
-                    : result.text
-                  }
+                  {highlightText(
+                    result.text.length > 200 
+                      ? `${result.text.substring(0, 200)}...` 
+                      : result.text,
+                    query
+                  )}
                 </p>
               </div>
             ))}

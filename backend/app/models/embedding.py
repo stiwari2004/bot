@@ -1,10 +1,12 @@
 """
 Embedding model for vector embeddings using pgvector
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, text
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Index, text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 from app.core.database import Base
+from app.core.config import settings
 
 
 class Embedding(Base):
@@ -12,7 +14,7 @@ class Embedding(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     chunk_id = Column(Integer, ForeignKey("chunks.id"), nullable=False, index=True)
-    embedding = Column(String, nullable=False)  # Will be cast to vector in queries
+    embedding = Column(Vector(settings.EMBEDDING_DIMENSION), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

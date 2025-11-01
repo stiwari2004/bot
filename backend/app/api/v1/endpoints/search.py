@@ -23,12 +23,13 @@ async def semantic_search(
     """Perform semantic search across documents"""
     try:
         vector_service = VectorStoreService()
-        results = await vector_service.search(
+        results = await vector_service.hybrid_search(
             query=request.query,
             tenant_id=current_user.tenant_id,
             db=db,
             top_k=request.top_k or 10,
-            source_types=request.source_types
+            source_types=request.source_types,
+            use_reranking=True
         )
         
         # Convert SearchResult to SearchResult schema

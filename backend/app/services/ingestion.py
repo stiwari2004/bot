@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 import hashlib
 import json
 import os
+import csv
+import io
 
 from app.models.document import Document
 from app.models.chunk import Chunk
@@ -33,7 +35,14 @@ class IngestionService:
         
         # Read file content
         content = await file.read()
-        content_str = content.decode('utf-8')
+        # Try UTF-8 first, fallback to latin-1 for CSV files
+        try:
+            content_str = content.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                content_str = content.decode('latin-1')
+            except UnicodeDecodeError:
+                content_str = content.decode('utf-8', errors='ignore')
         
         # Calculate content hash
         content_hash = hashlib.sha256(content_str.encode()).hexdigest()
@@ -96,6 +105,10 @@ class IngestionService:
             return await self._parse_slack(content)
         elif source_type == "ticket":
             return await self._parse_ticket(content)
+        elif source_type == "jira":
+            return await self._parse_jira(content)
+        elif source_type == "servicenow":
+            return await self._parse_servicenow(content)
         elif source_type == "log":
             return await self._parse_log(content)
         elif source_type == "doc":
@@ -135,29 +148,99 @@ class IngestionService:
             }
     
     async def _parse_ticket(self, content: str) -> Dict[str, Any]:
-        """Parse ticket CSV"""
-        lines = content.split('\n')
-        if len(lines) < 2:
-            return {"content": content, "metadata": {"source_type": "ticket"}}
-        
-        headers = lines[0].split(',')
-        tickets = []
-        
-        for line in lines[1:]:
-            if line.strip():
-                values = line.split(',')
-                ticket = dict(zip(headers, values))
-                tickets.append(ticket)
-        
-        return {
-            "content": "\n".join([f"Ticket {t.get('id', '')}: {t.get('description', '')}" for t in tickets]),
-            "metadata": {
-                "source_type": "ticket",
-                "ticket_count": len(tickets),
-                "headers": headers
+        """Parse ticket CSV with proper CSV handling"""
+        try:
+            # Use csv module for proper parsing
+            reader = csv.DictReader(io.StringIO(content))
+            tickets = list(reader)
+            
+            # Build content from tickets
+            ticket_texts = []
+            for ticket in tickets:
+                # Prioritize common ticket fields
+                ticket_id = ticket.get('id') or ticket.get('ticket_id') or ticket.get('number', '')
+                description = ticket.get('description') or ticket.get('summary') or ticket.get('title', '')
+                status = ticket.get('status') or ticket.get('state', '')
+                priority = ticket.get('priority', '')
+                
+                ticket_texts.append(f"Ticket {ticket_id} [{status}/{priority}]: {description}")
+            
+            return {
+                "content": "\n".join(ticket_texts),
+                "metadata": {
+                    "source_type": "ticket",
+                    "ticket_count": len(tickets),
+                    "headers": list(tickets[0].keys()) if tickets else []
+                }
             }
-        }
+        except Exception as e:
+            # Fallback to simple parsing
+            return {
+                "content": content,
+                "metadata": {"source_type": "ticket", "error": str(e)}
+            }
     
+    async def _parse_jira(self, content: str) -> Dict[str, Any]:
+        """Parse Jira JSON export or CSV"""
+        try:
+            # Try JSON first (Jira API export)
+            data = json.loads(content)
+            if isinstance(data, dict) and "issues" in data:
+                issues = data["issues"]
+            elif isinstance(data, list):
+                issues = data
+            else:
+                issues = []
+            
+            issue_texts = []
+            for issue in issues:
+                key = issue.get("key", "")
+                summary = issue.get("fields", {}).get("summary", "")
+                description = issue.get("fields", {}).get("description", "")
+                status = issue.get("fields", {}).get("status", {}).get("name", "")
+                priority = issue.get("fields", {}).get("priority", {}).get("name", "")
+                
+                issue_texts.append(f"Jira {key} [{status}/{priority}]: {summary}. {description}")
+            
+            return {
+                "content": "\n".join(issue_texts),
+                "metadata": {
+                    "source_type": "jira",
+                    "issue_count": len(issues)
+                }
+            }
+        except json.JSONDecodeError:
+            # Fall back to CSV parsing
+            return await self._parse_ticket(content)
+    
+    async def _parse_servicenow(self, content: str) -> Dict[str, Any]:
+        """Parse ServiceNow CSV export"""
+        try:
+            reader = csv.DictReader(io.StringIO(content))
+            tickets = list(reader)
+            
+            ticket_texts = []
+            for ticket in tickets:
+                number = ticket.get('number') or ticket.get('sys_id', '')
+                short_description = ticket.get('short_description') or ticket.get('description', '')
+                state = ticket.get('state') or ticket.get('work_notes', '')
+                priority = ticket.get('priority', '')
+                
+                ticket_texts.append(f"ServiceNow {number} [{state}/{priority}]: {short_description}")
+            
+            return {
+                "content": "\n".join(ticket_texts),
+                "metadata": {
+                    "source_type": "servicenow",
+                    "ticket_count": len(tickets)
+                }
+            }
+        except Exception as e:
+            return {
+                "content": content,
+                "metadata": {"source_type": "servicenow", "error": str(e)}
+            }
+
     async def _parse_log(self, content: str) -> Dict[str, Any]:
         """Parse log file"""
         lines = content.split('\n')

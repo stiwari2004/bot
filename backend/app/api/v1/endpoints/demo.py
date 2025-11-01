@@ -58,12 +58,13 @@ async def search_demo(
     try:
         vector_service = VectorStoreService()
         
-        # Perform search (using tenant_id = 1 for demo)
-        results = await vector_service.search(
+        # Perform hybrid search (using tenant_id = 1 for demo)
+        results = await vector_service.hybrid_search(
             query=query,
             tenant_id=1,  # Demo tenant
             db=db,
-            top_k=5
+            top_k=5,
+            use_reranking=True
         )
         
         # Format results for display

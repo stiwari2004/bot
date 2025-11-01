@@ -44,6 +44,134 @@ async def generate_agent_runbook(
         raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {str(e)}")
 
 
+# Demo endpoints (no authentication required) - MUST come before /{runbook_id} routes!
+@router.post("/demo/generate-agent", response_model=RunbookResponse)
+async def generate_agent_runbook_demo(
+    issue_description: str,
+    service: str = Query(..., description="Service type: server|network|database|web|storage|auto"),
+    env: str = Query(..., description="Environment: prod|staging|dev"),
+    risk: str = Query(..., description="Risk: low|medium|high"),
+    db: Session = Depends(get_db)
+):
+    """Generate an agent-ready YAML runbook (demo tenant)."""
+    try:
+        generator = RunbookGeneratorService()
+        runbook = await generator.generate_agent_runbook(
+            issue_description=issue_description,
+            tenant_id=1,
+            db=db,
+            service=service,
+            env=env,
+            risk=risk
+        )
+        return runbook
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {str(e)}")
+
+
+@router.get("/demo", response_model=List[RunbookResponse])
+@router.get("/demo/", response_model=List[RunbookResponse])
+async def list_runbooks_demo(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """List runbooks for demo tenant"""
+    try:
+        runbooks = db.query(Runbook).filter(
+            Runbook.tenant_id == 1,  # Demo tenant
+            Runbook.is_active == "active"
+        ).offset(skip).limit(limit).all()
+        
+        return [
+            RunbookResponse(
+                id=runbook.id,
+                title=runbook.title,
+                body_md=runbook.body_md,
+                confidence=runbook.confidence,
+                meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
+                status=runbook.status if hasattr(runbook, 'status') else "draft",
+                created_at=runbook.created_at,
+                updated_at=runbook.updated_at
+            )
+            for runbook in runbooks
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list runbooks: {str(e)}")
+
+
+@router.delete("/demo/{runbook_id}")
+async def delete_runbook_demo(
+    runbook_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a runbook for demo tenant (soft delete)"""
+    try:
+        runbook = db.query(Runbook).filter(
+            Runbook.id == runbook_id,
+            Runbook.tenant_id == 1  # Demo tenant
+        ).first()
+        
+        if not runbook:
+            raise HTTPException(status_code=404, detail="Runbook not found")
+        
+        runbook.is_active = "archived"
+        db.commit()
+        
+        return {"message": "Runbook deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete runbook: {str(e)}")
+
+
+@router.post("/demo/{runbook_id}/approve", response_model=RunbookResponse)
+async def approve_runbook_demo(
+    runbook_id: int,
+    db: Session = Depends(get_db)
+):
+    """Approve and publish a draft runbook for demo tenant"""
+    try:
+        generator = RunbookGeneratorService()
+        runbook = await generator.approve_and_index_runbook(
+            runbook_id=runbook_id,
+            tenant_id=1,  # Demo tenant
+            db=db
+        )
+        return runbook
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to approve runbook: {str(e)}")
+
+
+@router.post("/demo/{runbook_id}/reindex")
+async def reindex_runbook_demo(
+    runbook_id: int,
+    db: Session = Depends(get_db)
+):
+    """Manually reindex an already approved runbook (for fixing missing indexes)"""
+    try:
+        generator = RunbookGeneratorService()
+        runbook = db.query(Runbook).filter(
+            Runbook.id == runbook_id,
+            Runbook.tenant_id == 1  # Demo tenant
+        ).first()
+        
+        if not runbook:
+            raise HTTPException(status_code=404, detail="Runbook not found")
+        
+        # Index the runbook
+        await generator._index_runbook_for_search(runbook, db)
+        
+        return {"message": f"Successfully indexed runbook {runbook_id}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to index runbook: {str(e)}")
+
+
+# Authenticated endpoints
 @router.get("/", response_model=List[RunbookResponse])
 async def list_runbooks(
     skip: int = Query(0, ge=0),
@@ -65,6 +193,7 @@ async def list_runbooks(
                 body_md=runbook.body_md,
                 confidence=runbook.confidence,
                 meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
+                status=runbook.status if hasattr(runbook, 'status') else "draft",
                 created_at=runbook.created_at,
                 updated_at=runbook.updated_at
             )
@@ -174,60 +303,3 @@ async def delete_runbook(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete runbook: {str(e)}")
-
-
-# Demo endpoints (no authentication required)
-## Removed legacy demo generation endpoint; use /demo/generate-agent only
-
-
-@router.post("/demo/generate-agent", response_model=RunbookResponse)
-async def generate_agent_runbook_demo(
-    issue_description: str,
-    service: str = Query(..., description="Service type: server|network|database|web|storage|auto"),
-    env: str = Query(..., description="Environment: prod|staging|dev"),
-    risk: str = Query(..., description="Risk: low|medium|high"),
-    db: Session = Depends(get_db)
-):
-    """Generate an agent-ready YAML runbook (demo tenant)."""
-    try:
-        generator = RunbookGeneratorService()
-        runbook = await generator.generate_agent_runbook(
-            issue_description=issue_description,
-            tenant_id=1,
-            db=db,
-            service=service,
-            env=env,
-            risk=risk
-        )
-        return runbook
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {str(e)}")
-
-
-@router.get("/demo/", response_model=List[RunbookResponse])
-async def list_runbooks_demo(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
-    """List runbooks for demo tenant"""
-    try:
-        runbooks = db.query(Runbook).filter(
-            Runbook.tenant_id == 1,  # Demo tenant
-            Runbook.is_active == "active"
-        ).offset(skip).limit(limit).all()
-        
-        return [
-            RunbookResponse(
-                id=runbook.id,
-                title=runbook.title,
-                body_md=runbook.body_md,
-                confidence=runbook.confidence,
-                meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
-                created_at=runbook.created_at,
-                updated_at=runbook.updated_at
-            )
-            for runbook in runbooks
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list runbooks: {str(e)}")

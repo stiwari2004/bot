@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { BookOpenIcon, SparklesIcon } from '@heroicons/react/24/outline';
-import { API_BASE_URL } from '@/lib/config';
+import { BookOpenIcon, SparklesIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 interface RunbookResponse {
   id: number;
   title: string;
   body_md: string;
   confidence: number;
+  status?: string;
   meta_data: {
     issue_description: string;
     sources_used?: number;
@@ -34,7 +34,9 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
   const [riskLevel, setRiskLevel] = useState('low');
   const [runbook, setRunbook] = useState<RunbookResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +46,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
     setError(null);
 
     try {
-      const url = `${API_BASE_URL}/api/v1/runbooks/demo/generate-agent`;
+      const url = `/api/v1/runbooks/demo/generate-agent`;
       const params = new URLSearchParams({
         issue_description: issueDescription,
         service: serviceType,
@@ -70,17 +72,65 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
     }
   };
 
+  const handleApprove = async () => {
+    if (!runbook || runbook.status !== 'draft') return;
+
+    setApproving(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch(`/api/v1/runbooks/demo/${runbook.id}/approve`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve runbook');
+      }
+
+      const data = await response.json();
+      setRunbook(data);
+      setSuccessMessage('Runbook approved and published! It is now searchable and will be used for similar issues.');
+      onRunbookGenerated?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve runbook');
+    } finally {
+      setApproving(false);
+    }
+  };
+
   const formatMarkdown = (markdown: string) => {
-    return markdown
+    // First, extract code blocks to preserve them
+    const codeBlocks: string[] = [];
+    const placeholders: string[] = [];
+    let processedMarkdown = markdown.replace(/```[\s\S]*?```/g, (match) => {
+      const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+      codeBlocks.push(match);
+      return placeholder;
+    });
+
+    // Process markdown without code blocks
+    processedMarkdown = processedMarkdown
       .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold text-gray-900 mb-4">$1</h1>')
       .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold text-gray-800 mb-3 mt-6">$1</h2>')
       .replace(/^### (.*$)/gim, '<h3 class="text-lg font-medium text-gray-700 mb-2 mt-4">$1</h3>')
       .replace(/^\- (.*$)/gim, '<li class="ml-4 text-gray-700">$1</li>')
-      .replace(/```bash\n([\s\S]*?)\n```/gim, '<pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto my-4"><code>$1</code></pre>')
-      .replace(/```([\s\S]*?)```/gim, '<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto my-4"><code>$1</code></pre>')
       .replace(/\n\n/gim, '</p><p class="mb-4 text-gray-700">')
       .replace(/^(?!<[h|l|p|d])/gim, '<p class="mb-4 text-gray-700">')
       .replace(/(?<!>)$/gim, '</p>');
+
+    // Restore code blocks with proper formatting
+    codeBlocks.forEach((block, index) => {
+      const placeholder = `__CODE_BLOCK_${index}__`;
+      // Format code blocks
+      const formattedBlock = block
+        .replace(/```yaml\n?([\s\S]*?)\n?```/g, '<pre class="bg-gray-100 border border-gray-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
+        .replace(/```bash\n?([\s\S]*?)\n?```/g, '<pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
+        .replace(/```([\s\S]*?)\n?```/g, '<pre class="bg-gray-100 border border-gray-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>');
+      processedMarkdown = processedMarkdown.replace(placeholder, formattedBlock);
+    });
+
+    return processedMarkdown;
   };
 
   return (
@@ -186,6 +236,12 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
         </div>
       )}
 
+      {successMessage && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-green-800">{successMessage}</p>
+        </div>
+      )}
+
       {runbook && (
         <div className="border border-gray-200 rounded-lg p-6">
           <div className="mb-6 flex items-center justify-between">
@@ -194,7 +250,16 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
               <h3 className="text-xl font-semibold text-gray-900">{runbook.title}</h3>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+              {runbook.status && (
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  runbook.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
+                  runbook.status === 'approved' ? 'bg-green-100 text-green-800' :
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {runbook.status.charAt(0).toUpperCase() + runbook.status.slice(1)}
+                </span>
+              )}
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
                 Confidence: {(runbook.confidence * 100).toFixed(0)}%
               </span>
               {runbook.meta_data.sources_used && (
@@ -203,7 +268,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
                 </span>
               )}
               {runbook.meta_data.service && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                   {runbook.meta_data.service.toUpperCase()}
                 </span>
               )}
@@ -219,9 +284,23 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
           </div>
 
           <div className="mt-6 pt-4 border-t border-gray-200">
-            <div className="text-sm text-gray-500">
-              <p>Generated on: {new Date(runbook.created_at).toLocaleString()}</p>
-              <p>Query: "{runbook.meta_data.search_query}"</p>
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-500">
+                <p>Generated on: {new Date(runbook.created_at).toLocaleString()}</p>
+                {runbook.meta_data.search_query && (
+                  <p>Query: "{runbook.meta_data.search_query}"</p>
+                )}
+              </div>
+              {runbook.status === 'draft' && (
+                <button
+                  onClick={handleApprove}
+                  disabled={approving}
+                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckCircleIcon className="h-5 w-5 mr-2" />
+                  {approving ? 'Approving...' : 'Approve & Publish'}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -31,6 +31,25 @@ class VectorStoreService:
             source_types=source_types
         )
     
+    async def hybrid_search(
+        self, 
+        query: str, 
+        tenant_id: int, 
+        db: Session,
+        top_k: int = 10,
+        source_types: Optional[List[str]] = None,
+        use_reranking: bool = True
+    ) -> List[SearchResult]:
+        """Perform hybrid search (vector + keyword + reranking)"""
+        return await self.vector_store.hybrid_search(
+            query=query,
+            tenant_id=tenant_id,
+            db=db,
+            top_k=top_k,
+            source_types=source_types,
+            use_reranking=use_reranking
+        )
+    
     async def upsert_chunks(self, chunks: List[ChunkData], db: Session) -> None:
         """Upsert chunks and their embeddings"""
         await self.vector_store.upsert_chunks(chunks, db)

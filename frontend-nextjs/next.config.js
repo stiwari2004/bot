@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
-// When running in Docker, use backend service name; otherwise use localhost
-const apiBase = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'http://backend:8000' : 'http://localhost:8000');
+// When running in Docker production, use backend service name; otherwise use localhost
+const isDocker = process.env.NODE_ENV === 'production';
+const apiBase = isDocker ? 'http://backend:8000' : 'http://localhost:8000';
+
 const nextConfig = {
   async rewrites() {
     return [

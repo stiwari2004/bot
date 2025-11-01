@@ -17,6 +17,7 @@ class Runbook(Base):
     meta_data = Column(Text, nullable=True)  # JSON string with citations, etc.
     confidence = Column(Numeric(3, 2), nullable=True)  # 0.00 to 1.00
     parent_version_id = Column(Integer, ForeignKey("runbooks.id"), nullable=True)
+    status = Column(String(20), default="draft")  # draft, approved, archived
     is_active = Column(String(10), default="active")  # active, archived, draft
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

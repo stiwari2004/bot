@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import get_password_hash
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def seed_default_data(db: Session):
@@ -21,7 +24,7 @@ def seed_default_data(db: Session):
         db.add(default_tenant)
         db.commit()
         db.refresh(default_tenant)
-        print(f"Created default tenant: {default_tenant.id}")
+        logger.info(f"Created default tenant: {default_tenant.id}")
     
     # Create default user
     default_user = db.query(User).filter(User.email == "admin@example.com").first()
@@ -37,6 +40,6 @@ def seed_default_data(db: Session):
         db.add(default_user)
         db.commit()
         db.refresh(default_user)
-        print(f"Created default user: {default_user.email}")
+        logger.info(f"Created default user: {default_user.email}")
     
     return default_tenant, default_user

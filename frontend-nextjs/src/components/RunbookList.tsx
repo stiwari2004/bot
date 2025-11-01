@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { BookOpenIcon, EyeIcon, TrashIcon } from '@heroicons/react/24/outline';
-import { API_BASE_URL } from '@/lib/config';
+import { BookOpenIcon, EyeIcon, TrashIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 interface Runbook {
   id: number;
   title: string;
   body_md: string;
   confidence: number;
+  status?: string;
   meta_data: {
     issue_description: string;
     sources_used: number;
@@ -23,6 +23,7 @@ export function RunbookList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRunbook, setSelectedRunbook] = useState<Runbook | null>(null);
+  const [approving, setApproving] = useState<number | null>(null);
 
   useEffect(() => {
     fetchRunbooks();
@@ -30,7 +31,7 @@ export function RunbookList() {
 
   const fetchRunbooks = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/runbooks/demo/`);
+      const response = await fetch(`/api/v1/runbooks/demo/`);
       if (!response.ok) {
         throw new Error('Failed to fetch runbooks');
       }
@@ -47,7 +48,7 @@ export function RunbookList() {
     if (!confirm('Are you sure you want to delete this runbook?')) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/runbooks/${id}`, {
+      const response = await fetch(`/api/v1/runbooks/demo/${id}`, {
         method: 'DELETE',
       });
 
@@ -55,7 +56,8 @@ export function RunbookList() {
         throw new Error('Failed to delete runbook');
       }
 
-      setRunbooks(runbooks.filter(r => r.id !== id));
+      // Refetch the list instead of filtering (more reliable)
+      await fetchRunbooks();
       if (selectedRunbook?.id === id) {
         setSelectedRunbook(null);
       }
@@ -64,17 +66,58 @@ export function RunbookList() {
     }
   };
 
+  const handleApprove = async (id: number) => {
+    setApproving(id);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/v1/runbooks/demo/${id}/approve`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve runbook');
+      }
+
+      // Refetch the list to update status
+      await fetchRunbooks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve runbook');
+    } finally {
+      setApproving(null);
+    }
+  };
+
   const formatMarkdown = (markdown: string) => {
-    return markdown
+    // First, extract code blocks to preserve them
+    const codeBlocks: string[] = [];
+    let processedMarkdown = markdown.replace(/```[\s\S]*?```/g, (match) => {
+      const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+      codeBlocks.push(match);
+      return placeholder;
+    });
+
+    // Process markdown without code blocks
+    processedMarkdown = processedMarkdown
       .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold text-gray-900 mb-4">$1</h1>')
       .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold text-gray-800 mb-3 mt-6">$1</h2>')
       .replace(/^### (.*$)/gim, '<h3 class="text-lg font-medium text-gray-700 mb-2 mt-4">$1</h3>')
       .replace(/^\- (.*$)/gim, '<li class="ml-4 text-gray-700">$1</li>')
-      .replace(/```bash\n([\s\S]*?)\n```/gim, '<pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto my-4"><code>$1</code></pre>')
-      .replace(/```([\s\S]*?)```/gim, '<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto my-4"><code>$1</code></pre>')
       .replace(/\n\n/gim, '</p><p class="mb-4 text-gray-700">')
       .replace(/^(?!<[h|l|p|d])/gim, '<p class="mb-4 text-gray-700">')
       .replace(/(?<!>)$/gim, '</p>');
+
+    // Restore code blocks with proper formatting
+    codeBlocks.forEach((block, index) => {
+      const placeholder = `__CODE_BLOCK_${index}__`;
+      const formattedBlock = block
+        .replace(/```yaml\n?([\s\S]*?)\n?```/g, '<pre class="bg-gray-100 border border-gray-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
+        .replace(/```bash\n?([\s\S]*?)\n?```/g, '<pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
+        .replace(/```([\s\S]*?)\n?```/g, '<pre class="bg-gray-100 border border-gray-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>');
+      processedMarkdown = processedMarkdown.replace(placeholder, formattedBlock);
+    });
+
+    return processedMarkdown;
   };
 
   if (loading) {
@@ -124,7 +167,18 @@ export function RunbookList() {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <h4 className="font-medium text-gray-900 mb-1">{runbook.title}</h4>
+                    <div className="flex items-center space-x-2 mb-1">
+                      <h4 className="font-medium text-gray-900">{runbook.title}</h4>
+                      {runbook.status && (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          runbook.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
+                          runbook.status === 'approved' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {runbook.status.charAt(0).toUpperCase() + runbook.status.slice(1)}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-600 mb-2">
                       {runbook.meta_data.issue_description}
                     </p>
@@ -135,6 +189,19 @@ export function RunbookList() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
+                    {runbook.status === 'draft' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleApprove(runbook.id);
+                        }}
+                        disabled={approving === runbook.id}
+                        className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
+                        title="Approve & Publish"
+                      >
+                        <CheckCircleIcon className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

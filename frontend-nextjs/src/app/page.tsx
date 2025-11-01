@@ -23,6 +23,7 @@ type Stats = {
 export default function Home() {
   const [activeTab, setActiveTab] = useState('search');
   const [stats, setStats] = useState<Stats | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);  // Force re-render of child components
 
   useEffect(() => {
     fetchStats();
@@ -37,6 +38,11 @@ export default function Home() {
     } catch (error) {
       console.error('Failed to fetch stats:', error);
     }
+  };
+
+  const handleRunbookGenerated = () => {
+    fetchStats();
+    setRefreshKey(prev => prev + 1);  // Force RunbookList to refresh
   };
 
   const tabs = [
@@ -135,8 +141,8 @@ export default function Home() {
         {/* Tab Content */}
         <div className="bg-white rounded-lg shadow">
           {activeTab === 'search' && <SearchDemo />}
-          {activeTab === 'runbook' && <RunbookGenerator onRunbookGenerated={fetchStats} />}
-          {activeTab === 'runbooks' && <RunbookList />}
+          {activeTab === 'runbook' && <RunbookGenerator onRunbookGenerated={handleRunbookGenerated} />}
+          {activeTab === 'runbooks' && <RunbookList key={refreshKey} />}
           {activeTab === 'upload' && <FileUpload onFileUploaded={fetchStats} />}
           {activeTab === 'stats' && <SystemStats stats={stats} />}
         </div>

@@ -14,7 +14,8 @@ class RunbookResponse(BaseModel):
     meta_data: Optional[Dict[str, Any]]
     confidence: Optional[float]
     parent_version_id: Optional[int] = None
-    is_active: Optional[bool] = None
+    status: Optional[str] = "draft"  # draft, approved, archived
+    is_active: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime]
     
