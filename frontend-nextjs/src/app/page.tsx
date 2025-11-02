@@ -16,6 +16,7 @@ import { RunbookList } from '@/components/RunbookList';
 import { FileUpload } from '@/components/FileUpload';
 import { SystemStats } from '@/components/SystemStats';
 import { TicketAnalyzer } from '@/components/TicketAnalyzer';
+import AnalyticsDashboard from '@/components/AnalyticsDashboard';
 
 type Stats = {
   total_documents?: number;
@@ -53,7 +54,8 @@ export default function Home() {
     { id: 'runbook', name: 'Generate Runbook', icon: BookOpenIcon },
     { id: 'runbooks', name: 'View Runbooks', icon: DocumentTextIcon },
     { id: 'upload', name: 'Upload Files', icon: PlusIcon },
-    { id: 'stats', name: 'System Stats', icon: ChartBarIcon },
+    { id: 'analytics', name: 'Analytics', icon: ChartBarIcon },
+    { id: 'stats', name: 'System Stats', icon: Cog6ToothIcon },
   ];
 
   return (
@@ -148,6 +150,7 @@ export default function Home() {
           {activeTab === 'runbook' && <RunbookGenerator onRunbookGenerated={handleRunbookGenerated} />}
           {activeTab === 'runbooks' && <RunbookList key={refreshKey} />}
           {activeTab === 'upload' && <FileUpload onFileUploaded={fetchStats} />}
+          {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'stats' && <SystemStats stats={stats} />}
         </div>
       </div>

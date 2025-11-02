@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 
 interface SearchResult {
@@ -28,13 +28,13 @@ const sourceColors: Record<string, string> = {
 };
 
 // Highlight search terms in text
-function highlightText(text: string, query: string): JSX.Element[] {
+function highlightText(text: string, query: string): React.JSX.Element[] {
   if (!query.trim()) {
     return [<span key="0">{text}</span>];
   }
   
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-  const parts: JSX.Element[] = [];
+  const parts: React.JSX.Element[] = [];
   let lastIndex = 0;
   let keyIndex = 0;
   

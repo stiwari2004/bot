@@ -13,6 +13,19 @@ import asyncio
 from app.core.config import settings
 
 
+# Module-level singleton for the embedding model to avoid reloading
+_shared_embedding_model = None
+
+
+def get_shared_embedding_model():
+    """Get or create the shared SentenceTransformer model"""
+    global _shared_embedding_model
+    if _shared_embedding_model is None:
+        from sentence_transformers import SentenceTransformer
+        _shared_embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL)
+    return _shared_embedding_model
+
+
 @dataclass
 class ChunkData:
     """Data structure for text chunks"""
@@ -69,14 +82,10 @@ class PgVectorStore(VectorStore):
     
     def __init__(self):
         self.embedding_dim = settings.EMBEDDING_DIMENSION
-        self._model = None
     
     def _get_model(self):
-        """Lazy load the embedding model"""
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(settings.EMBEDDING_MODEL)
-        return self._model
+        """Get the shared embedding model"""
+        return get_shared_embedding_model()
     
     async def _generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for text (async wrapper for blocking operation)"""
@@ -165,9 +174,12 @@ class PgVectorStore(VectorStore):
         
         # Generate query embedding
         query_embedding = await self._generate_embedding(query)
-        query_vector = self._vector_to_pg_cast(query_embedding)
+        # Format vector for PostgreSQL
+        query_vector_str = self._vector_to_pg_format(query_embedding)
         
         # Build SQL query with proper vector casting
+        # Note: We use f-string here because pgvector requires ::vector cast
+        # in the SQL. SQLAlchemy text() doesn't support custom types well.
         sql = f"""
         SELECT 
             c.id as chunk_id,
@@ -176,7 +188,7 @@ class PgVectorStore(VectorStore):
             c.meta_data,
             d.title as document_title,
             d.source_type as document_source,
-            1 - (e.embedding <=> {query_vector}) as score
+            1 - (e.embedding <=> '{query_vector_str}'::vector) as score
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
         JOIN embeddings e ON c.id = e.chunk_id
@@ -191,7 +203,7 @@ class PgVectorStore(VectorStore):
             for i, source_type in enumerate(source_types):
                 params[f"source_type_{i}"] = source_type
         
-        sql += f" ORDER BY e.embedding <=> {query_vector} LIMIT :top_k"
+        sql += f" ORDER BY e.embedding <=> '{query_vector_str}'::vector LIMIT :top_k"
         params["top_k"] = top_k
         
         # Execute query
@@ -273,8 +285,12 @@ class PgVectorStore(VectorStore):
         
         # Step 1: Vector search
         query_embedding = await self._generate_embedding(query)
-        query_vector = self._vector_to_pg_cast(query_embedding)
+        # Format vector for PostgreSQL
+        query_vector_str = self._vector_to_pg_format(query_embedding)
         
+        # Build SQL with vector inline (needed for pgvector operators)
+        # Note: We use f-string here because pgvector requires ::vector cast
+        # in the SQL. SQLAlchemy text() doesn't support custom types well.
         vector_sql = f"""
         SELECT 
             c.id as chunk_id,
@@ -283,7 +299,7 @@ class PgVectorStore(VectorStore):
             c.meta_data,
             d.title as document_title,
             d.source_type as document_source,
-            1 - (e.embedding <=> {query_vector}) as vector_score
+            1 - (e.embedding <=> '{query_vector_str}'::vector) as vector_score
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
         JOIN embeddings e ON c.id = e.chunk_id
@@ -299,7 +315,7 @@ class PgVectorStore(VectorStore):
                 params[f"source_type_{i}"] = source_type
         
         # Get 2x results for better recall
-        vector_sql += f" ORDER BY e.embedding <=> {query_vector} LIMIT :top_k_expanded"
+        vector_sql += f" ORDER BY e.embedding <=> '{query_vector_str}'::vector LIMIT :top_k_expanded"
         params["top_k_expanded"] = top_k * 20  # Get 20x more for better coverage
         
         # Step 2: Keyword search using PostgreSQL full-text search

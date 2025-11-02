@@ -5,7 +5,7 @@ import {
   MagnifyingGlassIcon, 
   CheckCircleIcon, 
   ExclamationTriangleIcon,
-  SparklesIcon,
+  WrenchScrewdriverIcon,
   DocumentTextIcon,
   BoltIcon
 } from '@heroicons/react/24/outline';
@@ -38,6 +38,7 @@ export function TicketAnalyzer() {
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [firstRequest, setFirstRequest] = useState(true);
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,13 +62,21 @@ export function TicketAnalyzer() {
       });
 
       if (!response.ok) {
-        throw new Error('Analysis failed');
+        const errorText = await response.text();
+        throw new Error(`Analysis failed: ${response.status} ${errorText}`);
       }
 
       const data = await response.json();
       setAnalysis(data);
+      setFirstRequest(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
+      const errorMessage = err instanceof Error ? err.message : 'Analysis failed';
+      setError(errorMessage);
+      
+      // Provide helpful error message for timeouts
+      if (errorMessage.includes('500') || errorMessage.includes('timeout')) {
+        setError('Request timed out. The first analysis may take 1-2 minutes to load the AI model. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -80,7 +89,7 @@ export function TicketAnalyzer() {
       case 'existing_runbook':
         return <CheckCircleIcon className="h-8 w-8 text-green-500" />;
       case 'generate_new':
-        return <SparklesIcon className="h-8 w-8 text-blue-500" />;
+        return <WrenchScrewdriverIcon className="h-8 w-8 text-blue-500" />;
       case 'escalate':
         return <ExclamationTriangleIcon className="h-8 w-8 text-yellow-500" />;
     }
@@ -172,9 +181,49 @@ export function TicketAnalyzer() {
         </div>
       </form>
 
+      {firstRequest && !loading && (
+        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-start">
+            <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600 mr-2 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-yellow-800 font-medium">First Request Notice</p>
+              <p className="text-yellow-700 text-sm mt-1">
+                The first analysis may take 1-2 minutes to load the AI model. Subsequent requests will be much faster.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+            <div>
+              <p className="text-blue-800 font-medium">Analyzing ticket...</p>
+              <p className="text-blue-700 text-sm mt-1">
+                Searching runbooks and computing recommendations
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
+          <div className="flex items-start">
+            <ExclamationTriangleIcon className="h-5 w-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-red-800 font-medium mb-1">Analysis Failed</p>
+              <p className="text-red-700 text-sm">{error}</p>
+              <button
+                onClick={() => setError(null)}
+                className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BookOpenIcon, SparklesIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { BookOpenIcon, WrenchScrewdriverIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 interface RunbookResponse {
   id: number;
@@ -224,7 +224,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
             disabled={loading || !issueDescription.trim()}
             className="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <SparklesIcon className="h-5 w-5 mr-2" />
+            <WrenchScrewdriverIcon className="h-5 w-5 mr-2" />
             {loading ? 'Generating...' : 'Generate Runbook'}
           </button>
         </div>
