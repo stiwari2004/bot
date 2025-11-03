@@ -70,12 +70,16 @@ async def search_demo(
         # Format results for display
         formatted_results = []
         for result in results:
-            formatted_results.append({
+            formatted_result = {
                 "text": result.text[:200] + "..." if len(result.text) > 200 else result.text,
                 "score": round(result.score, 3),
                 "source": result.document_source,
                 "title": result.document_title
-            })
+            }
+            # Add runbook_id if available in metadata
+            if result.meta_data and "runbook_id" in result.meta_data:
+                formatted_result["runbook_id"] = result.meta_data["runbook_id"]
+            formatted_results.append(formatted_result)
         
         return {
             "query": query,

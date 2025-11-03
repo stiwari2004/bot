@@ -191,8 +191,51 @@ class RunbookGeneratorService:
             runbook_yaml = yaml.safe_dump(spec, sort_keys=False, default_flow_style=False, width=120)
             generation_mode = "ai"
         except Exception as e:
-            logger.error(f"AI YAML invalid or empty – rejecting request (no fallback): {type(e).__name__}: {e}")
-            raise HTTPException(status_code=502, detail=f"LLM YAML generation failed: {type(e).__name__}: {str(e)[:200]}")
+            # Attempt one-pass auto-fix for common YAML structure issues produced by LLMs
+            try:
+                logger.warning(f"Initial YAML parse failed ({type(e).__name__}): attempting auto-fix")
+                fixed_yaml = self._attempt_yaml_autofix(ai_yaml)
+                spec = yaml.safe_load(fixed_yaml)
+                if not isinstance(spec, dict):
+                    raise ValueError("invalid spec shape after autofix")
+                if "steps" not in spec:
+                    raise ValueError("missing steps after autofix")
+
+                # Apply same post-processing/validation as normal path
+                if "inputs" in spec and isinstance(spec["inputs"], dict):
+                    fixed_inputs = []
+                    for name, value in spec["inputs"].items():
+                        fixed_inputs.append({
+                            "name": name,
+                            "type": "string",
+                            "required": True,
+                            "description": f"Parameter: {name}"
+                        })
+                    spec["inputs"] = fixed_inputs
+
+                if "postchecks" in spec and isinstance(spec["postchecks"], dict):
+                    spec["postchecks"] = [spec["postchecks"]]
+
+                if "env" not in spec:
+                    spec["env"] = env
+                if "risk" not in spec:
+                    spec["risk"] = risk
+
+                try:
+                    from app.schemas.runbook_yaml import RunbookValidator
+                    validated_spec, warnings = RunbookValidator.validate_runbook(spec, auto_assign_severity=True)
+                    if warnings:
+                        logger.warning(f"Runbook validation warnings after autofix: {warnings}")
+                    spec = validated_spec.model_dump(mode='json', exclude_none=True)
+                except Exception as ve:
+                    logger.warning(f"Validation after autofix failed but continuing: {type(ve).__name__}: {ve}")
+
+                runbook_yaml = yaml.safe_dump(spec, sort_keys=False, default_flow_style=False, width=120)
+                generation_mode = "ai-autofix"
+                logger.info("YAML auto-fix succeeded")
+            except Exception as e2:
+                logger.error(f"AI YAML invalid or empty – rejecting request (no fallback): {type(e).__name__}: {e}; autofix failed: {type(e2).__name__}: {e2}")
+                raise HTTPException(status_code=502, detail=f"LLM YAML generation failed: {type(e).__name__}: {str(e)[:200]}")
 
         # Persist as Markdown (code fence) for readability while storing JSON spec in meta_data
         body_md = f"""# Agent Runbook (YAML)
@@ -251,6 +294,47 @@ class RunbookGeneratorService:
             created_at=runbook.created_at,
             updated_at=runbook.updated_at
         )
+
+    def _attempt_yaml_autofix(self, ai_yaml: str) -> str:
+        """Heuristically repair common LLM YAML defects:
+        - Missing section headers before list items (e.g., inputs/steps)
+        - Ensure top-level lists have a preceding key
+        """
+        lines = ai_yaml.splitlines()
+        fixed_lines: List[str] = []
+
+        # Insert 'inputs:' if a list of name/type appears before any known list keys
+        inserted_inputs = False
+        saw_any_top_key = False
+        for i, ln in enumerate(lines):
+            stripped = ln.strip()
+            # detect top-level keys
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_\-]*:\s*$", stripped):
+                saw_any_top_key = True
+            # detect parameter-style list items without a header
+            if re.match(r"^-\s+name:\s+", stripped) and not inserted_inputs:
+                # If previous non-empty non-comment line is not a key, insert inputs:
+                prev = "".join(fixed_lines[-1:]).strip() if fixed_lines else ""
+                if not prev.endswith(":"):
+                    fixed_lines.append("inputs:")
+                    inserted_inputs = True
+            fixed_lines.append(ln)
+
+        candidate = "\n".join(fixed_lines)
+
+        # Ensure steps header exists if we see '- name:' later without 'steps:' present
+        if "steps:" not in candidate and re.search(r"\n-\s+name:\s+", candidate):
+            # Append a 'steps:' header before the first such list if none present
+            new_lines: List[str] = []
+            inserted_steps = False
+            for ln in candidate.splitlines():
+                if not inserted_steps and re.match(r"^-\s+name:\s+", ln.strip()):
+                    new_lines.append("steps:")
+                    inserted_steps = True
+                new_lines.append(ln)
+            candidate = "\n".join(new_lines)
+
+        return candidate
 
     def _generate_network_connectivity_yaml(self, issue: str, env: str, risk: str) -> tuple[str, Dict[str, Any]]:
         """Produce an atomic, agent-executable runbook for office connectivity."""

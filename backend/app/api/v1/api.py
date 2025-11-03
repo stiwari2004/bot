@@ -2,7 +2,7 @@
 API v1 router configuration
 """
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, documents, search, runbooks, upload, test, demo, test_auth, tickets, analytics
+from app.api.v1.endpoints import auth, documents, search, runbooks, upload, test, demo, test_auth, tickets, analytics, executions
 
 api_router = APIRouter()
 
@@ -13,6 +13,7 @@ api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(runbooks.router, prefix="/runbooks", tags=["runbooks"])
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(executions.router, prefix="/executions", tags=["executions"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
 api_router.include_router(test.router, prefix="/test", tags=["testing"])
 api_router.include_router(demo.router, prefix="/demo", tags=["demo"])

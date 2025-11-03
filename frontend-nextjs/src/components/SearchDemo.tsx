@@ -1,13 +1,30 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { MagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import React, { useState, useMemo, useEffect } from 'react';
+import { MagnifyingGlassIcon, DocumentTextIcon, PlayIcon, BookOpenIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { RunbookExecutionViewer } from './RunbookExecutionViewer';
 
 interface SearchResult {
   text: string;
   score: number;
   source: string;
   title: string;
+  runbook_id?: number;
+}
+
+interface Runbook {
+  id: number;
+  title: string;
+  body_md: string;
+  confidence: number;
+  status?: string;
+  meta_data: {
+    issue_description: string;
+    sources_used: number;
+    search_query: string;
+    generated_by: string;
+  };
+  created_at: string;
 }
 
 interface SearchResponse {
@@ -76,6 +93,9 @@ export function SearchDemo() {
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'score' | 'relevance'>('score');
   const [filterSource, setFilterSource] = useState<string | null>(null);
+  const [selectedRunbook, setSelectedRunbook] = useState<Runbook | null>(null);
+  const [loadingRunbook, setLoadingRunbook] = useState(false);
+  const [executingRunbook, setExecutingRunbook] = useState<number | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,6 +151,58 @@ export function SearchDemo() {
     return Array.from(new Set(results.results.map(r => r.source))).sort();
   }, [results]);
 
+  // Fetch runbook by ID
+  const fetchRunbook = async (runbookId: number) => {
+    setLoadingRunbook(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`/api/v1/runbooks/demo/${runbookId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch runbook');
+      }
+      
+      const data = await response.json();
+      setSelectedRunbook(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch runbook');
+    } finally {
+      setLoadingRunbook(false);
+    }
+  };
+
+  // Format markdown function (same as RunbookList)
+  const formatMarkdown = (markdown: string) => {
+    // Simple markdown to HTML conversion
+    let html = markdown
+      // Headers
+      .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold mt-6 mb-3">$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold mt-8 mb-4">$1</h1>')
+      // Bold
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<strong>$1</strong>')
+      // Italic
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/_(.+?)_/g, '<em>$1</em>')
+      // Code blocks
+      .replace(/```[\s\S]*?```/g, '<pre class="bg-gray-100 p-4 rounded overflow-x-auto"><code>$&</code></pre>')
+      // Inline code
+      .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>')
+      // Lists
+      .replace(/^\* (.+)$/gim, '<li class="ml-4">$1</li>')
+      .replace(/^- (.+)$/gim, '<li class="ml-4">$1</li>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 hover:underline">$1</a>');
+    
+    // Wrap list items in ul tags
+    html = html.replace(/(<li.*<\/li>)/g, '<ul class="list-disc pl-4 my-2">$1</ul>');
+    
+    // Paragraphs
+    return html.split('\n\n').map(p => p.trim() ? `<p class="mb-3">${p}</p>` : '').join('');
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -175,25 +247,27 @@ export function SearchDemo() {
       )}
 
       {results && (
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Search Results ({processedResults.length}{filterSource ? ` of ${results.results_count}` : ''})
-            </h3>
-            <div className="flex items-center gap-4">
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'score' | 'relevance')}
-                className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="score">Sort by Score</option>
-                <option value="relevance">Sort by Relevance</option>
-              </select>
-              <span className="text-sm text-gray-500">
-                Query: "{results.query}"
-              </span>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Results List */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Search Results ({processedResults.length}{filterSource ? ` of ${results.results_count}` : ''})
+              </h3>
+              <div className="flex items-center gap-4">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'score' | 'relevance')}
+                  className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="score">Sort by Score</option>
+                  <option value="relevance">Sort by Relevance</option>
+                </select>
+                <span className="text-sm text-gray-500">
+                  Query: "{results.query}"
+                </span>
+              </div>
             </div>
-          </div>
 
           {/* Source filters */}
           {availableSources.length > 0 && (
@@ -225,11 +299,19 @@ export function SearchDemo() {
             </div>
           )}
 
-          <div className="space-y-4">
             {processedResults.map((result, index) => (
               <div
                 key={index}
-                className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                className={`border rounded-lg p-4 transition-shadow ${
+                  result.runbook_id && selectedRunbook?.id === result.runbook_id
+                    ? 'border-blue-500 bg-blue-50 cursor-pointer'
+                    : 'border-gray-200 cursor-pointer'
+                } ${result.runbook_id ? 'hover:shadow-md hover:border-gray-300' : 'hover:border-gray-300'}`}
+                onClick={() => {
+                  if (result.runbook_id) {
+                    fetchRunbook(result.runbook_id);
+                  }
+                }}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center">
@@ -257,6 +339,97 @@ export function SearchDemo() {
                 </p>
               </div>
             ))}
+          </div>
+
+          {/* Runbook Viewer */}
+          <div className="lg:sticky lg:top-6 lg:h-fit">
+            {loadingRunbook ? (
+              <div className="border border-gray-200 rounded-lg p-6 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-2 text-sm text-gray-500">Loading runbook...</p>
+              </div>
+            ) : selectedRunbook ? (
+              <div className="border border-gray-200 rounded-lg p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Runbook Details</h3>
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                    {(selectedRunbook.confidence * 100).toFixed(0)}% confidence
+                  </span>
+                </div>
+
+                <div className="prose max-w-none max-h-96 overflow-y-auto">
+                  <div 
+                    dangerouslySetInnerHTML={{ 
+                      __html: formatMarkdown(selectedRunbook.body_md) 
+                    }}
+                  />
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-500">
+                  <p>Generated: {new Date(selectedRunbook.created_at).toLocaleString()}</p>
+                  <p>Query: "{selectedRunbook.meta_data.search_query}"</p>
+                </div>
+
+                <div className="mt-4 flex space-x-2">
+                  {selectedRunbook.status === 'approved' && (
+                    <button
+                      onClick={() => setExecutingRunbook(selectedRunbook.id)}
+                      className="flex-1 flex items-center justify-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <PlayIcon className="h-4 w-4 mr-2" />
+                      Execute
+                    </button>
+                  )}
+                  {selectedRunbook.status === 'draft' && (
+                    <button
+                      className="flex-1 flex items-center justify-center px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors cursor-not-allowed"
+                      disabled
+                      title="Approve in View Runbooks tab"
+                    >
+                      <CheckCircleIcon className="h-4 w-4 mr-2" />
+                      Approve
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="border border-gray-200 rounded-lg p-6 text-center">
+                <BookOpenIcon className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">Select a runbook</h3>
+                <p className="mt-1 text-sm text-gray-500">Choose a runbook from the search results to view its details.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Execution Viewer */}
+      {executingRunbook && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">Execute Runbook</h2>
+                <button
+                  onClick={() => setExecutingRunbook(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {selectedRunbook && (
+                <RunbookExecutionViewer 
+                  runbookId={executingRunbook} 
+                  issueDescription={selectedRunbook.meta_data.issue_description}
+                  onComplete={() => {
+                    setExecutingRunbook(null);
+                    setSelectedRunbook(null);
+                  }}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -72,14 +72,14 @@ class DuplicateDetectorService:
             
             for result in search_results:
                 # Check if this result is from a runbook document
-                if result.source == 'runbook':
+                if result.document_source == 'runbook':
                     # Try to extract runbook ID from search result
                     rb_id = self._extract_runbook_id_from_result(result, db)
                     
                     if rb_id and rb_id != runbook_id and rb_id not in seen_ids:
                         similar_runbooks.append({
                             'id': rb_id,
-                            'title': result.title,
+                            'title': result.document_title,
                             'similarity_score': result.score,
                             'source': 'vector_search'
                         })

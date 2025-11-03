@@ -46,7 +46,11 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
     setError(null);
 
     try {
-      const url = `/api/v1/runbooks/demo/generate-agent`;
+      const API_BASE = (
+        process.env.NEXT_PUBLIC_API_BASE ||
+        (typeof window !== 'undefined' && window.location.port === '3000' ? 'http://localhost:8000' : '')
+      ).replace(/\/$/, '');
+      const url = `${API_BASE}/api/v1/runbooks/demo/generate-agent`;
       const params = new URLSearchParams({
         issue_description: issueDescription,
         service: serviceType,
@@ -59,7 +63,16 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
       });
 
       if (!response.ok) {
-        throw new Error('Runbook generation failed');
+        try {
+          const err = await response.json();
+          const detail = err?.detail;
+          const msg = typeof detail === 'string'
+            ? detail
+            : (detail?.message || detail?.error || JSON.stringify(detail));
+          throw new Error(`(${response.status}) ${msg || 'Runbook generation failed'}`);
+        } catch (_) {
+          throw new Error(`(${response.status}) Runbook generation failed`);
+        }
       }
 
       const data = await response.json();

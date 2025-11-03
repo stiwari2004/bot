@@ -100,6 +100,37 @@ async def list_runbooks_demo(
         raise HTTPException(status_code=500, detail=f"Failed to list runbooks: {str(e)}")
 
 
+@router.get("/demo/{runbook_id}", response_model=RunbookResponse)
+async def get_runbook_demo(
+    runbook_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get a specific runbook by ID for demo tenant"""
+    try:
+        runbook = db.query(Runbook).filter(
+            Runbook.id == runbook_id,
+            Runbook.tenant_id == 1  # Demo tenant
+        ).first()
+        
+        if not runbook:
+            raise HTTPException(status_code=404, detail="Runbook not found")
+        
+        return RunbookResponse(
+            id=runbook.id,
+            title=runbook.title,
+            body_md=runbook.body_md,
+            confidence=runbook.confidence,
+            meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
+            status=runbook.status if hasattr(runbook, 'status') else "draft",
+            created_at=runbook.created_at,
+            updated_at=runbook.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get runbook: {str(e)}")
+
+
 @router.delete("/demo/{runbook_id}")
 async def delete_runbook_demo(
     runbook_id: int,

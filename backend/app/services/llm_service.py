@@ -24,8 +24,8 @@ class LlamaCppLLMService:
         # If backend runs inside Docker on macOS, host is reachable via host.docker.internal
         self.base_url = base_url or os.getenv("LLAMACPP_BASE_URL", "http://localhost:8080")
         self.model_id = model_id or os.getenv("LLAMACPP_MODEL_ID")
-        # Create async HTTP client
-        self.client = httpx.AsyncClient(timeout=60.0)
+        # Create async HTTP client with longer timeout for generation tasks
+        self.client = httpx.AsyncClient(timeout=120.0)
 
     async def _ensure_model_id(self) -> str:
         if self.model_id:
@@ -110,7 +110,7 @@ class LlamaCppLLMService:
                 logger.warning(f"LLM: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
         except Exception as e:
-            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {e}")
+            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
             return ""
     
     async def generate_yaml_runbook(self, *, issue_description: str, service_type: str, env: str, risk: str, context: str = "") -> str:
@@ -174,7 +174,7 @@ class LlamaCppLLMService:
                 logger.warning(f"LLM: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
         except Exception as e:
-            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {e}")
+            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
             return ""
 
 
