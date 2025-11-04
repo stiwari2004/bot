@@ -60,6 +60,9 @@ def render_prompt(prompt_id: str, variables: Dict[str, Any]) -> Dict[str, str]:
     system = (data.get("system") or "").format(**variables)
     user_template = data.get("user_template") or ""
     user = user_template.format(**variables)
+    # Replace placeholders with double-brace syntax for YAML variables
+    user = user.replace("__SERVER_NAME__", "{{server_name}}")
+    user = user.replace("__DATABASE_NAME__", "{{database_name}}")
     return {"system": system, "user": user}
 
 

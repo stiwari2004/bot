@@ -1,73 +1,251 @@
-system = "You are a YAML generator for agent-executable troubleshooting runbooks. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- '). Without dashes, YAML parsers will fail."
+system = "You are a YAML generator for agent-executable troubleshooting runbooks. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- ')."
 
 user_template = """
-Generate a COMPREHENSIVE troubleshooting runbook YAML with 8-12 diagnostic and resolution steps.
+Generate a complete troubleshooting runbook YAML for the following issue.
 
-Issue: {issue_description}
-Service: {service}, Environment: {env}, Risk: {risk}
+Issue Description: {issue_description}
+Service: {service}
+Environment: {env}
+Risk Level: {risk}
 
-Context (knowledge snippets):
+Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
 {context}
 
-YAML structure (copy this FORMAT EXACTLY - note the DASH at start of each list item):
-runbook_id: rb-{service}-issue
+CRITICAL STEP 1 - READ THE ISSUE DESCRIPTION CAREFULLY:
+Read the issue description word-by-word:
+- If it says "transaction log" → Generate transaction log steps
+- If it says "connection pool" → Generate connection pool steps
+- If it says "MSSQL" or "SQL Server" → Use ONLY MSSQL commands
+- If it says "PostgreSQL" → Use ONLY PostgreSQL commands
+- NEVER mix types. NEVER mix issues.
+
+CRITICAL STEP 2 - IDENTIFY COMMAND TYPE:
+- If issue mentions "MSSQL", "SQL Server", "Microsoft SQL" → Use ONLY: sys.databases, DBCC, BACKUP LOG, xp_fixeddrives, sqlcmd
+- If issue mentions "PostgreSQL", "Postgres" → Use ONLY: pg_stat_activity, pg_locks, pg_database, psql, pg_terminate_backend
+- If issue mentions "MySQL" → Use ONLY: SHOW PROCESSLIST, INFORMATION_SCHEMA, mysql, mysqladmin
+- NEVER mix: If MSSQL identified, NEVER use psql, pg_stat_activity, or PostgreSQL commands
+
+CRITICAL STEP 3 - MATCH TITLE TO ISSUE:
+- If issue says "transaction log is 95% full" → Title MUST be "Fix Transaction Log Full" or similar
+- If issue says "connection pool exhausted" → Title MUST be "Fix Connection Pool Exhausted" or similar
+- The title MUST match the EXACT issue described, not a different issue type
+
+CRITICAL STEP 4 - MATCH STEPS TO ISSUE:
+- If issue is "transaction log full" → Generate: Check log space, Check active transactions, Take log backup, Shrink log
+- If issue is "connection pool exhausted" → Generate: Check connections, List connections, Terminate idle connections
+- DO NOT generate connection pool steps for transaction log issues
+- DO NOT generate transaction log steps for connection pool issues
+
+YAML STRUCTURE:
+
+runbook_id: rb-[service]-issue
 version: 1.0.0
-title: Fix [Issue Name Here]
+title: Fix [EXACT match to issue description - if issue says "transaction log full", title must say "transaction log full"]
 service: {service}
 env: {env}
 risk: {risk}
-description: Brief description without quotes (NO colons or extra text after this line)
+description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT ISSUE and its impact. DO NOT copy anything from the inputs section below. The description explains WHAT the problem is, not what parameters are needed.]
+
+MANDATORY INPUTS SECTION - YOU MUST INCLUDE THIS EXACTLY:
+The inputs section below is REQUIRED and MUST be included in your YAML output. Copy it exactly as shown. DO NOT leave inputs empty. DO NOT use inputs: []. You MUST include BOTH server_name AND database_name.
+
 inputs:
 - name: server_name
   type: string
   required: true
-  description: Target server hostname or IP
-- name: service_name
+  description: Target server hostname or IP address
+- name: database_name
   type: string
-  required: false
-  description: Affected service name (optional)
+  required: true
+  description: Database name (input parameter for execution)
+
+ABSOLUTE CRITICAL - DESCRIPTION FIELD MUST COME FROM ISSUE DESCRIPTION:
+The description field at the top explains the ISSUE from "{issue_description}", NOT the input parameters. NEVER copy text from the inputs section above.
+
+WRONG: description: Database name (input parameter for execution) ❌ WRONG! This is from inputs!
+WRONG: description: Target server hostname or IP address ❌ WRONG! This is from inputs!
+WRONG: description: Name of the database to troubleshoot ❌ WRONG! This is from inputs!
+RIGHT: description: The transaction log is 95% full in the MSSQL database, causing application connections to fail and preventing new transactions. This requires immediate attention to prevent data loss and service disruption. ✅ CORRECT! This explains the issue from "{issue_description}"!
+
+REPEAT: The inputs section above MUST be included in your YAML output. Copy it exactly. DO NOT use inputs: []. You MUST include BOTH server_name AND database_name - never omit server_name.
+
+ABSOLUTE CRITICAL - SERVER_NAME MUST BE INCLUDED:
+If your prechecks or steps use {{server_name}}, you MUST include server_name in inputs. DO NOT generate inputs with only database_name. You MUST include BOTH.
+
+WRONG: inputs only has database_name but commands use {{server_name}} ❌
+RIGHT: inputs includes BOTH server_name AND database_name ✅
+
+ABSOLUTE CRITICAL - INPUT DESCRIPTION FORMAT:
+The description field for each input MUST be proper descriptive text. NEVER use "Parameter: X" format.
+
+WRONG: description: 'Parameter: server_name' ❌
+WRONG: description: Parameter: database_name ❌
+WRONG: description: 'Parameter: server_name' ❌
+RIGHT: description: Target server hostname or IP address ✅
+RIGHT: description: Database name (input parameter for execution) ✅
+
+Copy the description text EXACTLY as shown above for inputs - "Target server hostname or IP address" and "Database name (input parameter for execution)". DO NOT use "Parameter: X" format.
+
+ABSOLUTE CRITICAL - INPUTS MUST INCLUDE BOTH:
+You MUST include BOTH server_name AND database_name in the inputs section above. If your prechecks or steps use {{server_name}}, you MUST define server_name in inputs. DO NOT omit server_name. DO NOT leave inputs empty.
+
+CRITICAL - INPUTS FORMAT - MUST FOLLOW EXACTLY:
+The inputs section MUST be a list starting with dashes. DO NOT use placeholder field. DO NOT use dict format. NEVER leave inputs empty.
+
+WRONG (DO NOT USE):
+inputs: []  ❌ NEVER leave inputs empty!
+
+WRONG (DO NOT USE):
+inputs:
+  name: server_name
+  type: string
+  required: true
+  description: Target server hostname or IP address
+  placeholder: example_server  ❌ NEVER use placeholder field
+
+WRONG (DO NOT USE):
+inputs:
+  server_name:
+    type: string
+    required: true
+
+WRONG (DO NOT USE):
+inputs:
+- name: database_name
+  type: string
+  required: true
+  description: Database name (input parameter for execution)
+❌ Missing server_name even though commands use {{server_name}}!
+
+RIGHT (MUST USE):
+inputs:
+- name: server_name
+  type: string
+  required: true
+  description: Target server hostname or IP address
+- name: database_name
+  type: string
+  required: true
+  description: Database name (input parameter for execution)
+✅ Both inputs included!
+
+CRITICAL RULES FOR INPUTS:
+1. NEVER leave inputs empty - inputs: [] is WRONG. You MUST include inputs.
+2. For database issues, you MUST include BOTH server_name AND database_name - never omit either one
+3. Each input MUST start with a dash and space: "- "
+4. Each input MUST have: name, type, required, and description fields
+5. Input description fields MUST be proper descriptive text like "Target server hostname or IP address" - NEVER use "Parameter: server_name" or 'Parameter: server_name' format
+6. NEVER use "placeholder" field - it does not exist in the schema
+7. NEVER use dict format (inputs: server_name: ...) - always use list format
+8. Indent fields 2 spaces under the dash
+9. If your commands use {{server_name}} or {{database_name}}, you MUST define them in inputs
+
+CRITICAL - NEVER HARDCODE VALUES:
+WRONG: command: psql -U postgres -c "SELECT count(*) FROM pg_stat_activity WHERE datname='prod_db';" ❌
+WRONG: command: SELECT name FROM sys.databases WHERE name = 'prod_db' ❌
+WRONG: command: ping -c 2 example_server ❌
+RIGHT: command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__' ✅
+RIGHT: command: ping -c 2 __SERVER_NAME__ ✅
+ALWAYS use __DATABASE_NAME__ and __SERVER_NAME__ placeholders. NEVER hardcode 'prod_db', 'msdb', 'example_server', or any values.
+
+CRITICAL - INPUT DESCRIPTIONS:
+WRONG: description: 'Parameter: server_name' ❌
+WRONG: description: Parameter: database_name ❌
+RIGHT: description: Target server hostname or IP address ✅
+RIGHT: description: Database name (required for database issues) ✅
+The description field must be proper descriptive text, NOT "Parameter: X" format.
+
 prechecks:
 - description: Check server is reachable via ping
-  command: ping -c 2 {{server_name}}
-  expected_output: "0% packet loss"
+  command: ping -c 2 __SERVER_NAME__
+  expected_output: 0% packet loss
+
 steps:
-- name: Check CPU usage
-  type: command
-  command: top -b -n 1 | head -n 20
-  expected_output: CPU usage and top processes
-- name: Check memory usage
-  type: command
-  command: free -h
-  expected_output: memory statistics
-[ADD 6-10 MORE RELEVANT STEPS HERE: disk I/O, network, logs, processes, etc.]
-postchecks:
-- description: Verify server responsiveness
-  command: uptime
-  expected_output: system responsive
-- description: Verify no critical errors
-  command: tail -n 20 /var/log/messages
-  expected_output: no critical errors
+[Generate 8-12 UNIQUE steps that directly address the EXACT issue described above. Match the issue type.]
 
-CRITICAL FORMATTING RULES:
-1. Output ONLY raw YAML; no backticks, no markdown code fences.
-2. EVERY list item MUST start with a dash and space: "- " (this is MANDATORY for YAML lists)
-3. WRONG: "name: value" without dash. RIGHT: "- name: value" with dash
-4. Indent list items 2 spaces under their parent key (inputs, prechecks, steps, postchecks).
-5. Include 8-12 total steps based on the issue context.
-6. Make steps relevant and specific to the problem.
-7. Use {{variable}} syntax for input references in commands.
+EXAMPLE FOR MSSQL TRANSACTION LOG ISSUE:
+If issue description says "Transaction log is 95% full in MSSQL database", generate:
 
-EXAMPLE OF CORRECT FORMAT:
+description: The transaction log is 95% full in the MSSQL database, causing application connections to fail and preventing new transactions. This requires immediate attention to prevent data loss and service disruption.
+
 inputs:
 - name: server_name
   type: string
   required: true
-  description: Target server
+  description: Target server hostname or IP address
+- name: database_name
+  type: string
+  required: true
+  description: Database name (input parameter for execution)
 
-EXAMPLE OF WRONG FORMAT (DO NOT USE):
-inputs:
-name: server_name
-type: string
+prechecks:
+- description: Check server is reachable via ping
+  command: ping -c 2 __SERVER_NAME__
+  expected_output: 0% packet loss
+
+steps:
+- name: Check log space usage reason
+  type: command
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+  expected_output: Reason for log space usage
+- name: Check active transactions blocking log truncation
+  type: command
+  command: DBCC OPENTRAN('__DATABASE_NAME__')
+  expected_output: Active transactions blocking log truncation
+- name: Check disk space using MSSQL command
+  type: command
+  command: EXEC xp_fixeddrives
+  expected_output: Available disk space on drives
+- name: Take transaction log backup
+  type: command
+  command: BACKUP LOG __DATABASE_NAME__ TO DISK = '__SERVER_NAME__/backups/__DATABASE_NAME__/log_backup.bak'
+  expected_output: Transaction log backup completed successfully
+- name: Shrink transaction log if needed
+  type: command
+  command: DBCC SHRINKFILE('__DATABASE_NAME__' + '_log', 10)
+  expected_output: Transaction log shrunk successfully
+
+postchecks:
+- description: Verify transaction log space is normal
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+  expected_output: Log space usage is normal (not LOG_BACKUP or ACTIVE_TRANSACTION)
+
+CRITICAL - POSTCHECKS FORMAT:
+Postchecks MUST use "description" field, NOT "name" field.
+
+WRONG:
+postchecks:
+- name: Verify transaction log space is normal ❌
+  type: command
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+
+RIGHT:
+postchecks:
+- description: Verify transaction log space is normal ✅
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+  expected_output: Log space usage is normal
+
+CRITICAL COMMAND EXAMPLES:
+WRONG: command: RESTORE LOG (that's for recovery, not shrinking) ❌
+RIGHT: command: DBCC SHRINKFILE (that's for shrinking transaction log) ✅
+WRONG: command: ping -c 2 example_server (hardcoded value) ❌
+RIGHT: command: ping -c 2 __SERVER_NAME__ (use placeholder) ✅
+WRONG: postcheck verifies active sessions (wrong for transaction log) ❌
+RIGHT: postcheck verifies log_reuse_wait_desc (correct for transaction log) ✅
+
+NEVER generate PostgreSQL commands (psql, pg_stat_activity) for MSSQL issues. NEVER generate connection pool steps for transaction log issues.
+
+CRITICAL RULES:
+1. Title MUST match the EXACT issue description - if issue says "transaction log full", title must say "transaction log full", NOT "connection pool"
+2. Top-level description field MUST explain the issue and its impact - NEVER copy input field descriptions like "Database name (required for database issues)"
+3. NEVER leave inputs empty - inputs: [] is WRONG. For database issues, MUST include BOTH server_name and database_name in inputs. If you use {{server_name}} in ANY command, you MUST define it in inputs.
+4. Steps MUST match the issue type - transaction log issues get transaction log steps, connection pool issues get connection pool steps
+5. NEVER mix database types - if MSSQL, use ONLY MSSQL commands (sys.databases, DBCC, BACKUP LOG). NEVER use PostgreSQL commands (psql, pg_stat_activity)
+6. NEVER hardcode values - ALWAYS use __SERVER_NAME__ and __DATABASE_NAME__ placeholders in ALL commands (prechecks, steps, postchecks)
+7. Input description fields must be proper descriptive text like "Target server hostname or IP address" - NEVER use "Parameter: server_name" or 'Parameter: server_name' format (with or without quotes)
+8. For shrinking transaction log, use DBCC SHRINKFILE, NOT RESTORE LOG (RESTORE is for recovery, not shrinking)
+9. For transaction log postchecks, verify log_reuse_wait_desc, NOT active sessions (sessions don't verify log space)
+10. Generate COMPLETE commands - do not truncate mid-line
+11. Each step must be UNIQUE - no duplicates
+12. Generate 8-12 complete steps that address the exact issue described
 """
-
-

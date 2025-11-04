@@ -3,6 +3,7 @@ Runbook generation service using RAG pipeline
 """
 import json
 import re
+import traceback
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -137,6 +138,15 @@ class RunbookGeneratorService:
         
         # Sanitize LLM output: remove problematic patterns from description fields
         ai_yaml = self._sanitize_description_field(ai_yaml)
+        
+        # Sanitize command strings: quote commands with special characters
+        try:
+            ai_yaml = self._sanitize_command_strings(ai_yaml)
+        except Exception as e:
+            logger.warning(f"Command sanitization failed, continuing without it: {type(e).__name__}: {e}")
+        
+        # Log YAML before parsing for debugging
+        logger.debug(f"[DEBUG] YAML before parse (first 3000 chars): {ai_yaml[:3000] if ai_yaml else 'None'}")
 
         # Validate YAML. If invalid, DO NOT fallback - return error to surface LLM wiring issues
         try:
@@ -175,6 +185,89 @@ class RunbookGeneratorService:
             if "risk" not in spec:
                 spec["risk"] = risk
             
+            # Post-process: Fix description field if it's copying from inputs
+            if "description" in spec:
+                description = str(spec["description"]).strip()
+                # Check if description is copying from input descriptions
+                input_description_texts = [
+                    "Database name (input parameter for execution)",
+                    "Name of the database to troubleshoot",
+                    "Target server hostname or IP address",
+                    "Database name (required for database issues)",
+                    "Parameter: server_name",
+                    "Parameter: database_name"
+                ]
+                if any(text in description for text in input_description_texts) or len(description) < 50:
+                    # Description is wrong - generate proper one from issue_description
+                    logger.warning(f"Fixing description field: was '{description[:100]}'")
+                    spec["description"] = f"The {issue_description.lower()}. This issue requires immediate attention to prevent service disruption and data loss."
+                    logger.info(f"Fixed description to: {spec['description'][:100]}...")
+            
+            # Post-process: Ensure server_name is in inputs if commands use it
+            if "inputs" in spec and isinstance(spec["inputs"], list):
+                input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
+                # Check if any commands use {{server_name}} but server_name not in inputs
+                all_commands = []
+                for section in ["prechecks", "steps", "postchecks"]:
+                    if section in spec and isinstance(spec[section], list):
+                        for item in spec[section]:
+                            if isinstance(item, dict) and "command" in item:
+                                all_commands.append(str(item["command"]))
+                
+                uses_server_name = any("{{server_name}}" in cmd or "__SERVER_NAME__" in cmd for cmd in all_commands)
+                if uses_server_name and "server_name" not in input_names:
+                    logger.warning(f"Adding missing server_name input (commands use {{server_name}})")
+                    spec["inputs"].insert(0, {
+                        "name": "server_name",
+                        "type": "string",
+                        "required": True,
+                        "description": "Target server hostname or IP address"
+                    })
+            
+            # Post-process: Ensure database_name is in inputs if commands use it
+            if "inputs" in spec and isinstance(spec["inputs"], list):
+                input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
+                all_commands = []
+                for section in ["prechecks", "steps", "postchecks"]:
+                    if section in spec and isinstance(spec[section], list):
+                        for item in spec[section]:
+                            if isinstance(item, dict) and "command" in item:
+                                all_commands.append(str(item["command"]))
+                
+                uses_database_name = any("{{database_name}}" in cmd or "__DATABASE_NAME__" in cmd for cmd in all_commands)
+                if uses_database_name and "database_name" not in input_names:
+                    logger.warning(f"Adding missing database_name input (commands use {{database_name}})")
+                    spec["inputs"].append({
+                        "name": "database_name",
+                        "type": "string",
+                        "required": True,
+                        "description": "Database name (input parameter for execution)"
+                    })
+            
+            # Post-process: Ensure all inputs have proper description fields
+            if "inputs" in spec and isinstance(spec["inputs"], list):
+                default_descriptions = {
+                    "server_name": "Target server hostname or IP address",
+                    "database_name": "Database name (input parameter for execution)"
+                }
+                for inp in spec["inputs"]:
+                    if isinstance(inp, dict):
+                        name = inp.get("name")
+                        if name and not inp.get("description") and name in default_descriptions:
+                            logger.warning(f"Adding missing description for input '{name}'")
+                            inp["description"] = default_descriptions[name]
+            
+            # Post-process: Ensure runbook_id is properly formatted
+            if "runbook_id" not in spec or not spec["runbook_id"]:
+                # Generate runbook_id from service and title if missing
+                title_slug = re.sub(r'[^a-z0-9]+', '-', spec.get("title", "runbook").lower()).strip('-')
+                spec["runbook_id"] = f"rb-{spec.get('service', 'unknown')}-{title_slug[:30]}"
+                logger.warning(f"Generated missing runbook_id: {spec['runbook_id']}")
+            elif not spec["runbook_id"].startswith("rb-"):
+                # Fix runbook_id if it doesn't start with rb-
+                spec["runbook_id"] = f"rb-{spec['runbook_id'].lstrip('rb-')}"
+                logger.warning(f"Fixed runbook_id format: {spec['runbook_id']}")
+            
             # Validate runbook structure and command safety
             try:
                 from app.schemas.runbook_yaml import RunbookValidator
@@ -193,7 +286,9 @@ class RunbookGeneratorService:
         except Exception as e:
             # Attempt one-pass auto-fix for common YAML structure issues produced by LLMs
             try:
-                logger.warning(f"Initial YAML parse failed ({type(e).__name__}): attempting auto-fix")
+                logger.error(f"[DEBUG] Initial YAML parse failed ({type(e).__name__}): {str(e)}")
+                logger.debug(f"[DEBUG] Raw YAML content (first 2000 chars): {ai_yaml[:2000] if ai_yaml else 'None'}")
+                logger.warning(f"Attempting auto-fix...")
                 fixed_yaml = self._attempt_yaml_autofix(ai_yaml)
                 spec = yaml.safe_load(fixed_yaml)
                 if not isinstance(spec, dict):
@@ -220,6 +315,83 @@ class RunbookGeneratorService:
                     spec["env"] = env
                 if "risk" not in spec:
                     spec["risk"] = risk
+                
+                # Post-process: Fix description field if it's copying from inputs (same as normal path)
+                if "description" in spec:
+                    description = str(spec["description"]).strip()
+                    input_description_texts = [
+                        "Database name (input parameter for execution)",
+                        "Name of the database to troubleshoot",
+                        "Target server hostname or IP address",
+                        "Database name (required for database issues)",
+                        "Parameter: server_name",
+                        "Parameter: database_name"
+                    ]
+                    if any(text in description for text in input_description_texts) or len(description) < 50:
+                        logger.warning(f"Fixing description field (autofix path): was '{description[:100]}'")
+                        spec["description"] = f"The {issue_description.lower()}. This issue requires immediate attention to prevent service disruption and data loss."
+                
+                # Post-process: Ensure server_name is in inputs if commands use it (same as normal path)
+                if "inputs" in spec and isinstance(spec["inputs"], list):
+                    input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
+                    all_commands = []
+                    for section in ["prechecks", "steps", "postchecks"]:
+                        if section in spec and isinstance(spec[section], list):
+                            for item in spec[section]:
+                                if isinstance(item, dict) and "command" in item:
+                                    all_commands.append(str(item["command"]))
+                    
+                    uses_server_name = any("{{server_name}}" in cmd or "__SERVER_NAME__" in cmd for cmd in all_commands)
+                    if uses_server_name and "server_name" not in input_names:
+                        logger.warning(f"Adding missing server_name input (autofix path)")
+                        spec["inputs"].insert(0, {
+                            "name": "server_name",
+                            "type": "string",
+                            "required": True,
+                            "description": "Target server hostname or IP address"
+                        })
+                
+                # Post-process: Ensure database_name is in inputs if commands use it (same as normal path)
+                if "inputs" in spec and isinstance(spec["inputs"], list):
+                    input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
+                    all_commands = []
+                    for section in ["prechecks", "steps", "postchecks"]:
+                        if section in spec and isinstance(spec[section], list):
+                            for item in spec[section]:
+                                if isinstance(item, dict) and "command" in item:
+                                    all_commands.append(str(item["command"]))
+                    
+                    uses_database_name = any("{{database_name}}" in cmd or "__DATABASE_NAME__" in cmd for cmd in all_commands)
+                    if uses_database_name and "database_name" not in input_names:
+                        logger.warning(f"Adding missing database_name input (autofix path)")
+                        spec["inputs"].append({
+                            "name": "database_name",
+                            "type": "string",
+                            "required": True,
+                            "description": "Database name (input parameter for execution)"
+                        })
+                
+                # Post-process: Ensure all inputs have proper description fields (same as normal path)
+                if "inputs" in spec and isinstance(spec["inputs"], list):
+                    default_descriptions = {
+                        "server_name": "Target server hostname or IP address",
+                        "database_name": "Database name (input parameter for execution)"
+                    }
+                    for inp in spec["inputs"]:
+                        if isinstance(inp, dict):
+                            name = inp.get("name")
+                            if name and not inp.get("description") and name in default_descriptions:
+                                logger.warning(f"Adding missing description for input '{name}' (autofix path)")
+                                inp["description"] = default_descriptions[name]
+                
+                # Post-process: Ensure runbook_id is properly formatted (same as normal path)
+                if "runbook_id" not in spec or not spec["runbook_id"]:
+                    title_slug = re.sub(r'[^a-z0-9]+', '-', spec.get("title", "runbook").lower()).strip('-')
+                    spec["runbook_id"] = f"rb-{spec.get('service', 'unknown')}-{title_slug[:30]}"
+                    logger.warning(f"Generated missing runbook_id (autofix path): {spec['runbook_id']}")
+                elif not spec["runbook_id"].startswith("rb-"):
+                    spec["runbook_id"] = f"rb-{spec['runbook_id'].lstrip('rb-')}"
+                    logger.warning(f"Fixed runbook_id format (autofix path): {spec['runbook_id']}")
 
                 try:
                     from app.schemas.runbook_yaml import RunbookValidator
@@ -285,15 +457,35 @@ class RunbookGeneratorService:
                 logger.warning(f"Failed to store citations: {e}")
                 db.rollback()
 
-        return RunbookResponse(
-            id=runbook.id,
-            title=runbook.title,
-            body_md=runbook.body_md,
-            confidence=runbook.confidence,
-            meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
-            created_at=runbook.created_at,
-            updated_at=runbook.updated_at
-        )
+        # Step 1: Parse meta_data with error handling
+        try:
+            logger.info(f"[DEBUG] Parsing meta_data for runbook {runbook.id}")
+            meta_data_parsed = json.loads(runbook.meta_data) if runbook.meta_data else {}
+            logger.info(f"[DEBUG] Meta_data parsed successfully. Keys: {list(meta_data_parsed.keys())}")
+        except Exception as e:
+            logger.error(f"[DEBUG] Failed to parse meta_data: {type(e).__name__}: {str(e)}")
+            logger.error(f"[DEBUG] Raw meta_data (first 500 chars): {runbook.meta_data[:500] if runbook.meta_data else 'None'}")
+            meta_data_parsed = {}
+        
+        # Step 2: Create response with error handling
+        try:
+            logger.info(f"[DEBUG] Creating RunbookResponse object")
+            response = RunbookResponse(
+                id=runbook.id,
+                title=runbook.title,
+                body_md=runbook.body_md,
+                confidence=runbook.confidence,
+                meta_data=meta_data_parsed,
+                created_at=runbook.created_at,
+                updated_at=runbook.updated_at
+            )
+            logger.info(f"[DEBUG] RunbookResponse created successfully")
+            return response
+        except Exception as e:
+            logger.error(f"[DEBUG] Failed to create RunbookResponse: {type(e).__name__}: {str(e)}")
+            logger.error(f"[DEBUG] Runbook fields: id={runbook.id}, title={runbook.title}, confidence={runbook.confidence}")
+            logger.error(f"[DEBUG] RunbookResponse creation traceback: {traceback.format_exc()}")
+            raise
 
     def _attempt_yaml_autofix(self, ai_yaml: str) -> str:
         """Heuristically repair common LLM YAML defects:
@@ -1276,6 +1468,48 @@ Based on similar incidents and knowledge base, this issue typically occurs due t
                     
                     # Reconstruct the line
                     sanitized_lines.append("description: " + value)
+                else:
+                    sanitized_lines.append(line)
+            else:
+                sanitized_lines.append(line)
+        
+        return "\n".join(sanitized_lines)
+    
+    def _sanitize_command_strings(self, yaml_content: str) -> str:
+        """Quote command strings containing special characters that break YAML parsing.
+        
+        Detects unquoted command strings with special characters like %, $, |, \, etc.
+        and wraps them in double quotes to prevent YAML parsing errors.
+        Note: Only processes actual command fields, not description fields or other text.
+        """
+        if not yaml_content:
+            return yaml_content
+        
+        lines = yaml_content.split("\n")
+        sanitized_lines = []
+        
+        for line in lines:
+            # Match command: field specifically (not description: or other fields)
+            # Must be at start of line or after indentation, followed by whitespace and a value
+            match = re.match(r"^(\s*)command:\s+(.+)$", line)
+            if match:
+                indent = match.group(1)
+                command_value = match.group(2).strip()
+                
+                # Check if command contains special characters and is not already quoted
+                if command_value and not (command_value.startswith('"') or command_value.startswith("'")):
+                    special_chars = ['%', '$', '|', '\\', '[', ']', '&', '*', '?', '`']
+                    # Check for special chars but exclude {{variable}} syntax
+                    has_special = any(char in command_value for char in special_chars)
+                    # Don't quote if it's just {{variable}} syntax
+                    is_variable_only = bool(re.match(r'^\{\{[a-zA-Z0-9_]+\}\}$', command_value.strip()))
+                    
+                    if has_special and not is_variable_only:
+                        # Quote the command and escape inner quotes
+                        escaped_command = command_value.replace('"', '\\"')
+                        sanitized_lines.append(f"{indent}command: \"{escaped_command}\"")
+                    else:
+                        sanitized_lines.append(line)
                 else:
                     sanitized_lines.append(line)
             else:
