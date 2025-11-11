@@ -4,6 +4,7 @@ Execution orchestrator responsible for queuing sessions and publishing events.
 from __future__ import annotations
 
 import copy
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -22,6 +23,7 @@ from app.services.credential_service import get_credential_service
 from app.services.execution_engine import ExecutionEngine
 from app.services.queue_client import RedisQueueClient, queue_client
 from app.services.policy import validate_sandbox_profile
+from app.services import audit_log
 from app.core import metrics
 from app.core.tracing import tracing_span
 
@@ -46,6 +48,7 @@ class ExecutionOrchestrator:
         issue_description: Optional[str] = None,
         user_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> ExecutionSession:
         """Create a session, persist orchestration metadata, and queue assignment."""
         if not settings.WORKER_ORCHESTRATION_ENABLED:
@@ -114,6 +117,9 @@ class ExecutionOrchestrator:
                 metadata=request_metadata,
             )
             sanitized_metadata = self._sanitize_metadata(prepared_metadata)
+            if idempotency_key:
+                prepared_metadata["idempotency_key"] = idempotency_key
+                sanitized_metadata["idempotency_key"] = idempotency_key
 
             # Create pending assignment record (worker chosen later)
             assignment = AgentWorkerAssignment(
@@ -134,6 +140,7 @@ class ExecutionOrchestrator:
                 "ticket_id": ticket_id,
                 "status": session.status,
                 "metadata": sanitized_metadata,
+                "idempotency_key": idempotency_key,
             }
             await self._publish_event(
                 db,
@@ -170,11 +177,14 @@ class ExecutionOrchestrator:
                     "profile": session.sandbox_profile,
                     "sla_minutes": policy_info.get("default_sla_minutes"),
                 },
+                "idempotency_key": idempotency_key,
             }
 
+            assignment_idempotency = f"assignment:{session.id}:{assignment.id}"
             assign_stream_id = await self.queue.publish(
                 settings.REDIS_STREAM_ASSIGN,
                 assign_payload,
+                idempotency_key=assignment_idempotency,
             )
 
             session.last_event_seq = assign_stream_id
@@ -183,6 +193,7 @@ class ExecutionOrchestrator:
                 "stream_id": assign_stream_id,
                 "status": "queued",
                 "metadata": sanitized_metadata,
+                "idempotency_key": idempotency_key,
             }
             await self._publish_event(
                 db,
@@ -287,6 +298,11 @@ class ExecutionOrchestrator:
         )
         if not credential:
             raise ValueError(f"Credential alias '{alias_reference}' not found.")
+
+        self.credential_service.log_credential_usage(
+            tenant_id=tenant_id,
+            alias=alias_name,
+        )
 
         credentials_block = metadata.setdefault("credentials", {})
 
@@ -413,6 +429,14 @@ class ExecutionOrchestrator:
                 stream_id=stream_id,
             )
             db.add(event)
+            try:
+                await audit_log.record_event(
+                    session_id=session.id,
+                    event_type=event_type,
+                    payload=envelope,
+                )
+            except Exception as exc:
+                logger.warning("Failed to persist audit log for session %s: %s", session.id, exc)
             return stream_id
 
     def list_events(
@@ -484,6 +508,7 @@ class ExecutionOrchestrator:
         reason: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
         user_id: Optional[int] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Queue a manual command for a session and emit tracking event."""
         session = (
@@ -503,6 +528,8 @@ class ExecutionOrchestrator:
             "timeout_seconds": timeout_seconds,
             "user_id": user_id,
         }
+        if idempotency_key:
+            command_payload["idempotency_key"] = idempotency_key
 
         assignment_metadata = self._latest_assignment_metadata(session)
         sanitized_metadata = {}
@@ -518,9 +545,16 @@ class ExecutionOrchestrator:
             sanitized_metadata = self._sanitize_metadata(prepared_metadata)
             self._persist_assignment_metadata(db, session, prepared_metadata)
 
+        command_idempotency = idempotency_key or self._command_idempotency_key(
+            session_id=session_id,
+            command_payload=command_payload,
+        )
+        command_payload["idempotency_key"] = command_idempotency
+
         stream_id = await self.queue.publish(
             settings.REDIS_STREAM_COMMAND,
             command_payload,
+            idempotency_key=command_idempotency,
         )
 
         event_payload = {
@@ -533,6 +567,7 @@ class ExecutionOrchestrator:
             "user_id": user_id,
             "stream_id": stream_id,
             "status": "queued",
+            "idempotency_key": command_idempotency,
         }
         if sanitized_metadata:
             event_payload["metadata"] = sanitized_metadata
@@ -621,9 +656,13 @@ class ExecutionOrchestrator:
                 rollback_payload["metadata"] = prepared_metadata
                 rollback_payload["connection"] = prepared_metadata.get("connection") or prepared_metadata
                 self._persist_assignment_metadata(db, session, prepared_metadata)
+            rollback_key_source = f"rollback:{session.id}:{reason or ''}:{user_id or ''}"
+            rollback_idempotency = hashlib.sha256(rollback_key_source.encode("utf-8")).hexdigest()
+            rollback_payload["idempotency_key"] = rollback_idempotency
             command_stream_id = await self.queue.publish(
                 settings.REDIS_STREAM_COMMAND,
                 rollback_payload,
+                idempotency_key=rollback_idempotency,
             )
             payload["command_stream_id"] = command_stream_id
         else:
@@ -645,6 +684,22 @@ class ExecutionOrchestrator:
         db.commit()
         db.refresh(session)
         return session
+
+    @staticmethod
+    def _command_idempotency_key(
+        *,
+        session_id: int,
+        command_payload: Dict[str, Any],
+    ) -> str:
+        components = [
+            str(session_id),
+            command_payload.get("command") or "",
+            command_payload.get("shell") or "",
+            command_payload.get("run_as") or "",
+            command_payload.get("reason") or "",
+        ]
+        raw = "|".join(components)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def serialize_session(self, session: ExecutionSession) -> Dict[str, Any]:
         """Helper to transform ExecutionSession into response payload."""

@@ -10,6 +10,7 @@ from typing import Optional
 
 from cryptography.fernet import Fernet
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,14 +23,18 @@ class CredentialEncryption:
         # Get encryption key from environment or generate one
         key = os.getenv("CREDENTIAL_ENCRYPTION_KEY")
         if not key:
-            # Generate a key and log it (for POC only - in production, use KMS)
-            key = Fernet.generate_key()
-            logger.warning(f"CREDENTIAL_ENCRYPTION_KEY not set. Generated key: {key.decode()}")
-            logger.warning("For production, set CREDENTIAL_ENCRYPTION_KEY from secure KMS")
-        else:
-            # Ensure key is bytes
-            if isinstance(key, str):
-                key = key.encode()
+            if settings.DEBUG:
+                key = Fernet.generate_key()
+                logger.warning(
+                    "CREDENTIAL_ENCRYPTION_KEY not set; generated transient key for DEBUG session. "
+                    "Do not use in production."
+                )
+            else:
+                raise RuntimeError(
+                    "CREDENTIAL_ENCRYPTION_KEY is not set. Configure a managed key (Vault/KMS) before starting the service."
+                )
+        if isinstance(key, str):
+            key = key.encode()
         
         self.cipher = Fernet(key)
     
@@ -195,6 +200,23 @@ class CredentialService:
             resolved["secrets"] = metadata_payload["secrets"]
 
         return resolved
+
+    def log_credential_usage(
+        self,
+        *,
+        tenant_id: int,
+        alias: str,
+        session_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> None:
+        """Emit a sanitized audit log when credentials are accessed."""
+        logger.info(
+            "credential_usage tenant=%s alias=%s session=%s user=%s",
+            tenant_id,
+            alias,
+            session_id or "n/a",
+            user_id or "n/a",
+        )
 
 
 # Global credential service instance

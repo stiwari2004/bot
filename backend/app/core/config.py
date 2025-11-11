@@ -1,8 +1,10 @@
 """
 Application configuration settings
 """
+from typing import Dict, List, Optional, Union
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
-from typing import List
 import os
 
 
@@ -37,6 +39,12 @@ class Settings(BaseSettings):
     # LLM
     LLM_MODEL: str = "llama3.1:8b"
     LLM_BASE_URL: str = "http://localhost:11434"
+    LLM_BUDGET_DEFAULT_TOKENS: int = 500_000
+    LLM_BUDGET_WINDOW_SECONDS: int = 86_400  # 24 hours rolling
+    LLM_RATE_LIMIT_PER_MINUTE: int = 30
+    LLM_BUDGET_ALERT_THRESHOLD: float = 0.8
+    LLM_TENANT_BUDGETS: Dict[int, int] = {}
+    LLM_POLICY_CACHE_TTL_SECONDS: int = 300
     
     # File Upload
     MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
@@ -51,13 +59,46 @@ class Settings(BaseSettings):
     REDIS_STREAM_COMMAND: str = "session.command"
     REDIS_STREAM_RESULT: str = "session.result"
     REDIS_STREAM_EVENTS: str = "session.events"
+    REDIS_STREAM_DEAD_LETTER: str = "session.deadletter"
     REDIS_CONSUMER_GROUP_ORCHESTRATOR: str = "orchestrator"
     REDIS_DEFAULT_MAXLEN: int = 10_000
     WORKER_ORCHESTRATION_ENABLED: bool = True
+    IDEMPOTENCY_TTL_SECONDS: int = 86_400
+    AUDIT_LOG_ENABLED: bool = True
+    AUDIT_LOG_PATH: str = "logs/audit.log"
+    AUDIT_LOG_S3_BUCKET: Optional[str] = None
+    AUDIT_LOG_S3_PREFIX: str = "audit-log/"
     
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    @field_validator("LLM_TENANT_BUDGETS", mode="before")
+    @classmethod
+    def _parse_tenant_budgets(cls, value: Union[str, Dict[int, int], None]) -> Dict[int, int]:
+        if value in (None, "", {}):
+            return {}
+        if isinstance(value, dict):
+            parsed: Dict[int, int] = {}
+            for key, val in value.items():
+                try:
+                    parsed[int(key)] = int(val)
+                except Exception:
+                    continue
+            return parsed
+        if isinstance(value, str):
+            parsed: Dict[int, int] = {}
+            parts = [part.strip() for part in value.split(",") if part.strip()]
+            for part in parts:
+                if "=" not in part:
+                    continue
+                tenant, limit = part.split("=", 1)
+                try:
+                    parsed[int(tenant.strip())] = int(limit.strip())
+                except Exception:
+                    continue
+            return parsed
+        return {}
 
 
 # Create settings instance

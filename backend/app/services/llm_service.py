@@ -3,13 +3,21 @@ LLM Service for AI-powered runbook generation using llama.cpp or Perplexity.
 Supports both local llama.cpp server and Perplexity API.
 """
 
-import os
-import json
-import httpx
 import asyncio
-from typing import Dict, Any, Optional, List
-from app.services.prompt_store import render_prompt
+import json
+import os
+from typing import Any, Dict, List, Optional
+
+import httpx
+
 from app.core.logging import get_logger
+from app.services.prompt_store import render_prompt
+from app.services.llm_budget_manager import (
+    LLMBudgetExceeded,
+    LLMRateLimitExceeded,
+    budget_manager,
+    estimate_tokens,
+)
 
 logger = get_logger(__name__)
 
@@ -26,6 +34,13 @@ class LlamaCppLLMService:
         self.model_id = model_id or os.getenv("LLAMACPP_MODEL_ID")
         # Create async HTTP client with longer timeout for generation tasks
         self.client = httpx.AsyncClient(timeout=120.0)
+
+    @staticmethod
+    def _normalise_tenant(tenant_id: Optional[int]) -> int:
+        try:
+            return int(tenant_id or 1)
+        except Exception:
+            return 1
 
     async def _ensure_model_id(self) -> str:
         if self.model_id:
@@ -47,13 +62,13 @@ class LlamaCppLLMService:
             self.model_id = "model.gguf"
         return self.model_id
 
-    async def classify_service_type(self, issue_description: str) -> str:
+    async def classify_service_type(self, issue_description: str, *, tenant_id: Optional[int] = None) -> str:
         prompt = (
             f"Classify this IT issue into one of: server, network, database, web, storage.\n"
             f"server=CPU/memory/disk, network=connectivity/DNS, database=DB queries, web=HTTP/APIs, storage=NAS/SAN\n"
             f"Issue: \"{issue_description}\"\nRespond with ONE WORD only."
         )
-        text = await self._chat_once(prompt)
+        text = await self._chat_once(prompt, tenant_id=self._normalise_tenant(tenant_id))
         response_lower = (text or "").lower().strip()
         # Check each type in order of specificity
         for t in ["network", "database", "web", "storage", "server"]:
@@ -61,7 +76,15 @@ class LlamaCppLLMService:
                 return t
         return "server"
 
-    async def generate_runbook_content(self, issue_description: str, service_type: str, env: str = "prod", risk: str = "low") -> Dict[str, Any]:
+    async def generate_runbook_content(
+        self,
+        issue_description: str,
+        service_type: str,
+        env: str = "prod",
+        risk: str = "low",
+        *,
+        tenant_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
         prompt = f"""
         Generate a detailed troubleshooting runbook for this IT issue:
 
@@ -73,7 +96,7 @@ class LlamaCppLLMService:
         Provide JSON with keys: root_cause, steps (name, command, expected_output),
         verification (array), recommendations (array). Keep it concise and valid JSON.
         """
-        text = await self._chat_once(prompt)
+        text = await self._chat_once(prompt, tenant_id=self._normalise_tenant(tenant_id))
         try:
             return json.loads(text)
         except Exception:
@@ -86,8 +109,15 @@ class LlamaCppLLMService:
                 "recommendations": ["Monitor system performance"],
             }
 
-    async def _chat_once(self, prompt: str) -> str:
+    async def _chat_once(self, prompt: str, *, tenant_id: Optional[int] = None) -> str:
+        tenant = self._normalise_tenant(tenant_id)
         try:
+            prompt_tokens = estimate_tokens(prompt)
+            await budget_manager.charge_tokens(
+                tenant_id=tenant,
+                tokens=prompt_tokens,
+                direction="prompt",
+            )
             model_id = await self._ensure_model_id()
             payload = {
                 "model": model_id,
@@ -104,16 +134,35 @@ class LlamaCppLLMService:
                 data = resp.json()
                 choices = data.get("choices") or []
                 if choices:
-                    return choices[0].get("message", {}).get("content", "")
+                    text = choices[0].get("message", {}).get("content", "")
+                    completion_tokens = estimate_tokens(text)
+                    if completion_tokens:
+                        await budget_manager.charge_tokens(
+                            tenant_id=tenant,
+                            tokens=completion_tokens,
+                            direction="completion",
+                        )
+                    return text
                 logger.warning(f"LLM: empty choices from {url}")
             else:
                 logger.warning(f"LLM: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
+        except (LLMRateLimitExceeded, LLMBudgetExceeded):
+            raise
         except Exception as e:
             logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
             return ""
     
-    async def generate_yaml_runbook(self, *, issue_description: str, service_type: str, env: str, risk: str, context: str = "") -> str:
+    async def generate_yaml_runbook(
+        self,
+        *,
+        tenant_id: int,
+        issue_description: str,
+        service_type: str,
+        env: str,
+        risk: str,
+        context: str = "",
+    ) -> str:
         """Ask the model to return an agent-executable YAML runbook following our schema.
         Uses centralized prompt templates (TOML) via prompt_store.
         """
@@ -132,7 +181,7 @@ class LlamaCppLLMService:
         user_msg = rendered.get("user", "")
 
         # Call chat with explicit system + user messages
-        text = await self._chat_once_with_system(system_msg, user_msg)
+        text = await self._chat_once_with_system(system_msg, user_msg, tenant_id=tenant_id)
         raw = text
         # Post-process: strip any remaining code fences
         if raw and "```" in raw:
@@ -150,8 +199,21 @@ class LlamaCppLLMService:
             raw = "\n".join(lines[start_idx:end_idx]).strip()
         return raw
 
-    async def _chat_once_with_system(self, system: str, user: str) -> str:
+    async def _chat_once_with_system(
+        self,
+        system: str,
+        user: str,
+        *,
+        tenant_id: Optional[int] = None,
+    ) -> str:
+        tenant = self._normalise_tenant(tenant_id)
         try:
+            prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
+            await budget_manager.charge_tokens(
+                tenant_id=tenant,
+                tokens=prompt_tokens,
+                direction="prompt",
+            )
             model_id = await self._ensure_model_id()
             payload = {
                 "model": model_id,
@@ -168,11 +230,21 @@ class LlamaCppLLMService:
                 data = resp.json()
                 choices = data.get("choices") or []
                 if choices:
-                    return choices[0].get("message", {}).get("content", "")
+                    text = choices[0].get("message", {}).get("content", "")
+                    completion_tokens = estimate_tokens(text)
+                    if completion_tokens:
+                        await budget_manager.charge_tokens(
+                            tenant_id=tenant,
+                            tokens=completion_tokens,
+                            direction="completion",
+                        )
+                    return text
                 logger.warning(f"LLM: empty choices from {url}")
             else:
                 logger.warning(f"LLM: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
+        except (LLMRateLimitExceeded, LLMBudgetExceeded):
+            raise
         except Exception as e:
             logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
             return ""
@@ -204,21 +276,32 @@ class PerplexityLLMService:
         # Create async HTTP client
         self.client = httpx.AsyncClient(timeout=120.0, headers=self.headers)
     
-    async def classify_service_type(self, issue_description: str) -> str:
+    async def classify_service_type(self, issue_description: str, *, tenant_id: Optional[int] = None) -> str:
         """Classify service type using Perplexity."""
         prompt = (
             f"Classify this IT issue into one of: server, network, database, web, storage.\n"
             f"server=CPU/memory/disk, network=connectivity/DNS, database=DB queries, web=HTTP/APIs, storage=NAS/SAN\n"
             f"Issue: \"{issue_description}\"\nRespond with ONE WORD only."
         )
-        text = await self._chat_once(prompt)
+        text = await self._chat_once(
+            prompt,
+            tenant_id=LlamaCppLLMService._normalise_tenant(tenant_id),
+        )
         response_lower = (text or "").lower().strip()
         for t in ["network", "database", "web", "storage", "server"]:
             if t in response_lower:
                 return t
         return "server"
     
-    async def generate_runbook_content(self, issue_description: str, service_type: str, env: str = "prod", risk: str = "low") -> Dict[str, Any]:
+    async def generate_runbook_content(
+        self,
+        issue_description: str,
+        service_type: str,
+        env: str = "prod",
+        risk: str = "low",
+        *,
+        tenant_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Generate runbook using Perplexity (deprecated, use generate_yaml_runbook)."""
         prompt = f"""
         Generate a detailed troubleshooting runbook for this IT issue:
@@ -231,7 +314,10 @@ class PerplexityLLMService:
         Provide JSON with keys: root_cause, steps (name, command, expected_output),
         verification (array), recommendations (array). Keep it concise and valid JSON.
         """
-        text = await self._chat_once(prompt)
+        text = await self._chat_once(
+            prompt,
+            tenant_id=LlamaCppLLMService._normalise_tenant(tenant_id),
+        )
         try:
             return json.loads(text)
         except Exception:
@@ -242,7 +328,16 @@ class PerplexityLLMService:
                 "recommendations": ["Monitor system performance"],
             }
     
-    async def generate_yaml_runbook(self, *, issue_description: str, service_type: str, env: str, risk: str, context: str = "") -> str:
+    async def generate_yaml_runbook(
+        self,
+        *,
+        tenant_id: int,
+        issue_description: str,
+        service_type: str,
+        env: str,
+        risk: str,
+        context: str = "",
+    ) -> str:
         """Generate YAML runbook using Perplexity with centralized prompts."""
         ctx = context[:800] if context else ""
         rendered = render_prompt(
@@ -258,7 +353,11 @@ class PerplexityLLMService:
         system_msg = rendered.get("system", "You are a precise YAML generator.")
         user_msg = rendered.get("user", "")
         
-        text = await self._chat_once_with_system(system_msg, user_msg)
+        text = await self._chat_once_with_system(
+            system_msg,
+            user_msg,
+            tenant_id=tenant_id,
+        )
         raw = text
         
         # Post-process: strip any remaining code fences
@@ -276,13 +375,30 @@ class PerplexityLLMService:
             raw = "\n".join(lines[start_idx:end_idx]).strip()
         return raw
     
-    async def _chat_once(self, prompt: str) -> str:
+    async def _chat_once(self, prompt: str, *, tenant_id: Optional[int] = None) -> str:
         """Single chat call without system message."""
-        return await self._chat_once_with_system("You are a helpful assistant.", prompt)
+        return await self._chat_once_with_system(
+            "You are a helpful assistant.",
+            prompt,
+            tenant_id=tenant_id,
+        )
     
-    async def _chat_once_with_system(self, system: str, user: str) -> str:
+    async def _chat_once_with_system(
+        self,
+        system: str,
+        user: str,
+        *,
+        tenant_id: Optional[int] = None,
+    ) -> str:
         """Make a chat completion request to Perplexity API."""
         try:
+            tenant = LlamaCppLLMService._normalise_tenant(tenant_id)
+            prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
+            await budget_manager.charge_tokens(
+                tenant_id=tenant,
+                tokens=prompt_tokens,
+                direction="prompt",
+            )
             payload = {
                 "model": self.model,
                 "messages": [
@@ -299,11 +415,21 @@ class PerplexityLLMService:
                 data = resp.json()
                 choices = data.get("choices") or []
                 if choices:
-                    return choices[0].get("message", {}).get("content", "")
+                    text = choices[0].get("message", {}).get("content", "")
+                    completion_tokens = estimate_tokens(text)
+                    if completion_tokens:
+                        await budget_manager.charge_tokens(
+                            tenant_id=tenant,
+                            tokens=completion_tokens,
+                            direction="completion",
+                        )
+                    return text
                 logger.warning(f"Perplexity: empty choices from {url}")
             else:
                 logger.error(f"Perplexity: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
+        except (LLMRateLimitExceeded, LLMBudgetExceeded):
+            raise
         except Exception as e:
             logger.error(f"Perplexity: exception calling API - {e}")
             return ""

@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -15,6 +16,7 @@ from app.core import metrics
 from app.core.config import settings
 from app.services.queue_client import RedisQueueClient
 from app.services.infrastructure_connectors import get_connector
+from app.services.idempotency import idempotency_manager
 from app.core.tracing import tracing_span
 
 logger = logging.getLogger("worker.service")
@@ -119,7 +121,20 @@ class WorkerService:
                     "worker.assignment.dispatch",
                     {"session_id": session_id, "assignment_id": assignment_id},
                 ):
-                    await self._handle_assignment(session_id, assignment_id, payload)
+                    try:
+                        await self._handle_assignment(session_id, assignment_id, payload)
+                    except Exception as exc:
+                        logger.error(
+                            "Failed processing assignment session_id=%s assignment_id=%s error=%s",
+                            session_id,
+                            assignment_id,
+                            exc,
+                        )
+                        await self._send_dead_letter(
+                            session_id=session_id,
+                            reason=str(exc),
+                            payload={**payload, "stream_id": message_id, "assignment_id": assignment_id},
+                        )
 
     async def _handle_assignment(
         self,
@@ -361,6 +376,11 @@ class WorkerService:
                             session_id,
                             exc,
                         )
+                        await self._send_dead_letter(
+                            session_id=session_id,
+                            reason=str(exc),
+                            payload={**payload, "stream_id": message_id},
+                        )
 
     async def _handle_command(
         self,
@@ -368,6 +388,20 @@ class WorkerService:
         payload: Dict[str, Any],
         stream_id: str,
     ) -> None:
+        idempotency_key = payload.get("idempotency_key")
+        release_idempotency = False
+        if idempotency_key:
+            existing = await idempotency_manager.reserve("command-exec", idempotency_key)
+            if existing:
+                logger.info(
+                    "Skipping duplicate command for session_id=%s key=%s (existing=%s)",
+                    session_id,
+                    idempotency_key,
+                    existing,
+                )
+                return
+            release_idempotency = True
+
         command_text = (payload.get("command") or "").strip()
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         if not metadata:
@@ -375,71 +409,127 @@ class WorkerService:
         connector_type, connection_config = self._resolve_connector(metadata)
         sanitized_metadata = self._sanitize_metadata(metadata)
 
-        result = await self._execute_connector_command(
-            connector_type,
-            command_text,
-            connection_config,
-            timeout=payload.get("timeout_seconds"),
-        )
+        try:
+            result = await self._execute_connector_command(
+                connector_type,
+                command_text,
+                connection_config,
+                timeout=payload.get("timeout_seconds"),
+            )
 
-        base_payload = self._compact_dict(
-            {
-                "worker_id": self.worker_id,
-                "command": command_text,
-                "reason": payload.get("reason"),
-                "shell": payload.get("shell"),
-                "run_as": payload.get("run_as"),
-                "stream_id": stream_id,
-                "metadata": sanitized_metadata or None,
-                "connection": (sanitized_metadata.get("connection") if sanitized_metadata else None),
-                "connector_type": connector_type,
-            }
-        )
-
-        if result.get("success"):
-            event_payload = self._compact_dict(
+            base_payload = self._compact_dict(
                 {
-                    **base_payload,
-                    "message": payload.get("message") or "Manual command completed",
-                    "output": result.get("output"),
-                    "exit_code": result.get("exit_code"),
-                    "duration_ms": result.get("duration_ms"),
-                    "retry_count": result.get("retry_count"),
+                    "worker_id": self.worker_id,
+                    "command": command_text,
+                    "reason": payload.get("reason"),
+                    "shell": payload.get("shell"),
+                    "run_as": payload.get("run_as"),
+                    "stream_id": stream_id,
+                    "metadata": sanitized_metadata or None,
+                    "connection": (sanitized_metadata.get("connection") if sanitized_metadata else None),
+                    "connector_type": connector_type,
+                    "idempotency_key": idempotency_key,
                 }
             )
-            await self._publish_event(
-                session_id,
-                event="session.command.completed",
-                payload=event_payload,
-            )
-        else:
-            event_payload = self._compact_dict(
+
+            if result.get("success"):
+                event_payload = self._compact_dict(
+                    {
+                        **base_payload,
+                        "message": payload.get("message") or "Manual command completed",
+                        "output": result.get("output"),
+                        "exit_code": result.get("exit_code"),
+                        "duration_ms": result.get("duration_ms"),
+                        "retry_count": result.get("retry_count"),
+                    }
+                )
+                await self._publish_event(
+                    session_id,
+                    event="session.command.completed",
+                    payload=event_payload,
+                )
+            else:
+                event_payload = self._compact_dict(
+                    {
+                        **base_payload,
+                        "error": result.get("error") or "Manual command failed",
+                        "output": result.get("output"),
+                        "exit_code": result.get("exit_code"),
+                        "duration_ms": result.get("duration_ms"),
+                        "retry_count": result.get("retry_count"),
+                    }
+                )
+                await self._publish_event(
+                    session_id,
+                    event="session.command.failed",
+                    payload=event_payload,
+                )
+                if result.get("connection_error"):
+                    await self._publish_event(
+                        session_id,
+                        event="agent.connection_failed",
+                        payload=self._compact_dict(
+                            {
+                                "worker_id": self.worker_id,
+                                "reason": result.get("error") or "Manual command connection failure",
+                                "metadata": sanitized_metadata or None,
+                            }
+                        ),
+                    )
+
+            status_value = "success" if result.get("success") else "failure"
+            if idempotency_key:
+                await idempotency_manager.commit("command-exec", idempotency_key, f"{stream_id}:{status_value}")
+                release_idempotency = False
+        except Exception as exc:
+            logger.error("Error executing manual command: %s", exc, exc_info=True)
+            failure_payload = self._compact_dict(
                 {
-                    **base_payload,
-                    "error": result.get("error") or "Manual command failed",
-                    "output": result.get("output"),
-                    "exit_code": result.get("exit_code"),
-                    "duration_ms": result.get("duration_ms"),
-                    "retry_count": result.get("retry_count"),
+                    "worker_id": self.worker_id,
+                    "command": command_text,
+                    "error": str(exc),
+                    "stream_id": stream_id,
+                    "metadata": sanitized_metadata or None,
+                    "idempotency_key": idempotency_key,
                 }
             )
             await self._publish_event(
                 session_id,
                 event="session.command.failed",
-                payload=event_payload,
+                payload=failure_payload,
             )
-            if result.get("connection_error"):
-                await self._publish_event(
-                    session_id,
-                    event="agent.connection_failed",
-                    payload=self._compact_dict(
-                        {
-                            "worker_id": self.worker_id,
-                            "reason": result.get("error") or "Manual command connection failure",
-                            "metadata": sanitized_metadata or None,
-                        }
-                    ),
-                )
+            await self._send_dead_letter(
+                session_id=session_id,
+                reason=str(exc),
+                payload={**payload, "stream_id": stream_id},
+            )
+            raise
+        finally:
+            if release_idempotency and idempotency_key:
+                await idempotency_manager.release("command-exec", idempotency_key)
+
+    async def _send_dead_letter(
+        self,
+        *,
+        session_id: Optional[int],
+        reason: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        dead_letter_payload = {
+            "session_id": session_id,
+            "worker_id": self.worker_id,
+            "reason": reason,
+            "payload": payload,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            await self.queue.publish(
+                settings.REDIS_STREAM_DEAD_LETTER,
+                dead_letter_payload,
+                approximate=False,
+            )
+        except Exception as exc:
+            logger.error("Failed to write dead-letter entry: %s", exc)
 
     def _resolve_connector(self, metadata: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         metadata = metadata or {}
@@ -544,6 +634,26 @@ class WorkerService:
         metrics.observe_connector_latency(connector_type, result["duration_ms"] / 1000.0)
 
         return result
+
+    async def _send_dead_letter(
+        self,
+        *,
+        session_id: int,
+        reason: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        try:
+            await self.queue.publish(
+                settings.REDIS_STREAM_DEAD_LETTER,
+                {
+                    "session_id": session_id,
+                    "reason": reason,
+                    "payload": payload,
+                    "worker_id": self.worker_id,
+                },
+            )
+        except Exception as exc:
+            logger.error("Failed to publish dead-letter message: %s", exc)
 
     def _sanitize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         if not metadata:

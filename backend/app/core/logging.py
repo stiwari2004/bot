@@ -1,13 +1,14 @@
 """
 Structured logging configuration with request IDs
 """
+import json
 import logging
+import re
 import sys
 import uuid
 from contextvars import ContextVar
-from typing import Optional
-import json
 from datetime import datetime
+from typing import Optional
 
 
 # Context variable to store request ID for current request
@@ -45,6 +46,30 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
+class RedactingFilter(logging.Filter):
+    """Filter that redacts common secret patterns before formatting."""
+
+    PATTERNS = [
+        re.compile(r"(password|passwd|secret|token|api[_-]?key|private[_-]?key)\s*[:=]\s*([^\s,;]+)", re.IGNORECASE),
+        re.compile(r"(Authorization|X-Api-Key|X-Access-Token)\s*[:=]\s*([^\s,;]+)", re.IGNORECASE),
+    ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+
+        redacted = message
+        for pattern in self.PATTERNS:
+            redacted = pattern.sub(lambda m: f"{m.group(1)}=***", redacted)
+
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
+
+
 def setup_logging(log_level: str = "INFO") -> None:
     """Setup structured logging configuration"""
     
@@ -62,6 +87,7 @@ def setup_logging(log_level: str = "INFO") -> None:
     # Use structured formatter
     formatter = StructuredFormatter()
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(RedactingFilter())
     
     # Add handler to root logger
     root_logger.addHandler(console_handler)

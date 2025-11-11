@@ -1,21 +1,31 @@
 /** @type {import('next').NextConfig} */
-// When running in Docker production, use backend service name; otherwise use localhost
-const isDocker = process.env.NODE_ENV === 'production';
-const apiBase =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
+// Default to “same-origin” for the browser, but always proxy to the backend service internally.
+const isDocker =
+  process.env.IN_DOCKER === '1' ||
+  process.env.IN_DOCKER === 'true' ||
+  process.env.DOCKER === '1';
+
+const internalApiBase =
+  process.env.NEXT_INTERNAL_API_BASE_URL ||
   (isDocker ? 'http://backend:8000' : 'http://localhost:8000');
+
+const publicApiBase =
+  process.env.NEXT_PUBLIC_API_BASE_URL && process.env.NEXT_PUBLIC_API_BASE_URL.trim() !== ''
+    ? process.env.NEXT_PUBLIC_API_BASE_URL.trim()
+    : '';
 
 const nextConfig = {
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: `${apiBase}/api/:path*`,
+        destination: `${internalApiBase}/api/:path*`,
       },
     ];
   },
   env: {
-    NEXT_PUBLIC_API_BASE_URL: apiBase,
+    NEXT_PUBLIC_API_BASE_URL: publicApiBase,
+    NEXT_INTERNAL_API_BASE_URL: internalApiBase,
   },
 };
 

@@ -174,6 +174,15 @@ async def approve_step(
         except:
             pass  # Use default for demo
         
+        if user_id is not None:
+            user_exists = db.query(User).filter(User.id == user_id).first()
+            if not user_exists:
+                logger.warning(
+                    "Fallback approver user_id=%s not found; proceeding without user reference.",
+                    user_id,
+                )
+                user_id = None
+
         engine = ExecutionEngine()
         session = await engine.approve_step(
             db=db,

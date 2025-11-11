@@ -1,0 +1,36 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-sbom-attestation
+  annotations:
+    policies.kyverno.io/title: Require SBOM Attestations
+    policies.kyverno.io/description: |
+      Ensures every troubleshooting agent image is deployed with an SPDX SBOM
+      attested via Cosign and recorded in Rekor.
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+    - name: verify-sbom-attestation
+      match:
+        resources:
+          kinds:
+            - Pod
+            - Deployment
+            - StatefulSet
+            - DaemonSet
+            - CronJob
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/example/troubleshooting-agent/*"
+            - "registry.example.com/troubleshooting-agent/*"
+          attestations:
+            - predicateType: https://spdx.dev/Document
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: "https://token.actions.githubusercontent.com"
+                        subject: "https://github.com/example/troubleshooting_rag/.github/workflows/*"
+              verifyDigest: true
+
+

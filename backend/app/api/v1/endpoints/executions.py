@@ -17,6 +17,7 @@ from app.models.execution_session import ExecutionSession, ExecutionStep, Execut
 from app.models.runbook import Runbook
 from app.models.runbook_usage import RunbookUsage
 from app.services.execution_orchestrator import execution_orchestrator
+from app.services.idempotency import idempotency_manager
 from app.services.queue_client import queue_client
 router = APIRouter()
 logger = get_logger(__name__)
@@ -30,6 +31,10 @@ class ExecutionSessionCreate(BaseModel):
     ticket_id: Optional[int] = None
     user_id: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        description="Optional idempotency key to avoid duplicate session creation.",
+    )
 
 
 class ExecutionStepUpdate(BaseModel):
@@ -93,6 +98,12 @@ class ManualCommandRequest(BaseModel):
     reason: Optional[str] = None
     timeout_seconds: Optional[int] = Field(default=600, ge=1)
     user_id: Optional[int] = None
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description="Optional idempotency key to avoid executing the same command twice.",
+    )
 
 
 class SessionControlRequest(BaseModel):
@@ -104,10 +115,31 @@ class SessionControlRequest(BaseModel):
 @router.post("/demo/sessions", response_model=ExecutionSessionResponse)
 async def create_execution_session(data: ExecutionSessionCreate, db: Session = Depends(get_db)):
     """Create a new execution session for a runbook"""
+    idempotency_key = (data.idempotency_key or "").strip() or None
+    reservation_committed = False
     try:
         runbook = db.query(Runbook).filter(Runbook.id == data.runbook_id).first()
         if not runbook:
             raise HTTPException(status_code=404, detail="Runbook not found")
+
+        if idempotency_key:
+            existing_id = await idempotency_manager.reserve("session", idempotency_key)
+            if existing_id:
+                if existing_id == "__PENDING__":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Session creation already in progress for provided idempotency key.",
+                    )
+                existing_session = (
+                    db.query(ExecutionSession)
+                    .filter(ExecutionSession.id == int(existing_id))
+                    .first()
+                )
+                if existing_session:
+                    payload = execution_orchestrator.serialize_session(existing_session)
+                    payload["runbook_title"] = runbook.title
+                    return ExecutionSessionResponse(**payload)
+
         tenant_id = data.tenant_id or 1
 
         session = await execution_orchestrator.enqueue_session(
@@ -118,15 +150,24 @@ async def create_execution_session(data: ExecutionSessionCreate, db: Session = D
             issue_description=data.issue_description,
             user_id=data.user_id,
             metadata=data.metadata,
+            idempotency_key=idempotency_key,
         )
 
         payload = execution_orchestrator.serialize_session(session)
         payload["runbook_title"] = runbook.title
 
+        if idempotency_key:
+            await idempotency_manager.commit("session", idempotency_key, str(session.id))
+            reservation_committed = True
+
         return ExecutionSessionResponse(**payload)
     except HTTPException:
+        if idempotency_key and not reservation_committed:
+            await idempotency_manager.release("session", idempotency_key)
         raise
     except Exception as e:
+        if idempotency_key and not reservation_committed:
+            await idempotency_manager.release("session", idempotency_key)
         db.rollback()
         logger.exception("Failed to enqueue execution session: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create execution session")
@@ -245,7 +286,22 @@ async def submit_manual_command(
     db: Session = Depends(get_db),
 ):
     """Submit a manual command to run within the execution session."""
+    idempotency_key = (payload.idempotency_key or "").strip() or None
+    reservation_committed = False
     try:
+        if idempotency_key:
+            existing = await idempotency_manager.reserve("manual-command", idempotency_key)
+            if existing:
+                if existing == "__PENDING__":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Manual command processing already in progress for provided idempotency key.",
+                    )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Duplicate manual command detected for provided idempotency key.",
+                )
+
         event_record = await execution_orchestrator.submit_manual_command(
             db,
             session_id=session_id,
@@ -255,11 +311,23 @@ async def submit_manual_command(
             reason=payload.reason,
             timeout_seconds=payload.timeout_seconds,
             user_id=payload.user_id,
+            idempotency_key=idempotency_key,
         )
+        if idempotency_key:
+            await idempotency_manager.commit(
+                "manual-command",
+                idempotency_key,
+                event_record.get("stream_id") or "",
+            )
+            reservation_committed = True
         return ExecutionEventResponse(**event_record)
     except ValueError as exc:
+        if idempotency_key and not reservation_committed:
+            await idempotency_manager.release("manual-command", idempotency_key)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        if idempotency_key and not reservation_committed:
+            await idempotency_manager.release("manual-command", idempotency_key)
         logger.exception("Failed to submit manual command: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to submit manual command")
 
@@ -374,24 +442,30 @@ async def list_all_executions(
     db: Session = Depends(get_db)
 ):
     """Get all execution sessions (paginated)"""
-    sessions = db.query(ExecutionSession).filter(
-        ExecutionSession.tenant_id == 1  # Demo tenant
-    ).order_by(ExecutionSession.started_at.desc()).limit(limit).offset(offset).all()
-    
-    result: List[Dict[str, Any]] = []
-    for session in sessions:
-        runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
-        payload = execution_orchestrator.serialize_session(session)
-        payload["runbook_title"] = runbook.title if runbook else "Unknown"
-        if session.feedback:
-            payload["feedback"] = {
-                "was_successful": session.feedback.was_successful,
-                "issue_resolved": session.feedback.issue_resolved,
-                "rating": session.feedback.rating,
-            }
-        result.append(payload)
-    
-    return ExecutionHistoryResponse(sessions=result)
+    try:
+        if limit <= 0 or limit > 500:
+            limit = 50
+        if offset < 0:
+            offset = 0
+
+        sessions = (
+            db.query(ExecutionSession)
+            .filter(ExecutionSession.tenant_id == 1)
+            .order_by(ExecutionSession.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        result: List[Dict[str, Any]] = []
+        for session in sessions:
+            payload = execution_orchestrator.serialize_session(session)
+            result.append(payload)
+
+        return ExecutionHistoryResponse(sessions=result)
+    except Exception as exc:
+        logger.exception("Failed to list execution sessions: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to load execution sessions")
 
 
 @router.websocket("/ws/sessions/{session_id}")

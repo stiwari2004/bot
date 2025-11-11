@@ -34,17 +34,43 @@ class RedisQueueClient:
         payload: Dict[str, Any],
         maxlen: Optional[int] = None,
         approximate: bool = True,
+        idempotency_key: Optional[str] = None,
+        idempotency_ttl: Optional[int] = None,
     ) -> str:
         """Append a message to a stream."""
+        if idempotency_key and "idempotency_key" not in payload:
+            payload["idempotency_key"] = idempotency_key
         message = {"payload": json.dumps(payload, default=str)}
+        ttl = max(settings.IDEMPOTENCY_TTL_SECONDS, 60)
+        if idempotency_ttl:
+            ttl = max(idempotency_ttl, 60)
+        redis_idempotency_key: Optional[str] = None
+        if idempotency_key:
+            redis_idempotency_key = f"idempotency:{stream}:{idempotency_key}"
+            # Attempt to reserve the key; if it already exists, short-circuit.
+            reserved = await self.client.set(
+                redis_idempotency_key,
+                "__pending__",
+                nx=True,
+                ex=ttl,
+            )
+            if not reserved:
+                existing = await self.client.get(redis_idempotency_key)
+                if existing:
+                    return existing
+                # If key exists without value, allow republish to proceed.
+
         trim_len = maxlen or settings.REDIS_DEFAULT_MAXLEN
         try:
-            return await self.client.xadd(
+            message_id = await self.client.xadd(
                 stream,
                 message,
                 maxlen=trim_len,
                 approximate=approximate,
             )
+            if redis_idempotency_key:
+                await self.client.set(redis_idempotency_key, message_id, ex=ttl)
+            return message_id
         except redis_exceptions.RedisError:
             logger.exception("Failed to publish message to stream %s", stream)
             raise

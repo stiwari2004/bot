@@ -182,7 +182,7 @@ class ExecutionEngine:
         db: Session,
         session_id: int,
         step_number: int,
-        user_id: int,
+        user_id: Optional[int],
         approve: bool
     ) -> ExecutionSession:
         """Approve or reject a step"""

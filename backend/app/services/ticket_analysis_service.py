@@ -2,9 +2,11 @@
 Ticket analysis service - False positive detection
 POC version - uses LLM to analyze tickets
 """
-from typing import Dict, Optional
-from app.core.logging import get_logger
 import json
+from typing import Dict, Optional
+
+from app.core.logging import get_logger
+from app.services.llm_budget_manager import LLMBudgetExceeded, LLMRateLimitExceeded
 
 logger = get_logger(__name__)
 
@@ -17,7 +19,7 @@ class TicketAnalysisService:
         from app.services.llm_service import get_llm_service
         self.llm_service = get_llm_service()
     
-    async def analyze_ticket(self, ticket_data: Dict) -> Dict:
+    async def analyze_ticket(self, ticket_data: Dict, tenant_id: Optional[int] = None) -> Dict:
         """
         Analyze ticket to determine if it's a false positive
         
@@ -30,15 +32,17 @@ class TicketAnalysisService:
         }
         """
         prompt = self._build_analysis_prompt(ticket_data)
+        tenant = tenant_id or ticket_data.get("tenant_id") or 1
         
         try:
             # Use _chat_once method which is available on all LLM services
             if hasattr(self.llm_service, '_chat_once'):
-                response = await self.llm_service._chat_once(prompt)
+                response = await self.llm_service._chat_once(prompt, tenant_id=tenant)
             elif hasattr(self.llm_service, '_chat_once_with_system'):
                 response = await self.llm_service._chat_once_with_system(
                     "You are a ticket analysis assistant.",
-                    prompt
+                    prompt,
+                    tenant_id=tenant,
                 )
             else:
                 # Fallback: try generate_response or use mock
@@ -51,6 +55,14 @@ class TicketAnalysisService:
             
             return result
             
+        except (LLMRateLimitExceeded, LLMBudgetExceeded) as budget_exc:
+            logger.warning("Ticket analysis skipped due to budget/rate limit: %s", budget_exc)
+            return {
+                "classification": "uncertain",
+                "confidence": 0.0,
+                "reasoning": str(budget_exc),
+                "suggested_action": "review",
+            }
         except Exception as e:
             logger.error(f"Error analyzing ticket: {e}")
             # Default to uncertain on error

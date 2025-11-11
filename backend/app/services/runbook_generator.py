@@ -13,6 +13,7 @@ from app.schemas.runbook import RunbookCreate, RunbookResponse
 from app.models.runbook import Runbook
 from app.services.vector_store import VectorStoreService
 from app.services.llm_service import get_llm_service
+from app.services.llm_budget_manager import LLMBudgetExceeded, LLMRateLimitExceeded
 from app.core.logging import get_logger
 import yaml
 
@@ -114,13 +115,19 @@ class RunbookGeneratorService:
             logger.debug(f"LLM provider: {type(llm).__name__} base={getattr(llm, 'base_url', None)} model_id={getattr(llm, 'model_id', None)}")
         except Exception:
             pass
-        ai_yaml = await llm.generate_yaml_runbook(
-            issue_description=issue_description,
-            service_type=service,
-            env=env,
-            risk=risk,
-            context=context,
-        )
+        try:
+            ai_yaml = await llm.generate_yaml_runbook(
+                tenant_id=tenant_id,
+                issue_description=issue_description,
+                service_type=service,
+                env=env,
+                risk=risk,
+                context=context,
+            )
+        except LLMRateLimitExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except LLMBudgetExceeded as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
         
         logger.debug(f"LLM returned YAML length={len(ai_yaml) if ai_yaml else 0}, first 500 chars: {ai_yaml[:500] if ai_yaml else 'None'}")
 

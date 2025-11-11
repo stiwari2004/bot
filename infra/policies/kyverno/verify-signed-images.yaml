@@ -1,0 +1,33 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-signed-images
+  annotations:
+    policies.kyverno.io/title: Require Signed Images
+    policies.kyverno.io/description: |
+      Blocks workloads unless container images are signed with Cosign and verified
+      against the trusted public key.
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+    - name: verify-cosign-signature
+      match:
+        resources:
+          kinds:
+            - Pod
+            - Deployment
+            - StatefulSet
+            - DaemonSet
+            - CronJob
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/example/troubleshooting-agent/*"
+            - "registry.example.com/troubleshooting-agent/*"
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subject: "https://github.com/example/troubleshooting_rag/.github/workflows/*"
+          mutateDigest: true
+
