@@ -1,0 +1,47 @@
+# Ticket CSV Upload - Sample File
+
+Save this as `tickets_sample.csv`:
+
+```csv
+title,description,severity,environment,service,source
+Database connection timeout,Unable to connect to PostgreSQL database on server db-prod-01,high,prod,database,prometheus
+Server CPU high,CPU usage above 90% on web server web-prod-01,high,prod,server,datadog
+Network latency,High latency between data centers affecting application performance,medium,prod,network,prometheus
+Disk space low,Disk usage above 85% on storage server storage-01,high,prod,storage,datadog
+Service unavailable,API service returning 500 errors,critical,prod,web,prometheus
+Memory leak,Memory usage continuously increasing on app server app-01,high,prod,server,zabbix
+Database slow queries,Database queries taking longer than 5 seconds,medium,prod,database,prometheus
+SSL certificate expiring,SSL certificate expires in 7 days,medium,prod,security,datadog
+```
+
+## Instructions:
+
+1. **Save** this content as `tickets_sample.csv`
+2. **Go to** "Upload Tickets" tab in the frontend
+3. **Select** the CSV file
+4. **Check** "Auto-execute matching runbooks" if you want automatic execution
+5. **Click** "Upload Tickets"
+
+The system will:
+- Create tickets from CSV rows
+- Analyze each ticket for false positives
+- Search for matching runbooks
+- Auto-execute if confidence ≥0.8 (if enabled)
+- Return list of created tickets with status
+
+## What Happens:
+
+1. **Ticket Created** → Status: `analyzing`
+2. **False Positive Detected** → Status: `closed`
+3. **True Positive + Runbook Found** → Status: `in_progress` → Execution starts
+4. **True Positive + No Runbook** → Status: `analyzing` → Manual runbook selection needed
+
+## To Generate Pending Approvals:
+
+1. Upload tickets with matching runbooks
+2. Ensure runbooks have approval steps (`requires_approval: true`)
+3. Check "Agent Dashboard" for pending approvals
+
+
+
+

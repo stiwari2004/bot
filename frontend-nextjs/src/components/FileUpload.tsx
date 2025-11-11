@@ -17,7 +17,6 @@ export function FileUpload({ onFileUploaded }: FileUploadProps) {
 
   const sourceTypes = [
     { value: 'doc', label: 'Documentation' },
-    { value: 'ticket', label: 'Ticket' },
     { value: 'log', label: 'Log File' },
     { value: 'slack', label: 'Slack' },
     { value: 'csv', label: 'CSV' },
@@ -76,8 +75,14 @@ export function FileUpload({ onFileUploaded }: FileUploadProps) {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Knowledge Files</h2>
-        <p className="text-gray-600">Upload documents, logs, tickets, and other files to build your knowledge base</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center">
+          <CloudArrowUpIcon className="h-7 w-7 mr-2 text-teal-600" />
+          Upload Documents
+        </h2>
+        <p className="text-gray-600">
+          Upload documentation, logs, and other files to build the knowledge base for runbook generation.
+          <strong className="text-blue-600 block mt-2">Note: For tickets, use the Tickets tab after configuring ticketing tool connections in Settings & Connections.</strong>
+        </p>
       </div>
 
       <form onSubmit={handleUpload} className="space-y-6">

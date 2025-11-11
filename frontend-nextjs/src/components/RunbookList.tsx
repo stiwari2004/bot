@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { BookOpenIcon, EyeIcon, TrashIcon, CheckCircleIcon, PlayIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { BookOpenIcon, EyeIcon, TrashIcon, CheckCircleIcon, PlayIcon, MagnifyingGlassIcon, ChartBarIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { RunbookExecutionViewer } from './RunbookExecutionViewer';
+import { RunbookMetrics } from './RunbookMetrics';
 
 interface Runbook {
   id: number;
@@ -28,6 +29,7 @@ export function RunbookList() {
   const [executingRunbook, setExecutingRunbook] = useState<Runbook | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showForceApprove, setShowForceApprove] = useState(false);
+  const [viewingMetricsFor, setViewingMetricsFor] = useState<number | null>(null);
 
   useEffect(() => {
     fetchRunbooks();
@@ -401,6 +403,37 @@ export function RunbookList() {
                 <p className="mt-1 text-sm text-gray-500">Choose a runbook from the list to view its details.</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Metrics Modal */}
+      {viewingMetricsFor && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            {/* Background overlay */}
+            <div
+              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+              onClick={() => setViewingMetricsFor(null)}
+            />
+
+            {/* Modal panel */}
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-7xl sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold text-gray-900">Runbook Metrics</h3>
+                  <button
+                    onClick={() => setViewingMetricsFor(null)}
+                    className="text-gray-400 hover:text-gray-500"
+                  >
+                    <XMarkIcon className="h-6 w-6" />
+                  </button>
+                </div>
+                <div className="max-h-[80vh] overflow-y-auto">
+                  <RunbookMetrics runbookId={viewingMetricsFor} />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

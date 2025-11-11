@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     
     # Multi-tenant
     DEFAULT_TENANT: str = "default"
+
+    # Queue / Streaming (Redis Streams)
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_STREAM_ASSIGN: str = "session.assign"
+    REDIS_STREAM_COMMAND: str = "session.command"
+    REDIS_STREAM_RESULT: str = "session.result"
+    REDIS_STREAM_EVENTS: str = "session.events"
+    REDIS_CONSUMER_GROUP_ORCHESTRATOR: str = "orchestrator"
+    REDIS_DEFAULT_MAXLEN: int = 10_000
+    WORKER_ORCHESTRATION_ENABLED: bool = True
     
     class Config:
         env_file = ".env"

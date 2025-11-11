@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.core.config import settings
 from app.core.database import init_db
@@ -61,6 +63,12 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "version": "1.0.0"}
+
+
+@app.get("/metrics")
+async def metrics_endpoint():
+    """Expose Prometheus metrics."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Test interface redirect
 @app.get("/test")

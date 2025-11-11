@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { BookOpenIcon, WrenchScrewdriverIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { apiConfig } from '@/lib/api-config';
 
 interface RunbookResponse {
   id: number;
@@ -46,11 +47,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
     setError(null);
 
     try {
-      const API_BASE = (
-        process.env.NEXT_PUBLIC_API_BASE ||
-        (typeof window !== 'undefined' && window.location.port === '3000' ? 'http://localhost:8000' : '')
-      ).replace(/\/$/, '');
-      const url = `${API_BASE}/api/v1/runbooks/demo/generate-agent`;
+      const url = apiConfig.endpoints.runbooks.generateAgent();
       const params = new URLSearchParams({
         issue_description: issueDescription,
         service: serviceType,
@@ -58,7 +55,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
         risk: riskLevel
       });
 
-      const response = await fetch(`${url}?${params}`, {
+      const response = await fetch(`${url}?${params.toString()}`, {
         method: 'POST',
       });
 

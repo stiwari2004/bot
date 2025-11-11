@@ -65,6 +65,7 @@ class RunbookParser:
             for step in spec["steps"]:
                 main_steps.append({
                     "command": step.get("command", ""),
+                    "rollback_command": step.get("rollback_command", step.get("rollback", "")),  # Support both formats
                     "description": step.get("description", ""),
                     "name": step.get("name", ""),
                     "type": step.get("type", "command"),

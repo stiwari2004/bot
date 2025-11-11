@@ -8,6 +8,7 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
+import { apiConfig } from '@/lib/api-config';
 
 interface SystemStatsProps {
   stats: any;
@@ -20,7 +21,7 @@ export function SystemStats({ stats }: SystemStatsProps) {
   const checkHealth = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/v1/test/health-detailed');
+      const response = await fetch(apiConfig.endpoints.system.healthDetailed());
       const data = await response.json();
       setHealthStatus(data);
     } catch (error) {
@@ -184,19 +185,19 @@ export function SystemStats({ stats }: SystemStatsProps) {
             <h4 className="text-md font-medium text-gray-900 mb-4">Quick Actions</h4>
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => window.open('http://localhost:8000/test', '_blank')}
+                onClick={() => window.open(apiConfig.endpoints.system.testUi(), '_blank')}
                 className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
               >
                 Open Test Interface
               </button>
               <button
-                onClick={() => window.open('http://localhost:8000/docs', '_blank')}
+                onClick={() => window.open(apiConfig.endpoints.system.docs(), '_blank')}
                 className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700"
               >
                 View API Docs
               </button>
               <button
-                onClick={() => window.open('http://localhost:8000/health', '_blank')}
+                onClick={() => window.open(apiConfig.endpoints.system.health(), '_blank')}
                 className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
               >
                 Health Check

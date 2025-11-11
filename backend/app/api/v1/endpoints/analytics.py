@@ -91,3 +91,35 @@ async def record_runbook_usage_demo(
     return result
 
 
+@router.get("/demo/runbook-quality")
+async def get_runbook_quality_metrics_demo(
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db)
+):
+    """Get comprehensive quality metrics for all runbooks"""
+    service = AnalyticsService()
+    metrics = await service.get_runbook_quality_metrics(
+        tenant_id=1,  # Demo tenant
+        db=db,
+        days=days
+    )
+    return metrics
+
+
+@router.get("/demo/runbooks/{runbook_id}/metrics")
+async def get_runbook_metrics_demo(
+    runbook_id: int,
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db)
+):
+    """Get detailed metrics for a specific runbook"""
+    service = AnalyticsService()
+    metrics = await service.get_runbook_metrics(
+        runbook_id=runbook_id,
+        tenant_id=1,  # Demo tenant
+        db=db,
+        days=days
+    )
+    return metrics
+
+

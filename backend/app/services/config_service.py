@@ -111,4 +111,28 @@ class ConfigService:
         """Get all configurations for tenant as dictionary"""
         configs = db.query(SystemConfig).filter(SystemConfig.tenant_id == tenant_id).all()
         return {config.config_key: config.config_value for config in configs}
+    
+    @staticmethod
+    def get_execution_mode(db: Session, tenant_id: int) -> str:
+        """Get execution mode: 'hil' (always require approval) or 'auto' (use threshold)"""
+        mode = ConfigService.get_config(
+            db,
+            tenant_id,
+            'execution_mode',
+            default='auto'  # Default to auto mode for backward compatibility
+        )
+        return mode.lower() if mode else 'auto'
+    
+    @staticmethod
+    def set_execution_mode(db: Session, tenant_id: int, mode: str) -> None:
+        """Set execution mode: 'hil' or 'auto'"""
+        if mode.lower() not in ['hil', 'auto']:
+            raise ValueError("Execution mode must be 'hil' or 'auto'")
+        ConfigService.set_config(
+            db,
+            tenant_id,
+            'execution_mode',
+            mode.lower(),
+            description='Execution mode: hil (always require approval) or auto (use threshold)'
+        )
 

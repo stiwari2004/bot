@@ -43,6 +43,12 @@ async def init_db():
         # Import all models to ensure they're registered
         from app.models import tenant, user, document, chunk, embedding, runbook, execution, audit
         from app.models import system_config, runbook_usage, runbook_similarity, runbook_citation
+        from app.models import ticket, credential  # New models for Phase 2
+        from app.models import execution_session  # Execution tracking + orchestration tables
+        try:
+            from app.models import ticketing_tool_connection  # Ticketing tool connections
+        except ImportError:
+            pass
         
         # Enable pgvector extension
         with engine.connect() as conn:
@@ -61,4 +67,5 @@ async def init_db():
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
+
 
