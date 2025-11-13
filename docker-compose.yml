@@ -41,6 +41,7 @@ services:
       - LLAMACPP_BASE_URL=http://host.docker.internal:8080
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
+      - ENABLE_TICKETING_POLLER=false
     depends_on:
       postgres:
         condition: service_healthy

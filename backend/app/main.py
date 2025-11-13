@@ -27,9 +27,36 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Troubleshooting AI Agent")
     await init_db()
     logger.info("Database initialized")
+    
+    # Start ticketing poller service (optional, can be disabled via env var)
+    import os
+    enable_poller = os.getenv("ENABLE_TICKETING_POLLER", "true").lower() in ("1", "true", "yes")
+    if enable_poller:
+        try:
+            from app.services.ticketing_poller import start_poller
+            await start_poller()
+            logger.info("Ticketing poller service started")
+        except Exception as e:
+            logger.error(f"Failed to start ticketing poller: {e}", exc_info=True)
+    else:
+        logger.info("Ticketing poller service disabled (ENABLE_TICKETING_POLLER=false)")
+    
     yield
     # Shutdown
     logger.info("Shutting down Troubleshooting AI Agent")
+    
+    # Stop ticketing poller service
+    try:
+        from app.services.ticketing_poller import stop_poller
+        # Use asyncio.wait_for to ensure we don't block shutdown
+        import asyncio
+        try:
+            await asyncio.wait_for(stop_poller(), timeout=5.0)
+            logger.info("Ticketing poller service stopped")
+        except asyncio.TimeoutError:
+            logger.warning("Ticketing poller service stop timed out")
+    except Exception as e:
+        logger.warning(f"Error stopping ticketing poller: {e}")
 
 
 # Create FastAPI application
@@ -54,6 +81,28 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
+
+# Include OAuth callback route directly (needs to be at /oauth/callback)
+try:
+    from app.api.v1.endpoints import ticketing_connections
+    from app.core.database import get_db
+    from fastapi import Depends, Query
+    from sqlalchemy.orm import Session
+    
+    if ticketing_connections:
+        @app.get("/oauth/callback")
+        async def oauth_callback_route(
+            code: str = Query(...),
+            state: str = Query(...),
+            error: str = Query(None),
+            db: Session = Depends(get_db)
+        ):
+            """OAuth callback handler"""
+            return await ticketing_connections.oauth_callback(
+                code=code, state=state, error=error, db=db
+            )
+except ImportError:
+    pass
 
 # Serve static files (test interface)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

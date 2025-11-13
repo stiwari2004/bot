@@ -44,12 +44,34 @@ type Stats = {
 const API_BASE = apiConfig.baseUrl;
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState('tickets'); // Start with Tickets tab
+  const [activeTab, setActiveTab] = useState('tickets'); // Default to Tickets tab
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [workspaceSessionId, setWorkspaceSessionId] = useState<number | null>(null);
+  
+  // Handle OAuth callback and tab switching from URL params (client-side only)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    
+    // Set tab from URL if present
+    if (tab) {
+      setActiveTab(tab);
+    }
+    
+    // Clean up URL params after reading them
+    if (tab || params.has('oauth_success') || params.has('oauth_error') || params.has('connection_id')) {
+      const newParams = new URLSearchParams(params);
+      newParams.delete('tab');
+      const newUrl = window.location.pathname + (newParams.toString() ? `?${newParams.toString()}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   const toggleSection = (sectionId: string) => {
     setCollapsedSections(prev => {

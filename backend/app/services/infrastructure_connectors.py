@@ -664,6 +664,177 @@ class APIConnector(InfrastructureConnector):
             }
 
 
+class NetworkClusterConnector(InfrastructureConnector):
+    """Connector that simulates establishing a session to a network cluster/controller."""
+
+    async def execute_command(
+        self,
+        command: str,
+        connection_config: Dict[str, Any],
+        timeout: int = 30,
+    ) -> Dict[str, Any]:
+        cluster = connection_config.get("cluster") or {}
+        cluster_id = cluster.get("id") or connection_config.get("cluster_id")
+        management_host = cluster.get("management_host") or connection_config.get("host")
+        transport = cluster.get("transport") or connection_config.get("transport") or "ssh"
+
+        if not cluster_id or not management_host:
+            return {
+                "success": False,
+                "output": "",
+                "error": "Network cluster connector requires cluster.id and management_host.",
+                "exit_code": -1,
+                "connection_error": True,
+            }
+
+        await asyncio.sleep(0.2)
+        message = (
+            f"[network-cluster:{cluster_id}] connected via {transport} "
+            f"({management_host})"
+        )
+        logger.info(message)
+
+        return {
+            "success": True,
+            "output": message,
+            "error": "",
+            "exit_code": 0,
+            "connection_error": False,
+            "cluster_id": cluster_id,
+        }
+
+
+class NetworkDeviceConnector(InfrastructureConnector):
+    """Connector that executes device-level commands through an existing cluster session."""
+
+    async def execute_command(
+        self,
+        command: str,
+        connection_config: Dict[str, Any],
+        timeout: int = 30,
+    ) -> Dict[str, Any]:
+        cluster = connection_config.get("cluster") or {}
+        device = connection_config.get("device") or {}
+
+        cluster_id = cluster.get("id") or connection_config.get("cluster_id")
+        device_id = device.get("id") or connection_config.get("device_id")
+        mgmt_ip = (
+            device.get("mgmt_ip")
+            or device.get("host")
+            or connection_config.get("host")
+        )
+
+        if not cluster_id:
+            return {
+                "success": False,
+                "output": "",
+                "error": "Network device metadata missing cluster identifier.",
+                "exit_code": -1,
+                "connection_error": True,
+            }
+        if not device_id or not mgmt_ip:
+            return {
+                "success": False,
+                "output": "",
+                "error": "Network device metadata requires device id and mgmt_ip/host.",
+                "exit_code": -1,
+                "connection_error": True,
+            }
+
+        command_text = (command or "").strip() or "show running-config | include hostname"
+        await asyncio.sleep(min(0.5, 0.1 + len(command_text) * 0.01))
+
+        output = (
+            f"[network-device:{device_id}] via cluster {cluster_id} "
+            f"({mgmt_ip}) -> {command_text}"
+        )
+        return {
+            "success": True,
+            "output": output,
+            "error": "",
+            "exit_code": 0,
+            "connection_error": False,
+        }
+
+
+class AzureBastionConnector(InfrastructureConnector):
+    """Connector that executes commands through Azure Bastion (simulated)."""
+
+    async def execute_command(
+        self,
+        command: str,
+        connection_config: Dict[str, Any],
+        timeout: int = 30,
+    ) -> Dict[str, Any]:
+        resource_id = (
+            connection_config.get("resource_id")
+            or connection_config.get("target_resource_id")
+        )
+        bastion_host = (
+            connection_config.get("bastion_host")
+            or connection_config.get("bastion_resource_id")
+        )
+        target_host = connection_config.get("host") or connection_config.get("target_host")
+
+        if not resource_id or not bastion_host or not target_host:
+            return {
+                "success": False,
+                "output": "",
+                "error": "Azure Bastion connector requires resource_id, bastion_host, and target_host.",
+                "exit_code": -1,
+                "connection_error": True,
+            }
+
+        exec_command = (command or "").strip() or "whoami"
+        await asyncio.sleep(min(0.5, 0.1 + len(exec_command) * 0.01))
+        output = (
+            f"[azure-bastion:{target_host}] {exec_command} (resource={resource_id})"
+        )
+        return {
+            "success": True,
+            "output": output,
+            "error": "",
+            "exit_code": 0,
+            "connection_error": False,
+        }
+
+
+class GcpIapConnector(InfrastructureConnector):
+    """Connector that executes commands through GCP IAP secure tunnel (simulated)."""
+
+    async def execute_command(
+        self,
+        command: str,
+        connection_config: Dict[str, Any],
+        timeout: int = 30,
+    ) -> Dict[str, Any]:
+        project = connection_config.get("project_id")
+        zone = connection_config.get("zone")
+        instance = connection_config.get("instance_name")
+
+        if not project or not zone or not instance:
+            return {
+                "success": False,
+                "output": "",
+                "error": "GCP IAP connector requires project_id, zone, and instance_name.",
+                "exit_code": -1,
+                "connection_error": True,
+            }
+
+        exec_command = (command or "").strip() or "uname -a"
+        await asyncio.sleep(min(0.5, 0.1 + len(exec_command) * 0.01))
+        output = (
+            f"[gcp-iap:{project}/{zone}/{instance}] {exec_command}"
+        )
+        return {
+            "success": True,
+            "output": output,
+            "error": "",
+            "exit_code": 0,
+            "connection_error": False,
+        }
+
+
 class LocalConnector(InfrastructureConnector):
     """Local connector for running commands on the agent server itself"""
     
@@ -714,6 +885,10 @@ def get_connector(connector_type: str) -> InfrastructureConnector:
         "ssm": SSMConnector(),
         "database": DatabaseConnector(),
         "api": APIConnector(),
+        "network_cluster": NetworkClusterConnector(),
+        "network_device": NetworkDeviceConnector(),
+        "azure_bastion": AzureBastionConnector(),
+        "gcp_iap": GcpIapConnector(),
         "local": LocalConnector()
     }
     

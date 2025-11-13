@@ -86,6 +86,34 @@ type ConsoleLine = {
 
 type ControlAction = 'pause' | 'resume' | 'rollback';
 
+type ConnectorType =
+  | 'winrm'
+  | 'ssh'
+  | 'aws_ssm'
+  | 'network_cluster'
+  | 'network_device'
+  | 'azure_bastion'
+  | 'gcp_iap';
+
+type NetworkClusterOption = {
+  id: string;
+  name: string;
+  description?: string;
+  vendor?: string;
+  management_host?: string;
+  transport?: string;
+  default_prompt?: string;
+};
+
+type NetworkDeviceOption = {
+  id: string;
+  name: string;
+  vendor?: string;
+  model?: string;
+  role?: string;
+  mgmt_ip?: string;
+};
+
 type ConnectionInfo = {
   host?: string;
   connector?: string;
@@ -104,6 +132,8 @@ type ConnectionInfo = {
   lastCommandStatus?: 'success' | 'error';
   lastCommandCompletedAt?: string;
   lastCommandRetries?: number;
+  clusterId?: string;
+  deviceId?: string;
 };
 
 const statusColor = (status: string) => {
@@ -207,22 +237,41 @@ const deriveSandboxProfile = (env?: string, risk?: string): string => {
   return 'default';
 };
 
-const defaultAliasForConnector = (connector: 'winrm' | 'ssh' | 'aws_ssm') => {
-  if (connector === 'winrm') return 'windows-admin';
-  if (connector === 'aws_ssm') return 'ssm-maintenance';
-  return 'linux-admin';
+const defaultAliasForConnector = (connector: ConnectorType): string | undefined => {
+  switch (connector) {
+    case 'winrm':
+      return 'windows-admin';
+    case 'aws_ssm':
+      return 'ssm-maintenance';
+    case 'ssh':
+      return 'linux-admin';
+    default:
+      return undefined;
+  }
 };
 
 const normalizeConnectorType = (
   explicit?: string,
   service?: string
-): 'winrm' | 'ssh' | 'aws_ssm' => {
+): ConnectorType => {
   const normalized = (explicit || '').toLowerCase();
   if (['winrm', 'windows', 'powershell'].includes(normalized)) {
     return 'winrm';
   }
   if (['aws_ssm', 'ssm', 'sessionmanager', 'session_manager'].includes(normalized)) {
     return 'aws_ssm';
+  }
+  if (['network_cluster', 'network-controller', 'cluster', 'netops_cluster'].includes(normalized)) {
+    return 'network_cluster';
+  }
+  if (['network_device', 'network-device', 'device', 'switch', 'router'].includes(normalized)) {
+    return 'network_device';
+  }
+  if (['azure_bastion', 'azure-bastion', 'bastion', 'azure'].includes(normalized)) {
+    return 'azure_bastion';
+  }
+  if (['gcp_iap', 'iap', 'gcp', 'google'].includes(normalized)) {
+    return 'gcp_iap';
   }
   if (['ssh', 'linux', 'unix', 'posix'].includes(normalized)) {
     return 'ssh';
@@ -234,12 +283,21 @@ const normalizeConnectorType = (
   if (serviceNormalized.includes('aws') || serviceNormalized.includes('ssm')) {
     return 'aws_ssm';
   }
+  if (serviceNormalized.includes('bastion') || serviceNormalized.includes('azure')) {
+    return 'azure_bastion';
+  }
+  if (serviceNormalized.includes('iap') || serviceNormalized.includes('gcp')) {
+    return 'gcp_iap';
+  }
+  if (serviceNormalized.includes('network') || serviceNormalized.includes('switch')) {
+    return 'network_device';
+  }
   return 'ssh';
 };
 
 const normalizeCredentialAlias = (
   source?: string,
-  connector?: 'winrm' | 'ssh' | 'aws_ssm'
+  connector?: ConnectorType
 ): string | undefined => {
   if (!source) {
     return connector ? defaultAliasForConnector(connector) : undefined;
@@ -332,7 +390,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
   const [runbooksLoading, setRunbooksLoading] = useState(false);
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const [connectConnectorType, setConnectConnectorType] =
-    useState<'winrm' | 'ssh' | 'aws_ssm'>('winrm');
+    useState<ConnectorType>('winrm');
   const [connectSubmitting, setConnectSubmitting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectHost, setConnectHost] = useState('');
@@ -348,6 +406,21 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
   const [connectPrivateKey, setConnectPrivateKey] = useState('');
   const [connectInstanceId, setConnectInstanceId] = useState('');
   const [connectRegion, setConnectRegion] = useState('');
+  const [networkClusters, setNetworkClusters] = useState<NetworkClusterOption[]>([]);
+  const [networkClustersLoading, setNetworkClustersLoading] = useState(false);
+  const [networkClusterError, setNetworkClusterError] = useState<string | null>(null);
+  const [selectedClusterId, setSelectedClusterId] = useState('');
+  const [clusterDevices, setClusterDevices] = useState<NetworkDeviceOption[]>([]);
+  const [clusterDevicesLoading, setClusterDevicesLoading] = useState(false);
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
+  const [networkEnablePassword, setNetworkEnablePassword] = useState('');
+  const [azureResourceId, setAzureResourceId] = useState('');
+  const [azureBastionHost, setAzureBastionHost] = useState('');
+  const [azureTargetHost, setAzureTargetHost] = useState('');
+  const [gcpProjectId, setGcpProjectId] = useState('');
+  const [gcpZone, setGcpZone] = useState('');
+  const [gcpInstanceName, setGcpInstanceName] = useState('');
+  const [gcpTargetHost, setGcpTargetHost] = useState('');
 
   const { events: liveBatch, connected } = useExecutionEvents(
     activeSessionId,
@@ -533,6 +606,21 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
     setConnectInstanceId('');
     setConnectRegion('');
     lastPrefillRunbookIdRef.current = null;
+    setNetworkClusters([]);
+    setNetworkClustersLoading(false);
+    setNetworkClusterError(null);
+    setSelectedClusterId('');
+    setClusterDevices([]);
+    setClusterDevicesLoading(false);
+    setSelectedDeviceId('');
+    setNetworkEnablePassword('');
+    setAzureResourceId('');
+    setAzureBastionHost('');
+    setAzureTargetHost('');
+    setGcpProjectId('');
+    setGcpZone('');
+    setGcpInstanceName('');
+    setGcpTargetHost('');
   }, []);
 
   const closeConnectModal = useCallback(() => {
@@ -590,6 +678,91 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       document.body.style.overflow = previous;
     };
   }, [connectModalOpen]);
+
+  useEffect(() => {
+    if (
+      !connectModalOpen ||
+      !['network_cluster', 'network_device'].includes(connectConnectorType)
+    ) {
+      return;
+    }
+    if (networkClusters.length > 0 || networkClustersLoading) {
+      return;
+    }
+    const fetchClusters = async () => {
+      setNetworkClustersLoading(true);
+      setNetworkClusterError(null);
+      try {
+        const response = await fetch(apiConfig.endpoints.network.clusters());
+        if (!response.ok) {
+          throw new Error(`Failed to fetch clusters (${response.status})`);
+        }
+        const payload = await response.json();
+        const clusters = Array.isArray(payload?.clusters)
+          ? (payload.clusters as NetworkClusterOption[])
+          : [];
+        setNetworkClusters(clusters);
+        if (clusters.length > 0 && !selectedClusterId) {
+          setSelectedClusterId(clusters[0].id);
+        }
+      } catch (error: any) {
+        console.error('Failed to load network clusters', error);
+        setNetworkClusterError(
+          error?.message || 'Unable to load network clusters'
+        );
+      } finally {
+        setNetworkClustersLoading(false);
+      }
+    };
+    void fetchClusters();
+  }, [
+    connectModalOpen,
+    connectConnectorType,
+    networkClusters.length,
+    networkClustersLoading,
+    selectedClusterId,
+  ]);
+
+  useEffect(() => {
+    if (!connectModalOpen || connectConnectorType !== 'network_device') {
+      return;
+    }
+    if (!selectedClusterId) {
+      setClusterDevices([]);
+      return;
+    }
+    setClusterDevicesLoading(true);
+    const fetchDevices = async () => {
+      try {
+        const response = await fetch(
+          apiConfig.endpoints.network.clusterDevices(selectedClusterId)
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to fetch devices (${response.status})`);
+        }
+        const payload = await response.json();
+        const devices = Array.isArray(payload?.devices)
+          ? (payload.devices as NetworkDeviceOption[])
+          : [];
+        setClusterDevices(devices);
+        if (devices.length > 0 && !selectedDeviceId) {
+          setSelectedDeviceId(devices[0].id);
+        }
+      } catch (error: any) {
+        console.error('Failed to load cluster devices', error);
+        setConnectError(
+          error?.message || 'Unable to load devices for selected cluster'
+        );
+      } finally {
+        setClusterDevicesLoading(false);
+      }
+    };
+    void fetchDevices();
+  }, [
+    connectModalOpen,
+    connectConnectorType,
+    selectedClusterId,
+  ]);
 
   useEffect(() => {
     if (connectModalOpen && runbooks.length > 0 && connectRunbookId === null) {
@@ -738,6 +911,69 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       if (connectUsername) {
         setConnectUsername('');
       }
+      if (connectPrivateKey) {
+        setConnectPrivateKey('');
+      }
+    } else if (
+      connectConnectorType === 'network_cluster' ||
+      connectConnectorType === 'network_device'
+    ) {
+      if (connectHost) {
+        setConnectHost('');
+      }
+      if (connectDomain) {
+        setConnectDomain('');
+      }
+      if (connectPort) {
+        setConnectPort('');
+      }
+      if (connectUseSsl) {
+        setConnectUseSsl(false);
+      }
+      if (connectInstanceId) {
+        setConnectInstanceId('');
+      }
+      if (connectRegion) {
+        setConnectRegion('');
+      }
+    } else if (connectConnectorType === 'azure_bastion') {
+      if (connectHost) {
+        setConnectHost('');
+      }
+      if (connectDomain) {
+        setConnectDomain('');
+      }
+      if (connectPort) {
+        setConnectPort('');
+      }
+      if (connectUseSsl) {
+        setConnectUseSsl(false);
+      }
+      if (connectInstanceId) {
+        setConnectInstanceId('');
+      }
+      if (connectRegion) {
+        setConnectRegion('');
+      }
+    } else if (connectConnectorType === 'gcp_iap') {
+      if (connectHost) {
+        setConnectHost('');
+      }
+      if (connectDomain) {
+        setConnectDomain('');
+      }
+      if (connectPort) {
+        setConnectPort('');
+      }
+      if (connectUseSsl) {
+        setConnectUseSsl(false);
+      }
+      if (connectInstanceId) {
+        setConnectInstanceId('');
+      }
+      if (!connectRegion) {
+        setConnectRegion('');
+      }
     }
   }, [
     connectConnectorType,
@@ -748,6 +984,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
     connectUseSsl,
     connectInstanceId,
     connectUsername,
+    connectPrivateKey,
   ]);
 
   useEffect(() => {
@@ -776,6 +1013,96 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       setConnectDomain('');
       setConnectPort('');
       setConnectUseSsl(false);
+      setSelectedClusterId('');
+      setSelectedDeviceId('');
+      setAzureResourceId('');
+      setAzureBastionHost('');
+      setAzureTargetHost('');
+      setGcpProjectId('');
+      setGcpZone('');
+      setGcpInstanceName('');
+      setGcpTargetHost('');
+      setNetworkEnablePassword('');
+    } else if (connector === 'network_cluster' || connector === 'network_device') {
+      setConnectInstanceId('');
+      setConnectRegion('');
+      setConnectHost('');
+      setConnectDomain('');
+      setConnectPort('');
+      setConnectUseSsl(false);
+      const defaults = runbookPolicy.connectionDefaults ?? {};
+      const clusterHint =
+        defaults.cluster_id ||
+        defaults.clusterId ||
+        defaults.cluster?.id ||
+        '';
+      setSelectedClusterId(clusterHint || '');
+      if (connector === 'network_device') {
+        const deviceHint =
+          defaults.device_id ||
+          defaults.deviceId ||
+          defaults.device?.id ||
+          '';
+        setSelectedDeviceId(deviceHint || '');
+      } else {
+        setSelectedDeviceId('');
+      }
+      setAzureResourceId('');
+      setAzureBastionHost('');
+      setAzureTargetHost('');
+      setGcpProjectId('');
+      setGcpZone('');
+      setGcpInstanceName('');
+      setGcpTargetHost('');
+      setNetworkEnablePassword('');
+    } else if (connector === 'azure_bastion') {
+      setConnectInstanceId('');
+      setConnectRegion('');
+      setConnectHost('');
+      setConnectDomain('');
+      setConnectPort('');
+      setConnectUseSsl(false);
+      const defaults = runbookPolicy.connectionDefaults ?? {};
+      setAzureResourceId(
+        (defaults.resource_id || defaults.resourceId || '') as string
+      );
+      setAzureBastionHost(
+        (defaults.bastion_host || defaults.bastionHost || '') as string
+      );
+      setAzureTargetHost(
+        (defaults.target_host || defaults.targetHost || runbookPolicy.hostCandidate || '') as string
+      );
+      setSelectedClusterId('');
+      setSelectedDeviceId('');
+      setNetworkEnablePassword('');
+      setGcpProjectId('');
+      setGcpZone('');
+      setGcpInstanceName('');
+      setGcpTargetHost('');
+    } else if (connector === 'gcp_iap') {
+      setConnectInstanceId('');
+      setConnectRegion('');
+      setConnectHost('');
+      setConnectDomain('');
+      setConnectPort('');
+      setConnectUseSsl(false);
+      const defaults = runbookPolicy.connectionDefaults ?? {};
+      setGcpProjectId(
+        (defaults.project_id || defaults.projectId || '') as string
+      );
+      setGcpZone((defaults.zone || '') as string);
+      setGcpInstanceName(
+        (defaults.instance_name || defaults.instanceName || '') as string
+      );
+      setGcpTargetHost(
+        (defaults.target_host || defaults.targetHost || runbookPolicy.hostCandidate || '') as string
+      );
+      setSelectedClusterId('');
+      setSelectedDeviceId('');
+      setNetworkEnablePassword('');
+      setAzureResourceId('');
+      setAzureBastionHost('');
+      setAzureTargetHost('');
     } else {
       setConnectInstanceId('');
       setConnectRegion('');
@@ -789,6 +1116,16 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       if (connector === 'winrm') {
         setConnectUseSsl(Boolean(runbookPolicy.useSsl));
       }
+      setSelectedClusterId('');
+      setSelectedDeviceId('');
+      setNetworkEnablePassword('');
+      setAzureResourceId('');
+      setAzureBastionHost('');
+      setAzureTargetHost('');
+      setGcpProjectId('');
+      setGcpZone('');
+      setGcpInstanceName('');
+      setGcpTargetHost('');
     }
 
     if (runbookPolicy.username) {
@@ -848,6 +1185,29 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
         sessionConn.connector_type ?? sessionConn.connector ?? info.connector;
       info.credentialSource =
         sessionConn.credential_source ?? info.credentialSource;
+      const clusterDetails =
+        sessionConn.cluster ??
+        sessionConn.connection?.cluster ??
+        sessionConn.metadata?.cluster;
+      if (clusterDetails) {
+        info.clusterId =
+          clusterDetails.id ??
+          clusterDetails.cluster_id ??
+          clusterDetails.name ??
+          info.clusterId;
+      }
+      const deviceDetails =
+        sessionConn.device ??
+        sessionConn.connection?.device ??
+        sessionConn.metadata?.device ??
+        target.device;
+      if (deviceDetails) {
+        info.deviceId =
+          deviceDetails.id ??
+          deviceDetails.device_id ??
+          deviceDetails.name ??
+          info.deviceId;
+      }
     }
 
     const reversedEvents = [...eventHistory].reverse();
@@ -881,6 +1241,28 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
         metadata.credential_provider ??
         info.credentialSource;
       info.workerId = assignmentEvent.payload?.worker_id ?? info.workerId;
+      const clusterDetails =
+        metadata.cluster ??
+        metadata.connection?.cluster ??
+        assignmentPayload.cluster;
+      if (clusterDetails) {
+        info.clusterId =
+          clusterDetails.id ??
+          clusterDetails.cluster_id ??
+          clusterDetails.name ??
+          info.clusterId;
+      }
+      const deviceDetails =
+        metadata.device ??
+        metadata.connection?.device ??
+        target.device;
+      if (deviceDetails) {
+        info.deviceId =
+          deviceDetails.id ??
+          deviceDetails.device_id ??
+          deviceDetails.name ??
+          info.deviceId;
+      }
     }
 
     const connectionEvent = reversedEvents.find(
@@ -894,6 +1276,15 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
         info.credentialSource ?? connectionEvent.payload?.credential_source;
       info.workerId =
         connectionEvent.payload?.worker_id ?? info.workerId;
+    }
+
+    const clusterEvent = reversedEvents.find(
+      (evt) => evt.event === 'agent.cluster_established'
+    );
+    if (clusterEvent) {
+      info.clusterId =
+        info.clusterId ?? clusterEvent.payload?.cluster_id ?? clusterEvent.payload?.cluster?.id;
+      info.workerId = info.workerId ?? clusterEvent.payload?.worker_id;
     }
 
     const connectionTimestamp = connectionEvent?.created_at
@@ -1037,6 +1428,17 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
           tone: 'success',
           timestamp: timestampLabel,
           meta: meta ? `after ${meta}` : undefined,
+        });
+        return;
+      }
+
+      if (eventName === 'agent.cluster_established') {
+        const clusterId = payload.cluster_id ?? payload.metadata?.cluster_id ?? 'cluster';
+        pushLine({
+          key: `${baseKey}:cluster`,
+          text: `Cluster session ready: ${clusterId}`,
+          tone: 'info',
+          timestamp: timestampLabel,
         });
         return;
       }
@@ -1242,6 +1644,10 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
     if (connector === 'winrm') return 'PowerShell Console';
     if (connector === 'ssh') return 'SSH Console';
     if (connector === 'aws_ssm') return 'SSM Session Console';
+    if (connector === 'network_cluster') return 'Network Cluster Console';
+    if (connector === 'network_device') return 'Network Device Console';
+    if (connector === 'azure_bastion') return 'Azure Bastion Console';
+    if (connector === 'gcp_iap') return 'GCP IAP Console';
     return 'Manual Command Console';
   }, [connectionInfo.connector]);
 
@@ -1250,12 +1656,51 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
     if (connector === 'winrm') return 'Get-Service';
     if (connector === 'ssh') return 'sudo systemctl restart app.service';
     if (connector === 'aws_ssm') return 'sudo tail -n 100 /var/log/syslog';
+    if (connector === 'network_cluster') return 'show fabric status';
+    if (connector === 'network_device') return 'show interfaces status';
+    if (connector === 'azure_bastion') return 'sudo systemctl status nginx';
+    if (connector === 'gcp_iap') return 'journalctl -n 100';
     return 'Enter command';
   }, [connectionInfo.connector]);
 
   const isWinRM = connectConnectorType === 'winrm';
   const isSSH = connectConnectorType === 'ssh';
   const isSsm = connectConnectorType === 'aws_ssm';
+  const isNetworkCluster = connectConnectorType === 'network_cluster';
+  const isNetworkDevice = connectConnectorType === 'network_device';
+  const isAzureBastion = connectConnectorType === 'azure_bastion';
+  const isGcpIap = connectConnectorType === 'gcp_iap';
+  const supportsUsername = [
+    'winrm',
+    'ssh',
+    'aws_ssm',
+    'network_cluster',
+    'network_device',
+    'azure_bastion',
+    'gcp_iap',
+  ].includes(connectConnectorType);
+  const supportsPassword = [
+    'winrm',
+    'ssh',
+    'network_cluster',
+    'network_device',
+    'azure_bastion',
+    'gcp_iap',
+    'aws_ssm',
+  ].includes(connectConnectorType);
+  const usernamePlaceholder = isWinRM
+    ? 'Administrator'
+    : isSSH
+    ? 'root'
+    : isNetworkCluster
+    ? 'netops'
+    : isNetworkDevice
+    ? 'device-admin'
+    : isAzureBastion || isGcpIap
+    ? 'ops-user'
+    : isSsm
+    ? 'ec2-user (optional)'
+    : 'operator';
 
   const handleManualCommandSubmit = useCallback(async () => {
     if (!activeSessionId) return;
@@ -1270,8 +1715,13 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       const shellHint =
         connector === 'winrm'
           ? 'powershell'
-          : connector === 'ssh' || connector === 'aws_ssm'
+          : connector === 'ssh' ||
+            connector === 'aws_ssm' ||
+            connector === 'azure_bastion' ||
+            connector === 'gcp_iap'
           ? 'bash'
+          : connector === 'network_cluster' || connector === 'network_device'
+          ? 'cli'
           : undefined;
       const response = await fetch(
         `${API_BASE}/api/v1/executions/demo/sessions/${activeSessionId}/commands`,
@@ -1417,7 +1867,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
 
     const connectorType = connectConnectorType;
     const environment = connectEnvironment.trim() || undefined;
-    const requiresHost = connectorType !== 'aws_ssm';
+    const requiresHost = connectorType === 'winrm' || connectorType === 'ssh';
     const host = connectHost.trim();
 
     if (requiresHost && !host) {
@@ -1561,6 +2011,144 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       if (connectPassword) {
         credentialsPayload.password = connectPassword;
       }
+    } else if (connectorType === 'network_cluster') {
+      if (!selectedClusterId) {
+        setConnectSubmitting(false);
+        setConnectError('Select a network cluster to connect.');
+        return;
+      }
+      const cluster = networkClusters.find((item) => item.id === selectedClusterId);
+      if (!cluster) {
+        setConnectSubmitting(false);
+        setConnectError('Selected cluster details unavailable.');
+        return;
+      }
+      metadata.shell = 'cli';
+      metadata.cluster = cluster;
+      metadata.connection = {
+        type: 'network_cluster',
+        cluster,
+        host: cluster.management_host,
+      };
+      metadata.target = {
+        cluster_id: cluster.id,
+        host: cluster.management_host,
+        service: 'network_cluster',
+        vendor: cluster.vendor,
+      };
+      if (connectUsername.trim()) {
+        credentialsPayload.username = connectUsername.trim();
+      }
+      if (connectPassword) {
+        credentialsPayload.password = connectPassword;
+      }
+    } else if (connectorType === 'network_device') {
+      if (!selectedClusterId) {
+        setConnectSubmitting(false);
+        setConnectError('Select the parent network cluster.');
+        return;
+      }
+      if (!selectedDeviceId) {
+        setConnectSubmitting(false);
+        setConnectError('Select a network device to connect.');
+        return;
+      }
+      const cluster = networkClusters.find((item) => item.id === selectedClusterId);
+      const device = clusterDevices.find((item) => item.id === selectedDeviceId);
+      if (!cluster || !device) {
+        setConnectSubmitting(false);
+        setConnectError('Unable to resolve cluster/device metadata.');
+        return;
+      }
+      metadata.shell = 'cli';
+      metadata.cluster = cluster;
+      metadata.device = device;
+      metadata.connection = {
+        type: 'network_device',
+        cluster,
+        device,
+        host: device.mgmt_ip ?? device.id,
+      };
+      metadata.target = {
+        cluster_id: cluster.id,
+        device_id: device.id,
+        host: device.mgmt_ip ?? device.id,
+        service: 'network_device',
+        vendor: device.vendor,
+      };
+      if (connectUsername.trim()) {
+        credentialsPayload.username = connectUsername.trim();
+      }
+      if (connectPassword) {
+        credentialsPayload.password = connectPassword;
+      }
+      if (networkEnablePassword.trim()) {
+        credentialsPayload.enable_password = networkEnablePassword.trim();
+      }
+    } else if (connectorType === 'azure_bastion') {
+      const resourceId = azureResourceId.trim();
+      const bastionHost = azureBastionHost.trim();
+      const targetHost = azureTargetHost.trim();
+      if (!resourceId || !bastionHost || !targetHost) {
+        setConnectSubmitting(false);
+        setConnectError(
+          'Azure Bastion requires resource ID, bastion host, and target host.'
+        );
+        return;
+      }
+      metadata.shell = 'bash';
+      metadata.connection = {
+        type: 'azure_bastion',
+        resource_id: resourceId,
+        bastion_host: bastionHost,
+        target_host: targetHost,
+        host: targetHost,
+      };
+      metadata.target = {
+        host: targetHost,
+        service: 'azure_vm',
+        environment,
+      };
+      if (connectUsername.trim()) {
+        credentialsPayload.username = connectUsername.trim();
+      }
+      if (connectPassword) {
+        credentialsPayload.password = connectPassword;
+      }
+    } else if (connectorType === 'gcp_iap') {
+      const projectId = gcpProjectId.trim();
+      const zone = gcpZone.trim();
+      const instanceName = gcpInstanceName.trim();
+      if (!projectId || !zone || !instanceName) {
+        setConnectSubmitting(false);
+        setConnectError(
+          'GCP IAP requires project ID, zone, and instance name.'
+        );
+        return;
+      }
+      metadata.shell = 'bash';
+      metadata.connection = {
+        type: 'gcp_iap',
+        project_id: projectId,
+        zone,
+        instance_name: instanceName,
+        target_host: gcpTargetHost.trim() || undefined,
+        host: gcpTargetHost.trim() || undefined,
+      };
+      metadata.target = {
+        project_id: projectId,
+        zone,
+        instance_name: instanceName,
+        host: gcpTargetHost.trim() || undefined,
+        service: 'gcp_compute',
+        environment,
+      };
+      if (connectUsername.trim()) {
+        credentialsPayload.username = connectUsername.trim();
+      }
+      if (connectPassword) {
+        credentialsPayload.password = connectPassword;
+      }
     }
 
     const credentialAlias =
@@ -1677,6 +2265,18 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
     connectPrivateKey,
     connectInstanceId,
     connectRegion,
+    networkClusters,
+    selectedClusterId,
+    clusterDevices,
+    selectedDeviceId,
+    networkEnablePassword,
+    azureResourceId,
+    azureBastionHost,
+    azureTargetHost,
+    gcpProjectId,
+    gcpZone,
+    gcpInstanceName,
+    gcpTargetHost,
     resetConnectForm,
     fetchSessions,
     fetchSessionDetail,
@@ -1837,6 +2437,15 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
         ['Connector', payload.connector_type],
         ['Environment', payload.environment],
         ['Credential source', payload.credential_source],
+      ]);
+    } else if (eventName === 'agent.cluster_established') {
+      entry.title = 'Cluster session ready';
+      entry.summary = `Cluster ${payload.cluster_id ?? '—'} connection prepared.`;
+      entry.variant = 'info';
+      entry.icon = ServerIcon;
+      entry.meta = metaFromPairs([
+        ['Worker', payload.worker_id],
+        ['Cluster', payload.cluster_id],
       ]);
     } else if (eventName === 'execution.step.started') {
       entry.title = `Step ${stepNumber ?? '—'} started`;
@@ -2019,7 +2628,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                   Connect to Configuration Item
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Launch a remote session (WinRM, SSH, or cloud connector) to execute runbook steps.
+                  Launch a remote session across servers, network clusters/devices, or cloud connectors to execute runbook steps.
                 </p>
               </div>
               <button
@@ -2046,9 +2655,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                     <select
                       value={connectConnectorType}
                       onChange={(event) =>
-                        setConnectConnectorType(
-                          event.target.value as 'winrm' | 'ssh' | 'aws_ssm'
-                        )
+                        setConnectConnectorType(event.target.value as ConnectorType)
                       }
                       disabled={connectSubmitting}
                       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
@@ -2056,6 +2663,10 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                       <option value="winrm">Windows (WinRM)</option>
                       <option value="ssh">Linux / Unix (SSH)</option>
                       <option value="aws_ssm">AWS SSM Session</option>
+                      <option value="network_cluster">Network Cluster (Controller)</option>
+                      <option value="network_device">Network Device (via Cluster)</option>
+                      <option value="azure_bastion">Azure Bastion</option>
+                      <option value="gcp_iap">GCP IAP Tunnel</option>
                     </select>
                   </div>
                   <div className="md:col-span-2">
@@ -2148,7 +2759,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                       </div>
                     )}
                   </div>
-                  {!isSsm && (
+                  {(isWinRM || isSSH) && (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
                         Target Host
@@ -2192,6 +2803,179 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
                     />
                   </div>
+                  {(isNetworkCluster || isNetworkDevice) && (
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                        Network Cluster
+                      </label>
+                      <select
+                        value={selectedClusterId}
+                        onChange={(event) => setSelectedClusterId(event.target.value)}
+                        disabled={connectSubmitting || networkClustersLoading}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                      >
+                        <option value="">
+                          {networkClustersLoading
+                            ? 'Loading clusters…'
+                            : 'Select network cluster'}
+                        </option>
+                        {networkClusters.map((cluster) => (
+                          <option key={cluster.id} value={cluster.id}>
+                            {cluster.name} ({cluster.vendor ?? 'vendor unknown'})
+                          </option>
+                        ))}
+                      </select>
+                      {networkClusterError && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {networkClusterError}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {isNetworkDevice && (
+                    <>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Network Device
+                        </label>
+                        <select
+                          value={selectedDeviceId}
+                          onChange={(event) => setSelectedDeviceId(event.target.value)}
+                          disabled={
+                            connectSubmitting ||
+                            clusterDevicesLoading ||
+                            !selectedClusterId
+                          }
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        >
+                          <option value="">
+                            {clusterDevicesLoading
+                              ? 'Loading devices…'
+                              : 'Select network device'}
+                          </option>
+                          {clusterDevices.map((device) => (
+                            <option key={device.id} value={device.id}>
+                              {device.name} ({device.mgmt_ip ?? 'IP unknown'})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Enable Password (optional)
+                        </label>
+                        <input
+                          type="password"
+                          value={networkEnablePassword}
+                          onChange={(event) =>
+                            setNetworkEnablePassword(event.target.value)
+                          }
+                          disabled={connectSubmitting}
+                          placeholder="••••••••"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                    </>
+                  )}
+                  {isAzureBastion && (
+                    <>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Target Resource ID
+                        </label>
+                        <input
+                          type="text"
+                          value={azureResourceId}
+                          onChange={(event) => setAzureResourceId(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="/subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/virtualMachines/vm01"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Bastion Host
+                        </label>
+                        <input
+                          type="text"
+                          value={azureBastionHost}
+                          onChange={(event) => setAzureBastionHost(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="bastion-vnet.azure.com"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Target Host (VM)
+                        </label>
+                        <input
+                          type="text"
+                          value={azureTargetHost}
+                          onChange={(event) => setAzureTargetHost(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="vm01.internal.corp"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                    </>
+                  )}
+                  {isGcpIap && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Project ID
+                        </label>
+                        <input
+                          type="text"
+                          value={gcpProjectId}
+                          onChange={(event) => setGcpProjectId(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="my-gcp-project"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Zone
+                        </label>
+                        <input
+                          type="text"
+                          value={gcpZone}
+                          onChange={(event) => setGcpZone(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="us-central1-a"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Instance Name
+                        </label>
+                        <input
+                          type="text"
+                          value={gcpInstanceName}
+                          onChange={(event) => setGcpInstanceName(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="compute-instance-01"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Target Host (optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={gcpTargetHost}
+                          onChange={(event) => setGcpTargetHost(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="10.10.10.10"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                    </>
+                  )}
                   {(isWinRM || isSSH) && (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
@@ -2237,7 +3021,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                       />
                     </div>
                   )}
-                  {(isWinRM || isSSH) && (
+                  {supportsUsername && (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
                         Username
@@ -2247,12 +3031,12 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                         value={connectUsername}
                         onChange={(event) => setConnectUsername(event.target.value)}
                         disabled={connectSubmitting}
-                        placeholder={isWinRM ? 'Administrator' : 'root'}
+                        placeholder={usernamePlaceholder}
                         className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
                       />
                     </div>
                   )}
-                  {(isWinRM || isSSH) && (
+                  {supportsPassword && (
                     <div>
                       <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
                         Password
@@ -2595,6 +3379,18 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-gray-500">Cluster</dt>
+                  <dd className="text-gray-900">
+                    {connectionInfo.clusterId ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500">Device</dt>
+                  <dd className="text-gray-900">
+                    {connectionInfo.deviceId ?? '—'}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-gray-500">Sandbox</dt>
                   <dd className="text-gray-900">
                     {connectionInfo.sandboxProfile ?? 'default'}
@@ -2897,6 +3693,18 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                   }
                   if (connectorVariant === 'aws_ssm') {
                     return 'Broadcast commands via AWS Systems Manager Session Manager. Use ⌘/Ctrl + Enter to send.';
+                  }
+                  if (connectorVariant === 'network_cluster') {
+                    return 'Send controller commands to the selected network cluster. Use ⌘/Ctrl + Enter to dispatch.';
+                  }
+                  if (connectorVariant === 'network_device') {
+                    return 'Queue CLI commands for the connected network device. Use ⌘/Ctrl + Enter to dispatch.';
+                  }
+                  if (connectorVariant === 'azure_bastion') {
+                    return 'Run shell commands via Azure Bastion tunnel. Use ⌘/Ctrl + Enter to send.';
+                  }
+                  if (connectorVariant === 'gcp_iap') {
+                    return 'Run shell commands over GCP Identity-Aware Proxy. Use ⌘/Ctrl + Enter to send.';
                   }
                   return 'Queue ad-hoc commands for the assigned worker. Use ⌘/Ctrl + Enter to send.';
                 })()}

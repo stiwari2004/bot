@@ -41,6 +41,7 @@ class WorkerService:
         self._last_assignment_id: Optional[int] = None
         self._current_load: int = 0
         self._session_connections: Dict[int, Dict[str, Any]] = {}
+        self._cluster_sessions: Dict[str, Dict[str, Any]] = {}
 
     async def run(self) -> None:
         """Register worker then begin polling assignment stream."""
@@ -70,7 +71,10 @@ class WorkerService:
     async def register(self) -> None:
         payload = {
             "worker_id": self.worker_id,
-            "capabilities": os.getenv("WORKER_CAPABILITIES", "ssh,winrm").split(","),
+            "capabilities": os.getenv(
+                "WORKER_CAPABILITIES",
+                "ssh,winrm,network_cluster,network_device,azure_bastion,gcp_iap",
+            ).split(","),
             "network_segment": os.getenv("WORKER_NETWORK_SEGMENT"),
             "environment": os.getenv("WORKER_ENVIRONMENT", "dev"),
             "max_concurrency": int(os.getenv("WORKER_MAX_CONCURRENCY", "1")),
@@ -163,6 +167,7 @@ class WorkerService:
             metadata = (payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}
             self._session_connections[session_id] = metadata
             connector_type, connection_config = self._resolve_connector(metadata)
+            cluster_meta = connection_config.get("cluster") or metadata.get("cluster") or {}
             target_host = connection_config.get("host") or connection_config.get("instance_id")
             sanitized_metadata = self._sanitize_metadata(metadata)
             steps: List[Dict[str, Any]] = payload.get("steps", [])
@@ -191,6 +196,13 @@ class WorkerService:
                     },
                 )
                 return
+
+            if connector_type == "network_device":
+                cluster_ready = await self._ensure_cluster_session(cluster_meta or {}, session_id)
+                if not cluster_ready:
+                    return
+            elif connector_type == "network_cluster":
+                await self._ensure_cluster_session(cluster_meta or {}, session_id)
 
             connection_payload = self._compact_dict(
                 {
@@ -408,6 +420,27 @@ class WorkerService:
             metadata = self._session_connections.get(session_id, {})
         connector_type, connection_config = self._resolve_connector(metadata)
         sanitized_metadata = self._sanitize_metadata(metadata)
+        cluster_meta = connection_config.get("cluster") or metadata.get("cluster") or {}
+
+        if connector_type == "network_device":
+            cluster_ready = await self._ensure_cluster_session(cluster_meta or {}, session_id)
+            if not cluster_ready:
+                failure_payload = self._compact_dict(
+                    {
+                        "worker_id": self.worker_id,
+                        "command": command_text,
+                        "reason": "Cluster session unavailable",
+                        "metadata": sanitized_metadata or None,
+                        "connector_type": connector_type,
+                        "idempotency_key": idempotency_key,
+                    }
+                )
+                await self._publish_event(
+                    session_id,
+                    event="session.command.failed",
+                    payload=failure_payload,
+                )
+                return
 
         try:
             result = await self._execute_connector_command(
@@ -531,11 +564,77 @@ class WorkerService:
         except Exception as exc:
             logger.error("Failed to write dead-letter entry: %s", exc)
 
+    async def _ensure_cluster_session(
+        self,
+        cluster_metadata: Dict[str, Any],
+        session_id: int,
+    ) -> bool:
+        """Ensure a network cluster session is active before touching downstream devices."""
+        if not cluster_metadata:
+            return True
+        cluster_id = cluster_metadata.get("id") or cluster_metadata.get("cluster_id")
+        if not cluster_id:
+            return True
+        if cluster_id in self._cluster_sessions:
+            return True
+
+        timeout_seconds = int(cluster_metadata.get("timeout_seconds") or 30)
+        result = await self._execute_connector_command(
+            "network_cluster",
+            "establish",
+            {"cluster": cluster_metadata},
+            timeout=timeout_seconds,
+        )
+        if result.get("success"):
+            self._cluster_sessions[cluster_id] = {
+                "metadata": cluster_metadata,
+                "session_id": session_id,
+                "connected_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await self._publish_event(
+                session_id,
+                event="agent.cluster_established",
+                payload=self._compact_dict(
+                    {
+                        "worker_id": self.worker_id,
+                        "cluster_id": cluster_id,
+                        "metadata": self._sanitize_metadata({"cluster": cluster_metadata}).get("cluster"),
+                    }
+                ),
+            )
+            return True
+
+        await self._publish_event(
+            session_id,
+            event="agent.connection_failed",
+            payload=self._compact_dict(
+                {
+                    "worker_id": self.worker_id,
+                    "cluster_id": cluster_id,
+                    "reason": result.get("error") or "Failed to establish cluster session",
+                    "metadata": self._sanitize_metadata({"cluster": cluster_metadata}).get("cluster"),
+                }
+            ),
+        )
+        return False
+
     def _resolve_connector(self, metadata: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         metadata = metadata or {}
         connection = metadata.get("connection") or {}
         target = metadata.get("target") or {}
         credentials = metadata.get("credentials") or metadata.get("credential") or {}
+        cluster_meta = (
+            metadata.get("cluster")
+            or connection.get("cluster")
+            or target.get("cluster")
+            or {}
+        )
+        device_meta = (
+            metadata.get("device")
+            or connection.get("device")
+            or target.get("device")
+            or {}
+        )
 
         connector_type = (
             metadata.get("connector_type")
@@ -544,7 +643,14 @@ class WorkerService:
             or "ssh"
         ).lower()
 
-        host = connection.get("host") or target.get("host") or metadata.get("host")
+        host = (
+            connection.get("host")
+            or target.get("host")
+            or metadata.get("host")
+            or cluster_meta.get("management_host")
+            or device_meta.get("mgmt_ip")
+            or device_meta.get("host")
+        )
         config = {
             "host": host,
             "port": connection.get("port") or metadata.get("port"),
@@ -561,6 +667,14 @@ class WorkerService:
             "region": connection.get("region") or target.get("region"),
             "shell": metadata.get("shell") or connection.get("shell") or ("powershell" if connector_type == "winrm" else "bash"),
             "timeout": metadata.get("timeout_seconds"),
+            "cluster": cluster_meta or None,
+            "device": device_meta or None,
+            "resource_id": connection.get("resource_id") or metadata.get("resource_id"),
+            "bastion_host": connection.get("bastion_host") or metadata.get("bastion_host"),
+            "target_host": connection.get("target_host") or target.get("host"),
+            "project_id": connection.get("project_id") or metadata.get("project_id"),
+            "zone": connection.get("zone") or metadata.get("zone"),
+            "instance_name": connection.get("instance_name") or metadata.get("instance_name"),
         }
         return connector_type, self._compact_dict(config)
 

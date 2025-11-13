@@ -2,7 +2,21 @@
 API v1 router configuration
 """
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, documents, search, runbooks, upload, test, demo, test_auth, tickets, analytics, executions, agent_workers
+from app.api.v1.endpoints import (
+    auth,
+    documents,
+    search,
+    runbooks,
+    upload,
+    test,
+    demo,
+    test_auth,
+    tickets,
+    analytics,
+    executions,
+    agent_workers,
+    network,
+)
 
 # Import new Phase 2 endpoints
 try:
@@ -42,6 +56,7 @@ if ticket_ingestion:
     api_router.include_router(ticket_ingestion.router, prefix="/tickets", tags=["ticket-ingestion"])
 if agent_execution:
     api_router.include_router(agent_execution.router, prefix="/agent", tags=["agent-execution"])
+api_router.include_router(network.router, prefix="/network", tags=["network"])
 if ticket_csv_upload:
     api_router.include_router(ticket_csv_upload.router, prefix="/tickets", tags=["ticket-csv-upload"])
 try:
