@@ -28,8 +28,36 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
     
-    # Start ticketing poller service (optional, can be disabled via env var)
+    # Preload embedding model to avoid first-request delay
+    # Use lazy loading with timeout to prevent blocking startup on constrained systems
+    # On 6GB RAM systems, model loading can take 2-3 minutes or fail
     import os
+    preload_embedding = os.getenv("PRELOAD_EMBEDDING_MODEL", "false").lower() in ("1", "true", "yes")
+    
+    if preload_embedding:
+        try:
+            logger.info("Preloading embedding model (this may take 30-60 seconds)...")
+            import asyncio
+            from app.core.vector_store import get_shared_embedding_model
+            
+            # Load model with timeout to prevent infinite blocking
+            try:
+                model = await asyncio.wait_for(
+                    asyncio.to_thread(get_shared_embedding_model),
+                    timeout=120.0  # 2 minute timeout
+                )
+                logger.info(f"✅ Embedding model loaded: {settings.EMBEDDING_MODEL}")
+            except asyncio.TimeoutError:
+                logger.warning("Embedding model loading timed out after 2 minutes")
+                logger.warning("Model will be loaded on first use (may cause delay)")
+        except Exception as e:
+            logger.error(f"Failed to preload embedding model: {e}", exc_info=True)
+            logger.warning("Embedding model will be loaded on first use (may cause delay)")
+    else:
+        logger.info("Embedding model preloading disabled (PRELOAD_EMBEDDING_MODEL=false)")
+        logger.info("Model will be loaded on first use (lazy loading)")
+    
+    # Start ticketing poller service (optional, can be disabled via env var)
     enable_poller = os.getenv("ENABLE_TICKETING_POLLER", "true").lower() in ("1", "true", "yes")
     if enable_poller:
         try:

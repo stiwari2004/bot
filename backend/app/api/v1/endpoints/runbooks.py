@@ -54,19 +54,92 @@ async def generate_agent_runbook_demo(
     db: Session = Depends(get_db)
 ):
     """Generate an agent-ready YAML runbook (demo tenant)."""
+    from app.core.logging import get_logger
+    import json
+    logger = get_logger(__name__)
     try:
+        # Check for existing runbooks with the same issue description
+        tenant_id = 1  # Demo tenant
+        existing_runbooks = db.query(Runbook).filter(
+            Runbook.tenant_id == tenant_id
+        ).all()
+        
+        # Normalize issue description for comparison
+        normalized_issue = issue_description.lower().strip()
+        
+        for existing_rb in existing_runbooks:
+            if existing_rb.meta_data:
+                try:
+                    meta = json.loads(existing_rb.meta_data) if isinstance(existing_rb.meta_data, str) else existing_rb.meta_data
+                    
+                    # Check multiple fields for matching:
+                    # 1. issue_description in meta_data
+                    existing_issue = meta.get('issue_description', '').lower().strip()
+                    
+                    # 2. description in runbook_spec (this is where the issue description is stored)
+                    runbook_spec = meta.get('runbook_spec', {})
+                    existing_description = runbook_spec.get('description', '').lower().strip()
+                    
+                    # Extract the core issue from description (remove the "This issue requires..." part)
+                    if existing_description:
+                        # Split by "This issue requires" or similar patterns to get just the issue part
+                        issue_part = existing_description.split('this issue requires')[0].strip()
+                        if issue_part:
+                            existing_description = issue_part
+                    
+                    # Check if issue descriptions match (exact match or one contains the other)
+                    is_duplicate = False
+                    if normalized_issue:
+                        # Check against issue_description
+                        if existing_issue:
+                            if (normalized_issue == existing_issue or 
+                                normalized_issue in existing_issue or 
+                                existing_issue in normalized_issue):
+                                is_duplicate = True
+                        
+                        # Check against runbook description (more reliable)
+                        if existing_description and not is_duplicate:
+                            # Extract core issue from normalized_issue for comparison
+                            core_issue = normalized_issue.split('.')[0].strip()  # Get first sentence
+                            if (core_issue in existing_description or 
+                                existing_description.startswith(core_issue) or
+                                normalized_issue in existing_description):
+                                is_duplicate = True
+                    
+                    if is_duplicate:
+                        logger.warning(f"Duplicate runbook detected: existing ID {existing_rb.id}, title: {existing_rb.title}")
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "error": "duplicate_runbook",
+                                "message": f"A runbook already exists for this issue: '{existing_rb.title}' (ID: {existing_rb.id})",
+                                "existing_runbook_id": existing_rb.id,
+                                "existing_runbook_title": existing_rb.title
+                            }
+                        )
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.debug(f"Error checking duplicate for runbook {existing_rb.id}: {e}")
+                    continue
+        
         generator = RunbookGeneratorService()
         runbook = await generator.generate_agent_runbook(
             issue_description=issue_description,
-            tenant_id=1,
+            tenant_id=tenant_id,
             db=db,
             service=service,
             env=env,
             risk=risk
         )
         return runbook
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is (they already have proper error messages)
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {str(e)}")
+        # Log the full exception for debugging
+        import traceback
+        error_detail = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+        logger.error(f"Runbook generation error: {error_detail}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Agent runbook generation failed: {error_detail}")
 
 
 @router.get("/demo", response_model=List[RunbookResponse])

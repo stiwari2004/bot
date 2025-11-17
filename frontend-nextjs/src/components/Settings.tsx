@@ -191,8 +191,8 @@ export function Settings() {
         const errorMessage = errorData.detail || 'Failed to get authorization URL';
         
         // For ManageEngine, provide helpful guidance if credentials are missing
-        if (toolName === 'manageengine' && errorMessage.includes('API credentials required')) {
-          setError('Please configure API credentials first. Click "Edit" to add your API Key/Secret or Username/Password before logging in.');
+        if (toolName === 'manageengine' && errorMessage.includes('Client ID not configured')) {
+          setError('Please configure OAuth credentials first. Click "Edit" to add your Client ID and Client Secret before authorizing.');
           setTimeout(() => setError(null), 8000);
           return;
         }
@@ -202,28 +202,8 @@ export function Settings() {
 
       const data = await response.json();
       
-      if (toolName === 'manageengine') {
-        // For ManageEngine, open login page in new window
-        // User will login with their ManageEngine credentials
-        const loginWindow = window.open(
-          data.authorization_url || data.login_url,
-          'manageengine_login',
-          'width=1000,height=700,scrollbars=yes,resizable=yes'
-        );
-        
-        if (!loginWindow) {
-          // Popup blocked, redirect instead
-          if (confirm('Popup was blocked. Redirect to ManageEngine login page instead?')) {
-            window.location.href = data.authorization_url || data.login_url;
-          }
-        } else {
-          setSuccess(`ManageEngine login page opened. Please log in with your Zoho/ManageEngine credentials. After logging in, close the window and click "Test" to verify the connection.`);
-          setTimeout(() => setSuccess(null), 10000);
-        }
-      } else {
-        // For Zoho, redirect to OAuth authorization page
-        window.location.href = data.authorization_url;
-      }
+      // Both Zoho and ManageEngine use OAuth 2.0, redirect to authorization page
+      window.location.href = data.authorization_url;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start authorization');
     }
@@ -477,9 +457,9 @@ export function Settings() {
                             <button
                               onClick={() => handleAuthorizeConnection(connection.id, connection.tool_name)}
                               className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                              title={connection.tool_name === 'zoho' ? 'Authorize Zoho OAuth' : 'Login to ManageEngine'}
+                              title={connection.tool_name === 'zoho' ? 'Authorize Zoho OAuth' : 'Authorize ManageEngine OAuth'}
                             >
-                              {connection.tool_name === 'manageengine' ? 'Login' : 'Authorize'}
+                              Authorize
                             </button>
                           )}
                         </>
@@ -570,6 +550,10 @@ function AddConnectionModal({ availableTools, onClose, onSuccess }: AddConnectio
   const [apiKey, setApiKey] = useState('');
   const [apiUsername, setApiUsername] = useState('');
   const [apiPassword, setApiPassword] = useState('');
+  // OAuth fields for Zoho and ManageEngine
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [redirectUri, setRedirectUri] = useState('http://localhost:8000/oauth/callback');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -604,9 +588,22 @@ function AddConnectionModal({ availableTools, onClose, onSuccess }: AddConnectio
           webhookUrl || apiConfig.endpoints.tickets.webhook(selectedTool);
       } else {
         payload.api_base_url = apiBaseUrl;
-        payload.api_key = apiKey;
-        payload.api_username = apiUsername;
-        payload.api_password = apiPassword;
+        
+        // For Zoho and ManageEngine, use OAuth fields (Client ID/Secret)
+        if (selectedTool === 'zoho' || selectedTool === 'manageengine') {
+          const meta: any = {};
+          if (clientId) meta.client_id = clientId;
+          if (clientSecret) meta.client_secret = clientSecret;
+          if (redirectUri) meta.redirect_uri = redirectUri;
+          if (Object.keys(meta).length > 0) {
+            payload.meta_data = meta;
+          }
+        } else {
+          // For other tools, use API key/username-password
+          payload.api_key = apiKey;
+          payload.api_username = apiUsername;
+          payload.api_password = apiPassword;
+        }
       }
 
       const response = await fetch(apiConfig.endpoints.settings.ticketingConnections(), {
@@ -722,33 +719,87 @@ function AddConnectionModal({ availableTools, onClose, onSuccess }: AddConnectio
                       type="text"
                       value={apiBaseUrl}
                       onChange={(e) => setApiBaseUrl(e.target.value)}
-                      placeholder="https://your-instance.service-now.com"
+                      placeholder={selectedTool === 'manageengine' ? 'https://sdpondemand.manageengine.in' : 'https://your-instance.service-now.com'}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
                       required
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      API Key / Username
-                    </label>
-                    <input
-                      type="text"
-                      value={apiUsername}
-                      onChange={(e) => setApiUsername(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      API Password / Token
-                    </label>
-                    <input
-                      type="password"
-                      value={apiPassword}
-                      onChange={(e) => setApiPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
+                  
+                  {/* OAuth fields for Zoho and ManageEngine */}
+                  {(selectedTool === 'zoho' || selectedTool === 'manageengine') ? (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Client ID *
+                        </label>
+                        <input
+                          type="text"
+                          value={clientId}
+                          onChange={(e) => setClientId(e.target.value)}
+                          placeholder={`Your ${selectedTool === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client ID`}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          required
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Register your app at {selectedTool === 'zoho' ? 'https://api-console.zoho.com' : 'https://api-console.zoho.com'} to get Client ID and Secret
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Client Secret *
+                        </label>
+                        <input
+                          type="password"
+                          value={clientSecret}
+                          onChange={(e) => setClientSecret(e.target.value)}
+                          placeholder={`Your ${selectedTool === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client Secret`}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Redirect URI
+                        </label>
+                        <input
+                          type="text"
+                          value={redirectUri}
+                          onChange={(e) => setRedirectUri(e.target.value)}
+                          placeholder="http://localhost:8000/oauth/callback"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Configure this redirect URI in your OAuth app settings
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Generic API credentials for other tools */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          API Key / Username
+                        </label>
+                        <input
+                          type="text"
+                          value={apiUsername}
+                          onChange={(e) => setApiUsername(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          API Password / Token
+                        </label>
+                        <input
+                          type="password"
+                          value={apiPassword}
+                          onChange={(e) => setApiPassword(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
@@ -812,11 +863,13 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
           ? JSON.parse(connection.meta_data) 
           : connection.meta_data;
         
-        if (connection.tool_name === 'zoho') {
+        if (connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') {
+          // Both Zoho and ManageEngine use OAuth
           setClientId(meta.client_id || '');
           setClientSecret(meta.client_secret ? '••••••••' : '');
           setRedirectUri(meta.redirect_uri || 'http://localhost:8000/oauth/callback');
-        } else if (connection.tool_name === 'manageengine') {
+        } else {
+          // Other tools use API key/username-password
           setApiSecret(meta.api_secret ? '••••••••' : '');
           if (meta.api_key || connection.api_key) {
             setAuthMethod('api_key');
@@ -849,8 +902,8 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
         sync_interval_minutes: syncIntervalMinutes,
       };
 
-      // Zoho OAuth fields
-      if (connection.tool_name === 'zoho') {
+      // Zoho and ManageEngine OAuth fields (both use same OAuth flow)
+      if (connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') {
         const meta: any = {};
         if (clientId) meta.client_id = clientId;
         if (clientSecret && clientSecret !== '••••••••') {
@@ -861,8 +914,8 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
           payload.meta_data = meta;
         }
       }
-      // ManageEngine auth
-      else if (connection.tool_name === 'manageengine') {
+      // Other tools use API key/username-password
+      else {
         const meta: any = {};
         if (authMethod === 'api_key') {
           if (apiKey) payload.api_key = apiKey;
@@ -876,12 +929,6 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;
         }
-      }
-      // Other tools
-      else {
-        if (apiKey) payload.api_key = apiKey;
-        if (apiUsername) payload.api_username = apiUsername;
-        if (apiPassword) payload.api_password = apiPassword;
       }
 
       const response = await fetch(
@@ -955,8 +1002,8 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
                 />
               </div>
 
-              {/* Zoho OAuth fields */}
-              {connection.tool_name === 'zoho' && (
+              {/* Zoho and ManageEngine OAuth fields (both use same OAuth flow) */}
+              {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') && (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -966,7 +1013,7 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
                       type="text"
                       value={clientId}
                       onChange={(e) => setClientId(e.target.value)}
-                      placeholder="Your Zoho OAuth Client ID"
+                      placeholder={`Your ${connection.tool_name === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client ID`}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
@@ -999,8 +1046,8 @@ function EditConnectionModal({ connection, availableTools, onClose, onSuccess }:
                 </>
               )}
 
-              {/* ManageEngine auth options */}
-              {connection.tool_name === 'manageengine' && (
+              {/* Other tools auth options */}
+              {connection.tool_name !== 'zoho' && connection.tool_name !== 'manageengine' && (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

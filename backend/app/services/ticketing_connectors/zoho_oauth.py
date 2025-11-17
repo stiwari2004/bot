@@ -17,9 +17,31 @@ logger = get_logger(__name__)
 class ZohoOAuthService:
     """Service for handling Zoho OAuth2 flow"""
     
-    ZOHO_AUTH_URL = "https://accounts.zoho.com/oauth/v2/auth"
-    ZOHO_TOKEN_URL = "https://accounts.zoho.com/oauth/v2/token"
-    ZOHO_REFRESH_URL = "https://accounts.zoho.com/oauth/v2/token"
+    # Default to .com, but support .in for Indian accounts
+    DEFAULT_DOMAIN = "com"
+    AUTH_URL_TEMPLATE = "https://accounts.zoho.{domain}/oauth/v2/auth"
+    TOKEN_URL_TEMPLATE = "https://accounts.zoho.{domain}/oauth/v2/token"
+    
+    def _get_domain(self, client_id: Optional[str] = None) -> str:
+        """
+        Determine Zoho domain based on client_id or default to .com
+        For Indian accounts (api-console.zoho.in), use .in
+        """
+        # Check if client_id starts with specific patterns for Indian accounts
+        # Indian accounts typically use api-console.zoho.in
+        # For now, default to .com, but could be enhanced to detect from client_id
+        # or allow it to be configured per connection
+        return self.DEFAULT_DOMAIN
+    
+    def _get_auth_url(self, domain: Optional[str] = None) -> str:
+        """Get authorization URL for the specified domain"""
+        domain = domain or self._get_domain()
+        return self.AUTH_URL_TEMPLATE.format(domain=domain)
+    
+    def _get_token_url(self, domain: Optional[str] = None) -> str:
+        """Get token URL for the specified domain"""
+        domain = domain or self._get_domain()
+        return self.TOKEN_URL_TEMPLATE.format(domain=domain)
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -29,7 +51,8 @@ class ZohoOAuthService:
         client_id: str,
         redirect_uri: str,
         scopes: list = None,
-        state: Optional[str] = None
+        state: Optional[str] = None,
+        domain: Optional[str] = None
     ) -> str:
         """
         Generate OAuth2 authorization URL for Zoho
@@ -58,7 +81,8 @@ class ZohoOAuthService:
             "state": state
         }
         
-        url = f"{self.ZOHO_AUTH_URL}?{urllib.parse.urlencode(params)}"
+        auth_url = self._get_auth_url(domain)
+        url = f"{auth_url}?{urllib.parse.urlencode(params)}"
         return url
     
     async def exchange_code_for_tokens(
@@ -66,7 +90,8 @@ class ZohoOAuthService:
         code: str,
         client_id: str,
         client_secret: str,
-        redirect_uri: str
+        redirect_uri: str,
+        domain: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Exchange authorization code for access and refresh tokens
@@ -89,17 +114,34 @@ class ZohoOAuthService:
                 "code": code
             }
             
+            # Log request details (without secret)
+            logger.info(f"Zoho token exchange request: client_id={client_id[:10]}..., redirect_uri={redirect_uri}, code={code[:20]}...")
+            
+            token_url = self._get_token_url(domain)
             response = await self.client.post(
-                self.ZOHO_TOKEN_URL,
+                token_url,
                 data=data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
             )
-            response.raise_for_status()
             
-            # Log raw response for debugging
+            # Log response before raising
             response_text = response.text
             logger.info(f"Zoho token response status: {response.status_code}")
-            logger.info(f"Zoho token response text (first 200 chars): {response_text[:200]}")
+            logger.info(f"Zoho token response text (first 500 chars): {response_text[:500]}")
+            
+            # Check for errors before raising
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("error_description") or error_data.get("error") or response_text
+                    logger.error(f"Zoho OAuth token exchange failed: {error_msg}")
+                    logger.error(f"Full error response: {error_data}")
+                    raise Exception(f"Zoho OAuth error: {error_msg}")
+                except:
+                    logger.error(f"Zoho OAuth token exchange failed with status {response.status_code}: {response_text}")
+                    raise Exception(f"Zoho OAuth error: HTTP {response.status_code} - {response_text[:200]}")
+            
+            response.raise_for_status()
             
             try:
                 token_data = response.json()
@@ -147,7 +189,8 @@ class ZohoOAuthService:
         self,
         refresh_token: str,
         client_id: str,
-        client_secret: str
+        client_secret: str,
+        domain: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Refresh access token using refresh token
@@ -168,8 +211,9 @@ class ZohoOAuthService:
                 "refresh_token": refresh_token
             }
             
+            refresh_url = self._get_token_url(domain)  # Refresh uses same URL as token
             response = await self.client.post(
-                self.ZOHO_REFRESH_URL,
+                refresh_url,
                 data=data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
             )

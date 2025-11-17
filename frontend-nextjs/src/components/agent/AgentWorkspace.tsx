@@ -417,6 +417,9 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
   const [azureResourceId, setAzureResourceId] = useState('');
   const [azureBastionHost, setAzureBastionHost] = useState('');
   const [azureTargetHost, setAzureTargetHost] = useState('');
+  const [azureTenantId, setAzureTenantId] = useState('');
+  const [azureClientId, setAzureClientId] = useState('');
+  const [azureClientSecret, setAzureClientSecret] = useState('');
   const [gcpProjectId, setGcpProjectId] = useState('');
   const [gcpZone, setGcpZone] = useState('');
   const [gcpInstanceName, setGcpInstanceName] = useState('');
@@ -617,6 +620,9 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
     setAzureResourceId('');
     setAzureBastionHost('');
     setAzureTargetHost('');
+    setAzureTenantId('');
+    setAzureClientId('');
+    setAzureClientSecret('');
     setGcpProjectId('');
     setGcpZone('');
     setGcpInstanceName('');
@@ -2089,26 +2095,48 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
       const resourceId = azureResourceId.trim();
       const bastionHost = azureBastionHost.trim();
       const targetHost = azureTargetHost.trim();
-      if (!resourceId || !bastionHost || !targetHost) {
+      if (!resourceId) {
         setConnectSubmitting(false);
         setConnectError(
-          'Azure Bastion requires resource ID, bastion host, and target host.'
+          'Azure requires VM Resource ID (e.g., /subscriptions/.../virtualMachines/vm01).'
         );
         return;
       }
-      metadata.shell = 'bash';
+      
+      // Azure credentials (optional - can use DefaultAzureCredential if running in Azure)
+      const tenantId = azureTenantId.trim();
+      const clientId = azureClientId.trim();
+      const clientSecret = azureClientSecret.trim();
+      
+      metadata.shell = 'bash';  // Default to bash, can be overridden by VM OS
       metadata.connection = {
         type: 'azure_bastion',
         resource_id: resourceId,
-        bastion_host: bastionHost,
-        target_host: targetHost,
-        host: targetHost,
+        host: targetHost || resourceId.split('/').pop() || '',
+        ...(bastionHost ? { bastion_host: bastionHost } : {}),
+        ...(targetHost ? { target_host: targetHost } : {}),
       };
+      
+      // Add Azure credentials if provided
+      if (tenantId && clientId && clientSecret) {
+        metadata.connection.azure_credentials = {
+          tenant_id: tenantId,
+          client_id: clientId,
+          client_secret: clientSecret,
+        };
+        metadata.connection.tenant_id = tenantId;
+        metadata.connection.client_id = clientId;
+        metadata.connection.client_secret = clientSecret;
+      }
+      
       metadata.target = {
-        host: targetHost,
+        host: targetHost || resourceId.split('/').pop() || '',
         service: 'azure_vm',
-        environment,
+        resource_id: resourceId,
+        ...(environment ? { environment } : {}),
       };
+      
+      // VM username/password (for Run Command, username determines the user context)
       if (connectUsername.trim()) {
         credentialsPayload.username = connectUsername.trim();
       }
@@ -2881,7 +2909,7 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                     <>
                       <div className="md:col-span-2">
                         <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
-                          Target Resource ID
+                          VM Resource ID *
                         </label>
                         <input
                           type="text"
@@ -2890,11 +2918,15 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                           disabled={connectSubmitting}
                           placeholder="/subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/virtualMachines/vm01"
                           className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                          required
                         />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Full Azure VM resource ID (required). Uses Azure Run Command API - no public IP needed.
+                        </p>
                       </div>
                       <div>
                         <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
-                          Bastion Host
+                          Bastion Host (Optional)
                         </label>
                         <input
                           type="text"
@@ -2904,17 +2936,67 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
                           placeholder="bastion-vnet.azure.com"
                           className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
                         />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Only needed for SSH through Bastion (not required for Run Command)
+                        </p>
                       </div>
                       <div>
                         <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
-                          Target Host (VM)
+                          Target Host (Optional)
                         </label>
                         <input
                           type="text"
                           value={azureTargetHost}
                           onChange={(event) => setAzureTargetHost(event.target.value)}
                           disabled={connectSubmitting}
-                          placeholder="vm01.internal.corp"
+                          placeholder="vm01.internal.corp or IP"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div className="md:col-span-2 border-t border-gray-200 pt-4 mt-2">
+                        <p className="text-xs font-semibold text-gray-700 mb-2">
+                          Azure Credentials (Service Principal)
+                        </p>
+                        <p className="text-xs text-gray-500 mb-3">
+                          Required if not using Managed Identity or Azure CLI. Leave empty to use DefaultAzureCredential.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Tenant ID
+                        </label>
+                        <input
+                          type="text"
+                          value={azureTenantId}
+                          onChange={(event) => setAzureTenantId(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Client ID (App ID)
+                        </label>
+                        <input
+                          type="text"
+                          value={azureClientId}
+                          onChange={(event) => setAzureClientId(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-600">
+                          Client Secret
+                        </label>
+                        <input
+                          type="password"
+                          value={azureClientSecret}
+                          onChange={(event) => setAzureClientSecret(event.target.value)}
+                          disabled={connectSubmitting}
+                          placeholder="••••••••"
                           className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
                         />
                       </div>

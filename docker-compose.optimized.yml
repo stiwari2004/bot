@@ -18,14 +18,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Memory limit for postgres (typically needs ~200-300MB) - ultra-low memory
+    deploy:
+      resources:
+        limits:
+          memory: 350M
+        reservations:
+          memory: 150M
 
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    # Redis is lightweight - limit to 150MB
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+        reservations:
+          memory: 50M
 
   # FastAPI Backend
   backend:
@@ -42,6 +56,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true
+      # Python memory optimization
+      - PYTHONHASHSEED=0
+      - PYTHONUNBUFFERED=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,7 +67,14 @@ services:
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --workers 1
+    # Backend typically needs 300-500MB
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+        reservations:
+          memory: 200M
 
   worker:
     build:
@@ -61,6 +85,8 @@ services:
       - WORKER_ID=worker-local
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ENVIRONMENT=dev
+      - PYTHONHASHSEED=0
+      - PYTHONUNBUFFERED=1
     depends_on:
       backend:
         condition: service_started
@@ -69,6 +95,13 @@ services:
     volumes:
       - ./backend:/app
     command: python -m worker.main
+    # Worker is optional for development - limit to 300MB (ultra-low memory)
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+        reservations:
+          memory: 150M
 
   # Next.js Frontend
   frontend:
@@ -81,12 +114,22 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - NEXT_PUBLIC_API_BASE_URL=http://backend:8000
+      # Node.js memory optimization (reduced for 6GB systems)
+      - NODE_OPTIONS=--max-old-space-size=200
     depends_on:
       - backend
-
-
+    # Frontend with Next.js can be memory-heavy, limit to 512MB
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+        reservations:
+          memory: 200M
 
 volumes:
   postgres_data:
   redis_data:
+
+
 

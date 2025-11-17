@@ -143,6 +143,7 @@ class ZohoTicketFetcher:
         expires_at = connection_meta.get("expires_at")
         client_id = connection_meta.get("client_id")
         client_secret = connection_meta.get("client_secret")
+        zoho_domain = connection_meta.get("zoho_domain", "com")  # Get domain, default to .com
         
         if not access_token:
             return None
@@ -151,9 +152,9 @@ class ZohoTicketFetcher:
         if self.oauth_service.is_token_expired(expires_at):
             if refresh_token and client_id and client_secret:
                 try:
-                    logger.info("Refreshing Zoho access token")
+                    logger.info(f"Refreshing Zoho access token using domain: {zoho_domain}")
                     new_tokens = await self.oauth_service.refresh_access_token(
-                        refresh_token, client_id, client_secret
+                        refresh_token, client_id, client_secret, domain=zoho_domain
                     )
                     # Update connection_meta (caller should persist this)
                     connection_meta.update(new_tokens)

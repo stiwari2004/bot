@@ -11,7 +11,7 @@ from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.ticket_analysis_service import TicketAnalysisService
 from app.services.ticket_status_service import get_ticket_status_service
-from app.services.runbook_search import RunbookSearchService
+# RunbookSearchService imported lazily only when needed (to avoid loading embedding model on startup)
 from app.services.execution_engine import ExecutionEngine
 from app.services.config_service import ConfigService
 from app.core.logging import get_logger
@@ -155,6 +155,8 @@ async def create_demo_ticket(
         
         # If true positive, try to find matching runbook
         if analysis_result["classification"] != "false_positive":
+            # Import lazily to avoid loading embedding model unless needed
+            from app.services.runbook_search import RunbookSearchService
             runbook_search_service = RunbookSearchService()
             matching_runbooks = await runbook_search_service.search_similar_runbooks(
                 issue_description=ticket.description or ticket.title,
@@ -272,6 +274,35 @@ async def list_tickets(
         raise HTTPException(status_code=500, detail=f"Failed to list tickets: {str(e)}")
 
 
+@router.delete("/demo/tickets/cleanup-demo")
+async def cleanup_demo_tickets(
+    db: Session = Depends(get_db)
+):
+    """Delete demo/test tickets (prometheus and custom sources)"""
+    try:
+        tenant_id = 1
+        
+        # Delete tickets with demo sources
+        deleted = db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id,
+            Ticket.source.in_(["prometheus", "custom"])
+        ).delete()
+        
+        db.commit()
+        
+        logger.info(f"Deleted {deleted} demo tickets")
+        
+        return {
+            "message": f"Deleted {deleted} demo tickets",
+            "deleted_count": deleted
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up demo tickets: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to clean up demo tickets: {str(e)}")
+
+
 @router.get("/demo/tickets/{ticket_id}")
 async def get_ticket(
     ticket_id: int,
@@ -293,6 +324,8 @@ async def get_ticket(
         matched_runbooks = []
         if ticket.classification and ticket.classification != "false_positive":
             try:
+                # Import lazily to avoid loading embedding model unless needed
+                from app.services.runbook_search import RunbookSearchService
                 runbook_search_service = RunbookSearchService()
                 matching_runbooks = await runbook_search_service.search_similar_runbooks(
                     issue_description=ticket.description or ticket.title,

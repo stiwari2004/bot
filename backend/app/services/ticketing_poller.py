@@ -5,7 +5,7 @@ Background service that polls ticketing tools for new tickets
 import asyncio
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.ticketing_tool_connection import TicketingToolConnection
@@ -127,8 +127,15 @@ class TicketingPoller:
             return True
         
         interval_minutes = connection.sync_interval_minutes or 5
-        next_sync = connection.last_sync_at + timedelta(minutes=interval_minutes)
-        return datetime.utcnow() >= next_sync
+        
+        # Ensure last_sync_at is timezone-aware
+        last_sync = connection.last_sync_at
+        if last_sync.tzinfo is None:
+            last_sync = last_sync.replace(tzinfo=timezone.utc)
+        
+        next_sync = last_sync + timedelta(minutes=interval_minutes)
+        now = datetime.now(timezone.utc)  # Use timezone-aware datetime
+        return now >= next_sync
     
     async def _poll_connection(self, connection: TicketingToolConnection, db: Session):
         """Poll a single connection for tickets"""
@@ -141,8 +148,11 @@ class TicketingPoller:
             since = None
             if connection.last_sync_at:
                 since = connection.last_sync_at
+                # Ensure since is timezone-aware
+                if since.tzinfo is None:
+                    since = since.replace(tzinfo=timezone.utc)
             else:
-                since = datetime.utcnow() - timedelta(hours=1)
+                since = datetime.now(timezone.utc) - timedelta(hours=1)
             
             tickets = []
             
@@ -155,13 +165,10 @@ class TicketingPoller:
                 )
             
             elif connection.tool_name == "manageengine":
+                # ManageEngine now uses OAuth 2.0 (same as Zoho)
                 tickets = await self.manageengine_fetcher.fetch_tickets(
                     api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                     connection_meta=meta_data,
-                    api_key=connection.api_key or meta_data.get("api_key"),
-                    api_secret=meta_data.get("api_secret"),
-                    api_username=connection.api_username or meta_data.get("api_username"),
-                    api_password=connection.api_password or meta_data.get("api_password"),
                     since=since,
                     limit=100
                 )
@@ -177,7 +184,7 @@ class TicketingPoller:
             for ticket_data in tickets:
                 try:
                     # Check if ticket already exists by external_id
-                    existing = self.db.query(Ticket).filter(
+                    existing = db.query(Ticket).filter(
                         Ticket.tenant_id == connection.tenant_id,
                         Ticket.source == ticket_data["source"],
                         Ticket.external_id == ticket_data["external_id"]
@@ -201,10 +208,12 @@ class TicketingPoller:
                             description=ticket_data["description"],
                             severity=ticket_data["severity"],
                             status=ticket_data["status"],
+                            environment=ticket_data.get("environment", "prod"),  # Default to "prod" if not specified
+                            service=ticket_data.get("service"),  # Optional
                             meta_data=ticket_data.get("metadata", {}),
-                            received_at=datetime.utcnow()
+                            received_at=datetime.now(timezone.utc)
                         )
-                        self.db.add(new_ticket)
+                        db.add(new_ticket)
                         created_count += 1
                         
                 except Exception as e:
@@ -216,7 +225,7 @@ class TicketingPoller:
                 connection.meta_data = json.dumps(meta_data)
             
             # Update connection sync status
-            connection.last_sync_at = datetime.utcnow()
+            connection.last_sync_at = datetime.now(timezone.utc)
             connection.last_sync_status = "success"
             connection.last_error = None
             
@@ -230,7 +239,7 @@ class TicketingPoller:
         except Exception as e:
             logger.error(f"Error polling {connection.tool_name} connection {connection.id}: {e}")
             try:
-                connection.last_sync_at = datetime.utcnow()
+                connection.last_sync_at = datetime.now(timezone.utc)
                 connection.last_sync_status = "failed"
                 connection.last_error = str(e)
                 db.commit()

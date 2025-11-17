@@ -651,6 +651,37 @@ class WorkerService:
             or device_meta.get("mgmt_ip")
             or device_meta.get("host")
         )
+        # Azure-specific fields
+        resource_id = (
+            connection.get("resource_id")
+            or target.get("resource_id")
+            or metadata.get("resource_id")
+            or connection.get("target_resource_id")
+        )
+        bastion_host = (
+            connection.get("bastion_host")
+            or connection.get("bastion_resource_id")
+        )
+        target_host = connection.get("target_host") or connection.get("host") or host
+        
+        # Azure credentials (Service Principal)
+        azure_creds = connection.get("azure_credentials") or {}
+        tenant_id = (
+            azure_creds.get("tenant_id")
+            or connection.get("tenant_id")
+            or metadata.get("tenant_id")
+        )
+        client_id = (
+            azure_creds.get("client_id")
+            or connection.get("client_id")
+            or metadata.get("client_id")
+        )
+        client_secret = (
+            azure_creds.get("client_secret")
+            or connection.get("client_secret")
+            or metadata.get("client_secret")
+        )
+        
         config = {
             "host": host,
             "port": connection.get("port") or metadata.get("port"),
@@ -669,9 +700,20 @@ class WorkerService:
             "timeout": metadata.get("timeout_seconds"),
             "cluster": cluster_meta or None,
             "device": device_meta or None,
-            "resource_id": connection.get("resource_id") or metadata.get("resource_id"),
-            "bastion_host": connection.get("bastion_host") or metadata.get("bastion_host"),
-            "target_host": connection.get("target_host") or target.get("host"),
+            # Azure-specific fields
+            "resource_id": resource_id,
+            "target_resource_id": resource_id,
+            "bastion_host": bastion_host,
+            "target_host": target_host,
+            # Azure credentials
+            "tenant_id": tenant_id,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "azure_credentials": {
+                "tenant_id": tenant_id,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            } if (tenant_id and client_id and client_secret) else None,
             "project_id": connection.get("project_id") or metadata.get("project_id"),
             "zone": connection.get("zone") or metadata.get("zone"),
             "instance_name": connection.get("instance_name") or metadata.get("instance_name"),

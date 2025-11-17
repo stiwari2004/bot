@@ -112,12 +112,13 @@ class LlamaCppLLMService:
     async def _chat_once(self, prompt: str, *, tenant_id: Optional[int] = None) -> str:
         tenant = self._normalise_tenant(tenant_id)
         try:
-            prompt_tokens = estimate_tokens(prompt)
-            await budget_manager.charge_tokens(
-                tenant_id=tenant,
-                tokens=prompt_tokens,
-                direction="prompt",
-            )
+            # Token counting disabled for now
+            # prompt_tokens = estimate_tokens(prompt)
+            # await budget_manager.charge_tokens(
+            #     tenant_id=tenant,
+            #     tokens=prompt_tokens,
+            #     direction="prompt",
+            # )
             model_id = await self._ensure_model_id()
             payload = {
                 "model": model_id,
@@ -135,20 +136,22 @@ class LlamaCppLLMService:
                 choices = data.get("choices") or []
                 if choices:
                     text = choices[0].get("message", {}).get("content", "")
-                    completion_tokens = estimate_tokens(text)
-                    if completion_tokens:
-                        await budget_manager.charge_tokens(
-                            tenant_id=tenant,
-                            tokens=completion_tokens,
-                            direction="completion",
-                        )
+                    # Token counting disabled for now
+                    # completion_tokens = estimate_tokens(text)
+                    # if completion_tokens:
+                    #     await budget_manager.charge_tokens(
+                    #         tenant_id=tenant,
+                    #         tokens=completion_tokens,
+                    #         direction="completion",
+                    #     )
                     return text
                 logger.warning(f"LLM: empty choices from {url}")
             else:
                 logger.warning(f"LLM: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
-        except (LLMRateLimitExceeded, LLMBudgetExceeded):
-            raise
+        # Budget exceptions disabled - token counting is disabled
+        # except (LLMRateLimitExceeded, LLMBudgetExceeded):
+        #     raise
         except Exception as e:
             logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
             return ""
@@ -208,12 +211,13 @@ class LlamaCppLLMService:
     ) -> str:
         tenant = self._normalise_tenant(tenant_id)
         try:
-            prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
-            await budget_manager.charge_tokens(
-                tenant_id=tenant,
-                tokens=prompt_tokens,
-                direction="prompt",
-            )
+            # Token counting disabled for now
+            # prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
+            # await budget_manager.charge_tokens(
+            #     tenant_id=tenant,
+            #     tokens=prompt_tokens,
+            #     direction="prompt",
+            # )
             model_id = await self._ensure_model_id()
             payload = {
                 "model": model_id,
@@ -231,20 +235,22 @@ class LlamaCppLLMService:
                 choices = data.get("choices") or []
                 if choices:
                     text = choices[0].get("message", {}).get("content", "")
-                    completion_tokens = estimate_tokens(text)
-                    if completion_tokens:
-                        await budget_manager.charge_tokens(
-                            tenant_id=tenant,
-                            tokens=completion_tokens,
-                            direction="completion",
-                        )
+                    # Token counting disabled for now
+                    # completion_tokens = estimate_tokens(text)
+                    # if completion_tokens:
+                    #     await budget_manager.charge_tokens(
+                    #         tenant_id=tenant,
+                    #         tokens=completion_tokens,
+                    #         direction="completion",
+                    #     )
                     return text
                 logger.warning(f"LLM: empty choices from {url}")
             else:
                 logger.warning(f"LLM: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
-        except (LLMRateLimitExceeded, LLMBudgetExceeded):
-            raise
+        # Budget exceptions disabled - token counting is disabled
+        # except (LLMRateLimitExceeded, LLMBudgetExceeded):
+        #     raise
         except Exception as e:
             logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
             return ""
@@ -393,12 +399,13 @@ class PerplexityLLMService:
         """Make a chat completion request to Perplexity API."""
         try:
             tenant = LlamaCppLLMService._normalise_tenant(tenant_id)
-            prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
-            await budget_manager.charge_tokens(
-                tenant_id=tenant,
-                tokens=prompt_tokens,
-                direction="prompt",
-            )
+            # Token counting disabled for now
+            # prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
+            # await budget_manager.charge_tokens(
+            #     tenant_id=tenant,
+            #     tokens=prompt_tokens,
+            #     direction="prompt",
+            # )
             payload = {
                 "model": self.model,
                 "messages": [
@@ -416,20 +423,22 @@ class PerplexityLLMService:
                 choices = data.get("choices") or []
                 if choices:
                     text = choices[0].get("message", {}).get("content", "")
-                    completion_tokens = estimate_tokens(text)
-                    if completion_tokens:
-                        await budget_manager.charge_tokens(
-                            tenant_id=tenant,
-                            tokens=completion_tokens,
-                            direction="completion",
-                        )
+                    # Token counting disabled for now
+                    # completion_tokens = estimate_tokens(text)
+                    # if completion_tokens:
+                    #     await budget_manager.charge_tokens(
+                    #         tenant_id=tenant,
+                    #         tokens=completion_tokens,
+                    #         direction="completion",
+                    #     )
                     return text
                 logger.warning(f"Perplexity: empty choices from {url}")
             else:
                 logger.error(f"Perplexity: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
             return ""
-        except (LLMRateLimitExceeded, LLMBudgetExceeded):
-            raise
+        # Budget exceptions disabled - token counting is disabled
+        # except (LLMRateLimitExceeded, LLMBudgetExceeded):
+        #     raise
         except Exception as e:
             logger.error(f"Perplexity: exception calling API - {e}")
             return ""

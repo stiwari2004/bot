@@ -70,14 +70,16 @@ async def create_ticketing_connection(
         
         # Build meta_data with OAuth fields if provided
         meta_data = connection.meta_data or {}
-        if connection.tool_name == "zoho" and connection.client_id:
+        
+        # Zoho and ManageEngine both use OAuth 2.0 (same flow)
+        if (connection.tool_name == "zoho" or connection.tool_name == "manageengine") and connection.client_id:
             meta_data.update({
                 "client_id": connection.client_id,
                 "client_secret": connection.client_secret,
                 "redirect_uri": connection.redirect_uri or "http://localhost:8000/oauth/callback"
             })
         elif connection.tool_name == "manageengine":
-            # Store API credentials in meta_data for ManageEngine
+            # Legacy: Store API credentials in meta_data for ManageEngine (if not using OAuth)
             # Frontend sends api_secret in meta_data, preserve it
             if connection.api_key:
                 meta_data["api_key"] = connection.api_key
@@ -141,8 +143,8 @@ async def list_ticketing_connections(
                 # Zoho is authorized if access_token exists (stored after OAuth callback)
                 oauth_authorized = bool(meta_data.get("access_token"))
             elif c.tool_name == "manageengine":
-                # ManageEngine is authorized if "authorized" flag is set in meta_data (set after successful test)
-                oauth_authorized = bool(meta_data.get("authorized")) and c.last_sync_status == "success"
+                # ManageEngine is authorized if access_token exists (stored after OAuth callback, same as Zoho)
+                oauth_authorized = bool(meta_data.get("access_token"))
             
             result.append({
                 "id": c.id,
@@ -190,8 +192,8 @@ async def get_ticketing_connection(
             # Zoho is authorized if access_token exists (stored after OAuth callback)
             oauth_authorized = bool(meta_data.get("access_token"))
         elif connection.tool_name == "manageengine":
-            # ManageEngine is authorized if "authorized" flag is set in meta_data (set after successful test)
-            oauth_authorized = bool(meta_data.get("authorized")) and connection.last_sync_status == "success"
+            # ManageEngine is authorized if access_token exists (stored after OAuth callback, same as Zoho)
+            oauth_authorized = bool(meta_data.get("access_token"))
         
         return {
             "id": connection.id,
@@ -320,8 +322,8 @@ async def test_ticketing_connection(
         
         meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
         
-        # For Zoho, check if OAuth is needed
-        if connection.tool_name == "zoho":
+        # For Zoho and ManageEngine, check if OAuth is needed
+        if connection.tool_name in ("zoho", "manageengine"):
             if not meta_data.get("access_token"):
                 return {
                     "status": "oauth_required",
@@ -353,13 +355,10 @@ async def test_ticketing_connection(
                 from app.services.ticketing_connectors.manageengine import ManageEngineTicketFetcher
                 fetcher = ManageEngineTicketFetcher()
                 try:
+                    # ManageEngine now uses OAuth 2.0 (same as Zoho)
                     tickets = await fetcher.fetch_tickets(
                         api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                         connection_meta=meta_data,
-                        api_key=connection.api_key or meta_data.get("api_key"),
-                        api_secret=meta_data.get("api_secret"),
-                        api_username=connection.api_username or meta_data.get("api_username"),
-                        api_password=connection.api_password or meta_data.get("api_password"),
                         since=None,  # Fetch recent tickets
                         limit=10  # Just test with a few tickets
                     )
@@ -391,14 +390,6 @@ async def test_ticketing_connection(
         connection.last_sync_at = datetime.utcnow()
         connection.last_sync_status = "success"
         connection.last_error = None
-        
-        # For ManageEngine, mark as authorized after successful test (similar to Zoho storing access_token)
-        if connection.tool_name == "manageengine" and tickets_fetched >= 0:
-            meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
-            meta_data["authorized"] = True
-            meta_data["authorized_at"] = datetime.utcnow().isoformat()
-            connection.meta_data = json.dumps(meta_data)
-        
         db.commit()
         
         return {
@@ -436,6 +427,7 @@ async def authorize_oauth_connection(
             meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
             client_id = meta_data.get("client_id")
             redirect_uri = meta_data.get("redirect_uri", "http://localhost:8000/oauth/callback")
+            zoho_domain = meta_data.get("zoho_domain", "com")  # Default to .com, but support .in for Indian accounts
             
             if not client_id:
                 raise HTTPException(status_code=400, detail="Client ID not configured. Please update connection with OAuth credentials.")
@@ -443,11 +435,12 @@ async def authorize_oauth_connection(
             # Generate state for CSRF protection
             state = f"{connection_id}:{secrets.token_urlsafe(32)}"
             
-            # Generate authorization URL
+            # Generate authorization URL with domain
             auth_url = oauth_service.generate_authorization_url(
                 client_id=client_id,
                 redirect_uri=redirect_uri,
-                state=state
+                state=state,
+                domain=zoho_domain
             )
             
             # Store state in meta_data temporarily
@@ -460,45 +453,45 @@ async def authorize_oauth_connection(
                 "state": state
             }
         
-        # ManageEngine login flow
+        # ManageEngine OAuth flow (uses same OAuth as Zoho)
         elif connection.tool_name == "manageengine":
-            # Check if API credentials are configured first
             meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
-            has_api_key = bool(connection.api_key or meta_data.get("api_key"))
-            has_api_secret = bool(meta_data.get("api_secret"))
-            has_username = bool(connection.api_username or meta_data.get("api_username"))
-            has_password = bool(connection.api_password or meta_data.get("api_password"))
+            client_id = meta_data.get("client_id")
+            redirect_uri = meta_data.get("redirect_uri", "http://localhost:8000/oauth/callback")
+            # ManageEngine often uses .in domain (India), default to .in for ManageEngine
+            zoho_domain = meta_data.get("zoho_domain", "in")  # Default to .in for ManageEngine (Indian accounts)
             
-            # Require either API key+secret OR username+password before allowing login
-            has_api_auth = has_api_key and has_api_secret
-            has_basic_auth = has_username and has_password
-            
-            if not has_api_auth and not has_basic_auth:
+            if not client_id:
                 raise HTTPException(
                     status_code=400,
-                    detail="API credentials required. Please configure either API Key/Secret or Username/Password in the connection settings before logging in."
+                    detail="Client ID not configured. Please update connection with OAuth credentials (Client ID and Client Secret)."
                 )
             
-            # Generate state for tracking
+            # Generate state for CSRF protection
             state = f"{connection_id}:{secrets.token_urlsafe(32)}"
             
-            # ManageEngine ServiceDesk Plus On-Demand uses Zoho accounts for authentication
-            # This is the standard login URL for ManageEngine cloud instances (SDPOnDemand)
-            login_url = "https://accounts.zoho.in/signin?servicename=SDPOnDemand&hide_title=true&hideyahoosignin=true&hidefbconnect=true&hide_secure=true&serviceurl=https%3A%2F%2Fsdpondemand.manageengine.in%2Fapp%2Fitdesk%2FHomePage.do&signupurl=https://sdpondemand.manageengine.in/AccountCreation.do&portal_name=SDPOnDemand"
+            # ManageEngine ServiceDesk Plus Cloud uses OAuth 2.0 with Zoho accounts
+            # Use the same OAuth service as Zoho, but with ManageEngine-specific scopes
+            scopes = ["SDPOnDemand.requests.ALL"]  # ManageEngine scope format
+            
+            auth_url = oauth_service.generate_authorization_url(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                scopes=scopes,
+                state=state,
+                domain=zoho_domain
+            )
             
             # Store state in meta_data temporarily
-            meta_data["login_state"] = state
-            meta_data["login_initiated_at"] = datetime.utcnow().isoformat()
+            meta_data["oauth_state"] = state
             connection.meta_data = json.dumps(meta_data)
             db.commit()
             
-            logger.info(f"Generated ManageEngine login URL for connection {connection_id} (API credentials configured)")
+            logger.info(f"Generated ManageEngine OAuth authorization URL for connection {connection_id}")
             
             return {
-                "authorization_url": login_url,
-                "state": state,
-                "login_url": login_url,  # Alias for clarity
-                "message": "API credentials configured. Please log in to complete authentication."
+                "authorization_url": auth_url,
+                "state": state
             }
         
         else:
@@ -518,7 +511,7 @@ async def oauth_callback(
     error: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Handle OAuth callback from Zoho"""
+    """Handle OAuth callback from Zoho or ManageEngine"""
     logger.info(f"OAuth callback received - code: {code[:20]}..., state: {state[:50]}..., error: {error}")
     try:
         if error:
@@ -544,7 +537,8 @@ async def oauth_callback(
         if not connection:
             return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=connection_not_found")
         
-        if connection.tool_name != "zoho":
+        # Support both Zoho and ManageEngine (both use same OAuth flow)
+        if connection.tool_name not in ("zoho", "manageengine"):
             return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=invalid_tool")
         
         meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
@@ -557,18 +551,29 @@ async def oauth_callback(
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
         redirect_uri = meta_data.get("redirect_uri", "http://localhost:8000/oauth/callback")
+        # Get domain (default to .in for ManageEngine, .com for Zoho)
+        zoho_domain = meta_data.get("zoho_domain")
+        if not zoho_domain:
+            # Default based on tool: .in for ManageEngine (often Indian accounts), .com for Zoho
+            zoho_domain = "in" if connection.tool_name == "manageengine" else "com"
         
         if not client_id or not client_secret:
+            logger.error(f"OAuth callback: Missing credentials for connection {connection_id}. client_id={bool(client_id)}, client_secret={bool(client_secret)}")
+            logger.error(f"OAuth callback: meta_data keys: {list(meta_data.keys())}")
             return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=missing_credentials")
+        
+        # Log client ID (first 10 chars only for security) and redirect URI for debugging
+        logger.info(f"OAuth callback: Exchange token for connection {connection_id}, tool={connection.tool_name}, domain={zoho_domain}, client_id={client_id[:10]}..., redirect_uri={redirect_uri}")
         
         # Exchange code for tokens
         try:
-            logger.info(f"Attempting to exchange OAuth code for connection {connection_id}")
+            logger.info(f"Attempting to exchange OAuth code for connection {connection_id} using domain: {zoho_domain}")
             token_data = await oauth_service.exchange_code_for_tokens(
                 code=code,
                 client_id=client_id,
                 client_secret=client_secret,
-                redirect_uri=redirect_uri
+                redirect_uri=redirect_uri,
+                domain=zoho_domain
             )
             
             logger.info(f"Token exchange successful for connection {connection_id}")

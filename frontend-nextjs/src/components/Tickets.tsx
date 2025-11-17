@@ -89,15 +89,74 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
         apiConfig.endpoints.tickets.list({ limit: 100 })
       );
       if (!response.ok) {
-        throw new Error('Failed to fetch tickets');
+        // Try to parse error response as JSON first
+        let errorMessage = `Failed to fetch tickets: ${response.status}`;
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData?.detail || errorData?.message || errorMessage;
+          } else {
+            // If not JSON, read as text to avoid JSON parse error
+            const errorText = await response.text();
+            console.error('Non-JSON error response:', errorText.substring(0, 200));
+            errorMessage = `Server error: ${response.status}`;
+          }
+        } catch (parseErr) {
+          // If parsing fails, use default message
+          console.error('Error parsing error response:', parseErr);
+        }
+        throw new Error(errorMessage);
       }
+      
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response received:', text.substring(0, 200));
+        throw new Error('Server returned non-JSON response');
+      }
+      
       const data = await response.json();
       setTickets(data.tickets || []);
       setError(null);
     } catch (err) {
+      console.error('Error fetching tickets:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch tickets');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkForExistingRunbook = async (issueDescription: string): Promise<MatchedRunbook | null> => {
+    try {
+      // Try to generate a runbook - if it returns 409, we have a duplicate
+      const url = apiConfig.endpoints.runbooks.generateAgent();
+      const params = new URLSearchParams({
+        issue_description: issueDescription,
+        service: 'auto',
+        env: 'prod',
+        risk: 'low',
+      });
+
+      const response = await fetch(`${url}?${params.toString()}`, { method: 'POST' });
+      
+      if (response.status === 409) {
+        // Duplicate found - extract existing runbook info
+        const errorData = await response.json();
+        if (errorData?.detail?.existing_runbook_id) {
+          return {
+            id: errorData.detail.existing_runbook_id,
+            title: errorData.detail.existing_runbook_title || 'Existing Runbook',
+            confidence_score: 1.0, // Perfect match since it's a duplicate
+            reasoning: 'Existing runbook found for this issue',
+          };
+        }
+      }
+      return null;
+    } catch (err) {
+      console.error('Error checking for existing runbook:', err);
+      return null;
     }
   };
 
@@ -109,12 +168,52 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
       const response = await fetch(apiConfig.endpoints.tickets.detail(ticketId));
       console.log('Ticket detail response status:', response.status);
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Failed to fetch ticket details:', response.status, errorText);
-        throw new Error(`Failed to fetch ticket details: ${response.status} ${errorText}`);
+        // Try to parse error response as JSON first
+        let errorMessage = `Failed to fetch ticket details: ${response.status}`;
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData?.detail || errorData?.message || errorMessage;
+          } else {
+            // If not JSON, read as text to avoid JSON parse error
+            const errorText = await response.text();
+            console.error('Non-JSON error response:', errorText.substring(0, 200));
+            errorMessage = `Server error: ${response.status}`;
+          }
+        } catch (parseErr) {
+          console.error('Error parsing error response:', parseErr);
+        }
+        throw new Error(errorMessage);
       }
+      
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response received:', text.substring(0, 200));
+        throw new Error('Server returned non-JSON response');
+      }
+      
       const data = await response.json();
       console.log('Ticket detail data received:', data);
+      
+      // Check for existing runbook based on ticket title/description
+      const issueDescription = `${data.title}${data.description ? '\n\n' + data.description : ''}`;
+      const existingRunbook = await checkForExistingRunbook(issueDescription);
+      
+      if (existingRunbook) {
+        // Add existing runbook to matched_runbooks
+        if (!data.matched_runbooks) {
+          data.matched_runbooks = [];
+        }
+        // Check if it's not already in the list
+        const alreadyExists = data.matched_runbooks.some((rb: MatchedRunbook) => rb.id === existingRunbook.id);
+        if (!alreadyExists) {
+          data.matched_runbooks.unshift(existingRunbook); // Add to beginning
+        }
+      }
+      
       setTicketDetail(data);
     } catch (err) {
       console.error('Failed to fetch ticket details:', err);
@@ -487,9 +586,9 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
       )}
 
       {/* Generate Runbook Modal */}
-      {showGenerateRunbook && ticketDetail && (
+      {showGenerateRunbook && (ticketDetail || selectedTicket) && (
         <GenerateRunbookModal
-          ticket={ticketDetail}
+          ticket={ticketDetail || tickets.find(t => t.id === selectedTicket) || null}
           onClose={() => {
             console.log('Closing GenerateRunbookModal');
             setShowGenerateRunbook(false);
@@ -768,18 +867,18 @@ function getSeverityColor(severity: string) {
 }
 
 interface GenerateRunbookModalProps {
-  ticket: TicketDetail;
+  ticket: TicketDetail | Ticket | null;
   onClose: () => void;
 }
 
 function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalProps) {
   const [issueDescription, setIssueDescription] = useState(
-    `${ticket.title}${ticket.description ? '\n\n' + ticket.description : ''}`
+    ticket ? `${ticket.title}${ticket.description ? '\n\n' + ticket.description : ''}` : ''
   );
-  const [serviceType, setServiceType] = useState(ticket.service || 'auto');
-  const [envType, setEnvType] = useState(ticket.environment || 'prod');
+  const [serviceType, setServiceType] = useState(ticket?.service || 'auto');
+  const [envType, setEnvType] = useState(ticket?.environment || 'prod');
   const [riskLevel, setRiskLevel] = useState(
-    ticket.severity === 'critical' ? 'high' : ticket.severity === 'high' ? 'medium' : 'low'
+    ticket?.severity === 'critical' ? 'high' : ticket?.severity === 'high' ? 'medium' : 'low'
   );
   const [runbook, setRunbook] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -793,6 +892,7 @@ function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalProps) {
   }, []);
 
   useEffect(() => {
+    if (!ticket) return;
     setIssueDescription(`${ticket.title}${ticket.description ? '\n\n' + ticket.description : ''}`);
     setServiceType(ticket.service || 'auto');
     setEnvType(ticket.environment || 'prod');
@@ -802,6 +902,10 @@ function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalProps) {
     setRunbook(null);
     setError(null);
   }, [ticket]);
+
+  if (!ticket) {
+    return null; // Don't render if no ticket
+  }
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -822,13 +926,52 @@ function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalProps) {
 
       const response = await fetch(`${url}?${params.toString()}`, { method: 'POST' });
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err?.detail || 'Runbook generation failed');
+        // Try to parse error response as JSON first
+        let errorMessage = `Runbook generation failed: ${response.status}`;
+        let errorData: any = null;
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json();
+            // Handle duplicate runbook error (409 Conflict)
+            if (response.status === 409 && errorData?.detail) {
+              const detail = typeof errorData.detail === 'string' 
+                ? errorData.detail 
+                : errorData.detail.message || JSON.stringify(errorData.detail);
+              errorMessage = `Duplicate runbook detected: ${detail}`;
+              // Show existing runbook info if available
+              if (errorData.detail?.existing_runbook_id) {
+                errorMessage += `\n\nExisting runbook ID: ${errorData.detail.existing_runbook_id}`;
+                errorMessage += `\nTitle: ${errorData.detail.existing_runbook_title || 'N/A'}`;
+              }
+            } else {
+              errorMessage = errorData?.detail || errorData?.message || errorMessage;
+            }
+          } else {
+            // If not JSON, read as text to avoid JSON parse error
+            const errorText = await response.text();
+            console.error('Non-JSON error response:', errorText.substring(0, 200));
+            errorMessage = `Server error: ${response.status}. Check console for details.`;
+          }
+        } catch (parseErr) {
+          // If parsing fails, use default message
+          console.error('Error parsing error response:', parseErr);
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response received:', text.substring(0, 200));
+        throw new Error('Server returned non-JSON response');
       }
 
       const data = await response.json();
       setRunbook(data);
     } catch (err) {
+      console.error('Error generating runbook:', err);
       setError(err instanceof Error ? err.message : 'Runbook generation failed');
     } finally {
       setLoading(false);
@@ -946,10 +1089,42 @@ function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalProps) {
               <div className="border border-gray-200 rounded-lg p-4">
                 <h4 className="font-medium text-gray-900 mb-2">{runbook.title}</h4>
                 <div className="prose max-w-none text-sm">
-                  <pre className="whitespace-pre-wrap">{runbook.body_md}</pre>
+                  <pre className="whitespace-pre-wrap bg-gray-50 p-4 rounded border overflow-x-auto">{runbook.body_md}</pre>
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-3 pt-4">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t">
+                <button
+                  onClick={async () => {
+                    // Recreate/regenerate runbook
+                    setRunbook(null);
+                    setError(null);
+                    await handleGenerate({ preventDefault: () => {} } as React.FormEvent);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Recreate
+                </button>
+                <button
+                  onClick={async () => {
+                    // Approve runbook
+                    try {
+                      const response = await fetch(apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve`), {
+                        method: 'POST',
+                      });
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Failed to approve runbook' }));
+                        throw new Error(errorData.detail || 'Failed to approve runbook');
+                      }
+                      alert('Runbook approved successfully!');
+                      onClose();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Failed to approve runbook');
+                    }
+                  }}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Approve
+                </button>
                 <button
                   onClick={onClose}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
