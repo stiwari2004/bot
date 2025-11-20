@@ -79,13 +79,9 @@ async def create_ticketing_connection(
                 "redirect_uri": connection.redirect_uri or "http://localhost:8000/oauth/callback"
             })
         elif connection.tool_name == "manageengine":
-            # Legacy: Store API credentials in meta_data for ManageEngine (if not using OAuth)
-            # Frontend sends api_secret in meta_data, preserve it
-            if connection.api_key:
-                meta_data["api_key"] = connection.api_key
-            if connection.api_username:
-                meta_data["api_username"] = connection.api_username
-            # api_secret should already be in meta_data from frontend
+            # ManageEngine uses OAuth 2.0 only - no API key support
+            # OAuth credentials are stored in meta_data (client_id, client_secret, redirect_uri)
+            pass
         
         # Create connection
         db_connection = TicketingToolConnection(
@@ -422,6 +418,19 @@ async def authorize_oauth_connection(
         if not connection:
             raise HTTPException(status_code=404, detail="Connection not found")
         
+        # Check if already authorized
+        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+        existing_token = meta_data.get("access_token")
+        if existing_token:
+            logger.info(f"Connection {connection_id} already has access_token, but user requested re-authorization")
+            # Clear existing token to force re-authorization
+            meta_data.pop("access_token", None)
+            meta_data.pop("refresh_token", None)
+            meta_data.pop("expires_at", None)
+            connection.meta_data = json.dumps(meta_data)
+            db.commit()
+            logger.info(f"Cleared existing tokens for connection {connection_id} to allow re-authorization")
+        
         # Zoho OAuth flow
         if connection.tool_name == "zoho":
             meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
@@ -594,7 +603,15 @@ async def oauth_callback(
                 db.rollback()
                 return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_error=database_error")
             
-            logger.info(f"OAuth authorization successful for connection {connection_id}")
+            # Verify tokens were saved
+            db.refresh(connection)
+            updated_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            has_token = bool(updated_meta.get("access_token"))
+            logger.info(f"OAuth authorization successful for connection {connection_id}. Token saved: {has_token}")
+            
+            if not has_token:
+                logger.error(f"WARNING: OAuth callback completed but access_token not found in database for connection {connection_id}")
+            
             return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_success=true&connection_id={connection_id}")
             
         except Exception as e:

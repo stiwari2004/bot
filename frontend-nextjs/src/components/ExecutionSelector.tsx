@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { PlayIcon, BookOpenIcon } from '@heroicons/react/24/outline';
-import { RunbookExecutionViewer } from './RunbookExecutionViewer';
+import { RunbookExecutionViewer } from '@/features/executions';
 
 interface Runbook {
   id: number;

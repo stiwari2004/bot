@@ -9,7 +9,7 @@ import {
   DocumentTextIcon,
   BoltIcon
 } from '@heroicons/react/24/outline';
-import { RunbookList } from './RunbookList';
+import { RunbookList } from '@/features/runbooks';
 
 interface RunbookMatch {
   id: number;

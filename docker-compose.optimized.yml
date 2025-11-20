@@ -52,7 +52,7 @@ services:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/troubleshooting_ai
       - SECRET_KEY=your-secret-key-change-in-production
       - LLM_PROVIDER=llamacpp
-      - LLAMACPP_BASE_URL=http://host.docker.internal:8080
+      - LLAMACPP_BASE_URL=http://host.docker.internal:11434
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true

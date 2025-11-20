@@ -10,7 +10,7 @@ from app.models.ticket import Ticket
 from app.services.ticket_analysis_service import TicketAnalysisService
 from app.services.ticket_status_service import get_ticket_status_service
 from app.services.runbook_search import RunbookSearchService
-from app.services.execution_engine import ExecutionEngine
+from app.services.execution import ExecutionEngine
 from app.core.logging import get_logger
 from datetime import datetime
 import csv

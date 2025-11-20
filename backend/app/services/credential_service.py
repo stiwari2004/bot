@@ -83,15 +83,27 @@ class CredentialService:
         # Encrypt the value
         encrypted_value = self.encryption.encrypt(value)
         
-        # Determine which field to use
+        # Determine which field to use based on credential type
+        encrypted_password = None
+        encrypted_api_key = None
+        
+        if type in ["ssh", "database"]:
+            encrypted_password = encrypted_value
+        elif type == "api_key":
+            encrypted_api_key = encrypted_value
+        elif type in ["azure", "gcp", "aws"]:
+            # Cloud credentials: store encrypted secret in encrypted_api_key field
+            # (we use this field as a generic encrypted secret storage)
+            encrypted_api_key = encrypted_value
+        
         credential = Credential(
             tenant_id=tenant_id,
             name=name,
             credential_type=type,
             environment=metadata.get("environment", "prod") if metadata else "prod",
             username=metadata.get("username") if metadata else None,
-            encrypted_password=encrypted_value if type in ["ssh", "database"] else None,
-            encrypted_api_key=encrypted_value if type == "api_key" else None,
+            encrypted_password=encrypted_password,
+            encrypted_api_key=encrypted_api_key,
             host=metadata.get("host") if metadata else None,
             port=metadata.get("port") if metadata else None,
             database_name=metadata.get("database_name") if metadata else None,
@@ -118,9 +130,26 @@ class CredentialService:
         # Decrypt the value
         encrypted_value = credential.encrypted_password or credential.encrypted_api_key
         if encrypted_value:
-            decrypted_value = self.encryption.decrypt(encrypted_value)
+            try:
+                decrypted_value = self.encryption.decrypt(encrypted_value)
+            except Exception as e:
+                error_msg = str(e) if str(e) else type(e).__name__
+                logger.error(f"Failed to decrypt credential {credential_id}: {error_msg}", exc_info=True)
+                # Provide more helpful error message
+                if "InvalidToken" in error_msg or "Invalid" in error_msg:
+                    raise ValueError(f"Failed to decrypt credential: The encryption key has changed. Please recreate this credential with the current encryption key.")
+                else:
+                    raise ValueError(f"Failed to decrypt credential: {error_msg}. The encryption key may have changed or the credential is corrupted.")
         else:
             decrypted_value = None
+        
+        # Parse metadata for cloud credentials
+        metadata_payload = {}
+        if credential.meta_data:
+            try:
+                metadata_payload = json.loads(credential.meta_data)
+            except json.JSONDecodeError:
+                pass
         
         result = {
             "username": credential.username,
@@ -130,6 +159,26 @@ class CredentialService:
             "port": credential.port,
             "database_name": credential.database_name
         }
+        
+        # Add cloud-specific fields from metadata
+        if credential.credential_type == "azure":
+            result.update({
+                "tenant_id": metadata_payload.get("tenant_id"),
+                "client_id": metadata_payload.get("client_id"),
+                "client_secret": decrypted_value,  # The encrypted value is the client_secret
+                "subscription_id": metadata_payload.get("subscription_id")
+            })
+        elif credential.credential_type == "gcp":
+            result.update({
+                "service_account_key": decrypted_value,
+                "project_id": metadata_payload.get("project_id")
+            })
+        elif credential.credential_type == "aws":
+            result.update({
+                "access_key_id": metadata_payload.get("access_key_id"),
+                "secret_access_key": decrypted_value,
+                "region": metadata_payload.get("region")
+            })
         
         return result
 

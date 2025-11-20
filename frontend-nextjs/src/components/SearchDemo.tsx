@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { MagnifyingGlassIcon, DocumentTextIcon, PlayIcon, BookOpenIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
-import { RunbookExecutionViewer } from './RunbookExecutionViewer';
+import { RunbookExecutionViewer } from '@/features/executions';
 
 interface SearchResult {
   text: string;

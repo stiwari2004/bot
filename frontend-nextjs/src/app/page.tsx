@@ -18,7 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { SearchDemo } from '@/components/SearchDemo';
 import { RunbookGenerator } from '@/components/RunbookGenerator';
-import { RunbookList } from '@/components/RunbookList';
+import { RunbookList } from '@/features/runbooks';
 import { FileUpload } from '@/components/FileUpload';
 import { SystemStats } from '@/components/SystemStats';
 import { TicketAnalyzer } from '@/components/TicketAnalyzer';
@@ -26,9 +26,9 @@ import AnalyticsDashboard from '@/components/AnalyticsDashboard';
 import { ExecutionHistory } from '@/components/ExecutionHistory';
 import { RunbookQualityDashboard } from '@/components/RunbookQualityDashboard';
 import { AgentDashboard } from '@/components/AgentDashboard';
-import { Tickets } from '@/components/Tickets';
-import { Settings } from '@/components/Settings';
-import { AgentWorkspace } from '@/components/agent/AgentWorkspace';
+import { Tickets } from '@/features/tickets';
+import { Settings } from '@/features/settings';
+import { AgentWorkspace } from '@/features/agent';
 import apiConfig from '@/lib/api-config';
 
 type Stats = {

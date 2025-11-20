@@ -144,11 +144,12 @@ class RunbookSearchService:
         if not runbook_ids:
             return []
         
-        # Get runbook details
+        # Get runbook details (only active, approved runbooks)
         runbooks = db.query(Runbook).filter(
             Runbook.id.in_(runbook_ids),
             Runbook.tenant_id == tenant_id,
-            Runbook.status == 'approved'
+            Runbook.status == 'approved',
+            Runbook.is_active == 'active'  # Exclude archived runbooks
         ).all()
         
         results = []

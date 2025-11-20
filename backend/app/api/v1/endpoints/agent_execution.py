@@ -10,7 +10,7 @@ from app.models.runbook import Runbook
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.execution_engine import ExecutionEngine
+from app.services.execution import ExecutionEngine
 from app.services.runbook_search import RunbookSearchService
 from app.services.ticket_status_service import get_ticket_status_service
 from app.core.logging import get_logger
@@ -28,6 +28,7 @@ class ExecutionRequest(BaseModel):
     runbook_id: int
     ticket_id: Optional[int] = None
     issue_description: Optional[str] = None
+    metadata: Optional[dict] = None  # Accept metadata from frontend
 
 
 class StepApprovalRequest(BaseModel):
@@ -91,6 +92,7 @@ async def start_execution(
     db: Session = Depends(get_db)
 ):
     """Start execution of a runbook"""
+    logger.info(f"Received execution request: runbook_id={request.runbook_id}, ticket_id={request.ticket_id}, issue_description={request.issue_description[:50] if request.issue_description else None}")
     try:
         # Use demo tenant for POC
         tenant_id = 1
@@ -126,6 +128,7 @@ async def start_execution(
             ticket_id=request.ticket_id,
             issue_description=request.issue_description,
             user_id=user_id
+            # Note: metadata is not used in execution engine, but can be stored in session if needed
         )
         
         # Update ticket status when execution starts (if ticket_id provided)
@@ -135,17 +138,26 @@ async def start_execution(
         
         # Start execution if no approval needed
         if session.status == "pending":
-            session = await engine.start_execution(db, session.id)
+            try:
+                logger.info(f"Starting execution for session {session.id} (runbook {request.runbook_id}, ticket {request.ticket_id})")
+                session = await engine.start_execution(db, session.id)
+                db.refresh(session)
+                logger.info(f"Execution started for session {session.id}, status: {session.status}, waiting_for_approval: {session.waiting_for_approval}, current_step: {session.current_step}")
+            except Exception as e:
+                logger.error(f"Failed to start execution for session {session.id}: {e}", exc_info=True)
+                db.refresh(session)
+                # Return session even if start failed, so frontend can see the error
+        else:
+            logger.warning(f"Session {session.id} has status '{session.status}', not starting execution. Expected 'pending'.")
         
         db.refresh(session)
         
-        return {
-            "session_id": session.id,
-            "status": session.status,
-            "waiting_for_approval": session.waiting_for_approval,
-            "approval_step_number": session.approval_step_number,
-            "current_step": session.current_step
-        }
+        # Return full session data including steps
+        from app.services.execution_orchestrator import execution_orchestrator
+        payload = execution_orchestrator.serialize_session(session)
+        payload["runbook_title"] = runbook.title
+        
+        return payload
         
     except HTTPException:
         raise

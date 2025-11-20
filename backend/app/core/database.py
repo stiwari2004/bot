@@ -58,10 +58,21 @@ async def init_db():
         # Create all tables
         Base.metadata.create_all(bind=engine)
         
-        # Seed default data (temporarily disabled)
-        # from app.core.seed_data import seed_default_data
-        # with SessionLocal() as db:
-        #     seed_default_data(db)
+        # Seed default tenant (required for foreign key constraints)
+        from app.models.tenant import Tenant
+        with SessionLocal() as db:
+            # Create demo tenant (id=1) if it doesn't exist
+            demo_tenant = db.query(Tenant).filter(Tenant.id == 1).first()
+            if not demo_tenant:
+                demo_tenant = Tenant(
+                    id=1,
+                    name="demo",
+                    description="Demo tenant for development",
+                    is_active=True
+                )
+                db.add(demo_tenant)
+                db.commit()
+                logger.info("Created demo tenant (id=1)")
             
         logger.info("Database initialized successfully")
     except Exception as e:

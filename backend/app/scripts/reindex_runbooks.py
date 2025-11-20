@@ -19,7 +19,7 @@ from app.core.database import SessionLocal
 from app.models import tenant, user, document, chunk, embedding, runbook, execution, audit
 from app.models import system_config, runbook_usage, runbook_similarity, runbook_citation
 from app.models.runbook import Runbook
-from app.services.runbook_generator import RunbookGeneratorService
+from app.services.runbook.generation import RunbookGeneratorService
 
 
 async def reindex_all_approved_runbooks():

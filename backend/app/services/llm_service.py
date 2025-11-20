@@ -33,7 +33,9 @@ class LlamaCppLLMService:
         self.base_url = base_url or os.getenv("LLAMACPP_BASE_URL", "http://localhost:8080")
         self.model_id = model_id or os.getenv("LLAMACPP_MODEL_ID")
         # Create async HTTP client with longer timeout for generation tasks
-        self.client = httpx.AsyncClient(timeout=120.0)
+        # Increased timeout to 600 seconds (10 minutes) for large YAML generation
+        # Ollama can take a long time for complex prompts
+        self.client = httpx.AsyncClient(timeout=600.0)
 
     @staticmethod
     def _normalise_tenant(tenant_id: Optional[int]) -> int:
@@ -47,6 +49,27 @@ class LlamaCppLLMService:
             return self.model_id
         try:
             resp = await self.client.get(f"{self.base_url}/v1/models", timeout=10.0)
+            if resp.status_code != 200:
+                logger.error(f"LLM: failed to fetch models, status={resp.status_code}, body={resp.text[:200]}")
+                # Try Ollama-specific endpoint as fallback
+                try:
+                    resp = await self.client.get(f"{self.base_url}/api/tags", timeout=10.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        models = data.get("models", [])
+                        if models:
+                            # Use the full model name with tag (e.g., "llama3.2:latest")
+                            model_name = models[0].get("name", "llama3.2:latest")
+                            # Ensure it has a tag, default to :latest if not present
+                            if ":" not in model_name:
+                                model_name = f"{model_name}:latest"
+                            self.model_id = model_name
+                            logger.info(f"LLM: detected model '{self.model_id}' from Ollama API")
+                            return self.model_id
+                except Exception as e2:
+                    logger.warning(f"LLM: Ollama API fallback also failed: {e2}")
+                raise Exception(f"Failed to fetch models: HTTP {resp.status_code}")
+            
             data = resp.json()
             # Prefer OpenAI style: data[].id; fallback to models[].model
             if isinstance(data, dict):
@@ -56,10 +79,31 @@ class LlamaCppLLMService:
                     self.model_id = data["models"][0].get("model") or data["models"][0].get("name")
             if not self.model_id:
                 logger.warning(f"LLM: unable to detect model id from {self.base_url}/v1/models, response keys={list(data.keys()) if isinstance(data, dict) else type(data)}")
+                # Try Ollama-specific endpoint as fallback
+                try:
+                    resp = await self.client.get(f"{self.base_url}/api/tags", timeout=10.0)
+                    if resp.status_code == 200:
+                        ollama_data = resp.json()
+                        models = ollama_data.get("models", [])
+                        if models:
+                            # Use the full model name with tag (e.g., "llama3.2:latest")
+                            model_name = models[0].get("name", "llama3.2:latest")
+                            # Ensure it has a tag, default to :latest if not present
+                            if ":" not in model_name:
+                                model_name = f"{model_name}:latest"
+                            self.model_id = model_name
+                            logger.info(f"LLM: detected model '{self.model_id}' from Ollama API")
+                            return self.model_id
+                except Exception:
+                    pass
         except Exception as e:
-            logger.warning(f"LLM: error fetching models from {self.base_url} - {e}")
-            # Fallback to a sensible default filename if detection fails
-            self.model_id = "model.gguf"
+            logger.error(f"LLM: error fetching models from {self.base_url} - {e}")
+        
+        # Fallback to default Ollama model name
+        if not self.model_id:
+            self.model_id = "llama3.2:latest"  # Default Ollama model name (with tag)
+            logger.warning(f"LLM: using default model '{self.model_id}'")
+        
         return self.model_id
 
     async def classify_service_type(self, issue_description: str, *, tenant_id: Optional[int] = None) -> str:
@@ -153,7 +197,16 @@ class LlamaCppLLMService:
         # except (LLMRateLimitExceeded, LLMBudgetExceeded):
         #     raise
         except Exception as e:
-            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {error_type}: {error_msg}")
+            
+            # Provide more specific error messages for common issues
+            if "ReadTimeout" in error_type or "timeout" in error_msg.lower():
+                logger.error(f"LLM timeout: Request took longer than 600 seconds. This may indicate Ollama is slow or unresponsive. Check Ollama status and consider reducing prompt complexity.")
+            elif "Connection" in error_type or "connection" in error_msg.lower():
+                logger.error(f"LLM connection error: Cannot reach Ollama at {self.base_url}. Ensure Ollama is running.")
+            
             return ""
     
     async def generate_yaml_runbook(
@@ -185,6 +238,9 @@ class LlamaCppLLMService:
 
         # Call chat with explicit system + user messages
         text = await self._chat_once_with_system(system_msg, user_msg, tenant_id=tenant_id)
+        if not text or not text.strip():
+            logger.error("LLM returned empty response for YAML generation")
+            return ""
         raw = text
         # Post-process: strip any remaining code fences
         if raw and "```" in raw:
@@ -229,12 +285,17 @@ class LlamaCppLLMService:
                 "max_tokens": 2048,  # Increased to allow for 10-12 steps with full details
             }
             url = f"{self.base_url}/v1/chat/completions"
-            resp = await self.client.post(url, json=payload)
+            # Use longer timeout for chat completions (YAML generation can take 5-10 minutes)
+            # Explicitly set timeout to match client timeout
+            resp = await self.client.post(url, json=payload, timeout=600.0)
             if resp.status_code == 200:
                 data = resp.json()
                 choices = data.get("choices") or []
                 if choices:
                     text = choices[0].get("message", {}).get("content", "")
+                    if not text or not text.strip():
+                        logger.warning(f"LLM: empty content in response from {url}")
+                        return ""
                     # Token counting disabled for now
                     # completion_tokens = estimate_tokens(text)
                     # if completion_tokens:
@@ -252,7 +313,16 @@ class LlamaCppLLMService:
         # except (LLMRateLimitExceeded, LLMBudgetExceeded):
         #     raise
         except Exception as e:
-            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {type(e).__name__}: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            logger.error(f"LLM: exception calling chat completions at {self.base_url} - {error_type}: {error_msg}")
+            
+            # Provide more specific error messages for common issues
+            if "ReadTimeout" in error_type or "timeout" in error_msg.lower():
+                logger.error(f"LLM timeout: Request took longer than 600 seconds. This may indicate Ollama is slow or unresponsive. Check Ollama status and consider reducing prompt complexity.")
+            elif "Connection" in error_type or "connection" in error_msg.lower():
+                logger.error(f"LLM connection error: Cannot reach Ollama at {self.base_url}. Ensure Ollama is running.")
+            
             return ""
 
 

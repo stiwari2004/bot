@@ -3,10 +3,12 @@ ManageEngine ServiceDesk Plus Ticket Fetcher
 Fetches tickets from ManageEngine ServiceDesk Plus REST API
 """
 import base64
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import httpx
 from app.core.logging import get_logger
+from app.services.ticketing_connectors.zoho_oauth import ZohoOAuthService
 
 logger = get_logger(__name__)
 
@@ -15,6 +17,7 @@ class ManageEngineTicketFetcher:
     """Fetches tickets (requests) from ManageEngine ServiceDesk Plus"""
     
     def __init__(self):
+        self.oauth_service = ZohoOAuthService()  # ManageEngine uses same OAuth as Zoho
         self.client = httpx.AsyncClient(timeout=30.0)
     
     async def fetch_tickets(
@@ -47,52 +50,76 @@ class ManageEngineTicketFetcher:
             List of normalized ticket dictionaries
         """
         try:
-            # Determine authentication method
-            headers = self._get_auth_headers(
-                api_key, api_secret, api_username, api_password, connection_meta
-            )
+            # ManageEngine uses OAuth 2.0 only
+            access_token = await self._get_valid_token(connection_meta)
+            
+            if not access_token:
+                raise Exception(
+                    "ManageEngine connection requires OAuth credentials. "
+                    "Please configure Client ID and Client Secret, then authorize the connection."
+                )
+            
+            headers = {
+                "Authorization": f"Zoho-oauthtoken {access_token}",
+                "Accept": "application/vnd.manageengine.sdp.v3+json",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            logger.info("Using ManageEngine OAuth authentication")
             
             # Normalize API base URL
             if not api_base_url.startswith("http"):
                 api_base_url = f"https://{api_base_url}"
             api_base_url = api_base_url.rstrip("/")
             
-            # Build API URL - ManageEngine uses /api/v3/requests
+            # ManageEngine OAuth 2.0 API format
+            # According to official docs: https://www.manageengine.com/products/service-desk/sdpod-v3-api/getting-started/oauth-2.0.html
+            # input_data must be URL-encoded as a query parameter in GET requests
             api_url = f"{api_base_url}/api/v3/requests"
             
-            # Build query parameters
-            params = {
-                "TECHNICIAN_KEY": api_key or connection_meta.get("api_key", ""),
-                "input_data": self._build_input_data(status_filter, limit, since)
+            # Build input_data according to official documentation
+            # input_data should be a JSON string, URL-encoded as a query parameter
+            input_data = {
+                "list_info": {
+                    "row_count": min(limit, 100),
+                    "start_index": 1,
+                    "sort_fields": [{"field": "modified_time", "order": "desc"}]
+                }
             }
             
-            # ManageEngine ServiceDesk Plus API - try GET first (simpler)
-            # GET request with TECHNICIAN_KEY in params
-            tech_key = api_key or connection_meta.get("api_key") or connection_meta.get("api_username")
+            # Add search criteria if since is provided
+            if since:
+                input_data["list_info"]["search_criteria"] = {
+                    "field": "modified_time.value",
+                    "condition": "greater than",
+                    "value": str(int(since.timestamp() * 1000))
+                }
             
+            # Add status filter if provided
+            if status_filter:
+                if "search_criteria" not in input_data["list_info"]:
+                    input_data["list_info"]["search_criteria"] = {}
+                # Status filter can be added to search_criteria if needed
+            
+            # According to docs: input_data must be URL-encoded in query params
+            # Format: input_data={"list_info": {...}} as URL-encoded string
+            params = {
+                "input_data": json.dumps(input_data)
+            }
+            
+            logger.info(f"Fetching ManageEngine tickets via OAuth from {api_url} with input_data in query params")
             response = await self.client.get(
                 api_url,
                 headers=headers,
-                params={
-                    "TECHNICIAN_KEY": tech_key or "",
-                    "limit": limit
-                }
+                params=params
             )
-            
-            # If GET fails with 400/405/404, try POST
-            if response.status_code in (400, 405, 404):
-                logger.info(f"GET failed with {response.status_code}, trying POST...")
-                request_body = self._build_request_body(status_filter, limit, since)
-                response = await self.client.post(
-                    api_url,
-                    headers=headers,
-                    params={"TECHNICIAN_KEY": tech_key or ""},
-                    json=request_body
-                )
             
             # Log the response for debugging
             if response.status_code != 200:
-                logger.error(f"ManageEngine API error {response.status_code}: {response.text[:500]}")
+                error_text = response.text[:1000] if hasattr(response, 'text') else str(response.content)[:1000]
+                logger.error(f"ManageEngine API error {response.status_code}: {error_text}")
+                logger.error(f"Request URL: {api_url}")
+                logger.error(f"Request headers: {dict(headers)}")
+                logger.error(f"Request params: {params if 'params' in locals() else 'N/A'}")
             
             response.raise_for_status()
             data = response.json()
@@ -238,6 +265,48 @@ class ManageEngineTicketFetcher:
                 "manageengine_technician": request.get("technician", {}).get("name") if isinstance(request.get("technician"), dict) else None
             }
         }
+    
+    async def _get_valid_token(self, connection_meta: Dict[str, Any]) -> Optional[str]:
+        """Get valid access token, refreshing if necessary (same as Zoho)"""
+        access_token = connection_meta.get("access_token")
+        refresh_token = connection_meta.get("refresh_token")
+        expires_at = connection_meta.get("expires_at")
+        client_id = connection_meta.get("client_id")
+        client_secret = connection_meta.get("client_secret")
+        zoho_domain = connection_meta.get("zoho_domain", "in")  # Default to .in for ManageEngine
+        
+        if not access_token:
+            return None
+        
+        # Check if token is expired (with 5 minute buffer)
+        if expires_at:
+            from datetime import datetime, timezone
+            try:
+                expires_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if expires_dt <= now:
+                    # Token expired, try to refresh
+                    if refresh_token and client_id and client_secret:
+                        try:
+                            new_tokens = await self.oauth_service.refresh_access_token(
+                                refresh_token, client_id, client_secret, domain=zoho_domain
+                            )
+                            # Update connection_meta (caller should persist this)
+                            connection_meta["access_token"] = new_tokens["access_token"]
+                            if "refresh_token" in new_tokens:
+                                connection_meta["refresh_token"] = new_tokens["refresh_token"]
+                            if "expires_in" in new_tokens:
+                                from datetime import datetime, timezone, timedelta
+                                connection_meta["expires_at"] = (datetime.now(timezone.utc) + timedelta(seconds=new_tokens["expires_in"])).timestamp()
+                            access_token = new_tokens["access_token"]
+                            logger.info("Refreshed ManageEngine OAuth token")
+                        except Exception as e:
+                            logger.error(f"Failed to refresh ManageEngine token: {e}")
+                            return None
+            except Exception as e:
+                logger.warning(f"Error checking token expiry: {e}")
+        
+        return access_token
     
     async def close(self):
         """Close HTTP client"""

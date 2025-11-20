@@ -5,18 +5,25 @@ import asyncio
 import sys
 
 async def test_connection():
-    base_url = "http://host.docker.internal:8080"
+    base_url = "http://host.docker.internal:11434"
     
-    # Test health endpoint
+    # Test Ollama connection
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            print(f"Testing connection to {base_url}...")
+            print(f"Testing Ollama connection to {base_url}...")
             
-            # Test health
-            resp = await client.get(f"{base_url}/health")
-            print(f"Health check: {resp.status_code} - {resp.text}")
+            # Test Ollama API (list models)
+            resp = await client.get(f"{base_url}/api/tags")
+            print(f"Ollama API check: {resp.status_code}")
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get('models', [])
+                print(f"Models found: {len(models)}")
+                if models:
+                    model_name = models[0].get('name', '')
+                    print(f"First model: {model_name}")
             
-            # Test models
+            # Test OpenAI-compatible models endpoint
             resp = await client.get(f"{base_url}/v1/models")
             print(f"Models endpoint: {resp.status_code}")
             if resp.status_code == 200:
@@ -26,14 +33,16 @@ async def test_connection():
                     model_name = data['models'][0].get('model') or data['models'][0].get('name')
                     print(f"First model: {model_name}")
             
-            # Test chat completion
+            # Test chat completion (use llama3.2 or first available model)
+            model_to_use = model_name if 'model_name' in locals() and model_name else "llama3.2"
             payload = {
-                "model": model_name if 'model_name' in locals() else "test",
+                "model": model_to_use,
                 "messages": [
                     {"role": "user", "content": "Say hello in one word"}
                 ],
                 "max_tokens": 10
             }
+            print(f"Testing chat completion with model: {model_to_use}")
             resp = await client.post(f"{base_url}/v1/chat/completions", json=payload, timeout=30.0)
             print(f"Chat completion: {resp.status_code}")
             if resp.status_code == 200:

@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && \
-    npm install lightningcss@latest --production && \
-    npm install @tailwindcss/oxide-linux-arm64-gnu@latest --production || true
+# Install all dependencies (including devDependencies needed for build)
+RUN npm ci && \
+    npm install lightningcss@latest && \
+    npm install @tailwindcss/oxide-linux-arm64-gnu@latest || true
 
 # Copy source code
 COPY . .

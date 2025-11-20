@@ -3,22 +3,17 @@ Agent worker management endpoints (registration, heartbeat, assignment acknowled
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.logging import get_logger
-from app.models.execution_session import AgentWorkerAssignment, ExecutionSession
-from app.services.agent_worker_manager import agent_worker_manager
-from app.services.execution_orchestrator import execution_orchestrator
-from app.core import metrics
+from app.controllers.agent_worker_controller import AgentWorkerController
 
 router = APIRouter()
-logger = get_logger(__name__)
+controller = AgentWorkerController()
 
 
 class WorkerRegistrationRequest(BaseModel):
@@ -74,7 +69,7 @@ class WorkerEventResponse(BaseModel):
 @router.post("/register", response_model=WorkerStateResponse)
 async def register_worker(payload: WorkerRegistrationRequest) -> WorkerStateResponse:
     """Register a worker and record initial heartbeat."""
-    state = agent_worker_manager.register_worker(
+    result = controller.register_worker(
         worker_id=payload.worker_id,
         capabilities=payload.capabilities,
         network_segment=payload.network_segment,
@@ -82,17 +77,17 @@ async def register_worker(payload: WorkerRegistrationRequest) -> WorkerStateResp
         max_concurrency=payload.max_concurrency,
         metadata=payload.metadata,
     )
-    logger.info("Worker registered worker_id=%s environment=%s", state.worker_id, state.environment)
-    return WorkerStateResponse(**state.to_dict())
+    return WorkerStateResponse(**result)
 
 
 @router.post("/heartbeat", response_model=WorkerStateResponse)
 async def heartbeat_worker(payload: WorkerHeartbeatRequest) -> WorkerStateResponse:
     """Update worker heartbeat and current load."""
-    state = agent_worker_manager.heartbeat(payload.worker_id, payload.current_load)
-    if not state:
-        raise HTTPException(status_code=404, detail="Worker not registered")
-    return WorkerStateResponse(**state.to_dict())
+    result = controller.heartbeat_worker(
+        worker_id=payload.worker_id,
+        current_load=payload.current_load
+    )
+    return WorkerStateResponse(**result)
 
 
 @router.get("", response_model=List[WorkerStateResponse])
@@ -102,12 +97,12 @@ async def list_workers(
     network_segment: Optional[str] = None,
 ) -> List[WorkerStateResponse]:
     """Return active workers filtered by optional criteria."""
-    workers = agent_worker_manager.list_active_workers(
+    workers = controller.list_workers(
         capabilities=capabilities,
         environment=environment,
         network_segment=network_segment,
     )
-    return [WorkerStateResponse(**worker.to_dict()) for worker in workers]
+    return [WorkerStateResponse(**worker) for worker in workers]
 
 
 @router.post("/assignments/ack", response_model=AssignmentAckResponse)
@@ -116,41 +111,13 @@ async def acknowledge_assignment(
     db: Session = Depends(get_db),
 ) -> AssignmentAckResponse:
     """Mark the latest pending assignment for a session as acknowledged by worker."""
-    query = db.query(AgentWorkerAssignment).filter(
-        AgentWorkerAssignment.session_id == payload.session_id
+    result = controller.acknowledge_assignment(
+        session_id=payload.session_id,
+        worker_id=payload.worker_id,
+        assignment_id=payload.assignment_id,
+        db=db
     )
-    if payload.assignment_id:
-        query = query.filter(AgentWorkerAssignment.id == payload.assignment_id)
-    else:
-        query = query.filter(AgentWorkerAssignment.status == "pending")
-
-    assignment = query.order_by(AgentWorkerAssignment.id.desc()).first()
-    if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-
-    # Validate session exists
-    session_exists = (
-        db.query(ExecutionSession.id)
-        .filter(ExecutionSession.id == payload.session_id)
-        .first()
-    )
-    if not session_exists:
-        raise HTTPException(status_code=404, detail="Execution session not found")
-
-    assignment.worker_id = payload.worker_id
-    assignment.status = "acknowledged"
-    assignment.acknowledged_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(assignment)
-
-    agent_worker_manager.heartbeat(payload.worker_id)
-    metrics.record_assignment(assignment.status)
-
-    return AssignmentAckResponse(
-        assignment_id=assignment.id,
-        status=assignment.status,
-        acknowledged_at=assignment.acknowledged_at.isoformat(),
-    )
+    return AssignmentAckResponse(**result)
 
 
 @router.post("/events", response_model=WorkerEventResponse)
@@ -159,24 +126,13 @@ async def record_worker_event(
     db: Session = Depends(get_db),
 ) -> WorkerEventResponse:
     """Allow workers to publish execution events back to orchestrator."""
-    session = (
-        db.query(ExecutionSession)
-        .filter(ExecutionSession.id == payload.session_id)
-        .first()
-    )
-    if not session:
-        raise HTTPException(status_code=404, detail="Execution session not found")
-
-    stream_id = await execution_orchestrator.record_event(
-        db,
+    result = await controller.record_worker_event(
         session_id=payload.session_id,
-        event_type=payload.event,
+        event=payload.event,
         payload=payload.payload,
         step_number=payload.step_number,
+        db=db
     )
-    db.commit()
-
-    created_at = datetime.now(timezone.utc).isoformat()
-    return WorkerEventResponse(stream_id=stream_id, event=payload.event, created_at=created_at)
+    return WorkerEventResponse(**result)
 
 
