@@ -66,3 +66,5 @@ docker exec $containerName psql -U postgres -d troubleshooting_ai -c "SELECT id,
 Write-Host "`nCleanup complete!" -ForegroundColor Green
 
 
+
+

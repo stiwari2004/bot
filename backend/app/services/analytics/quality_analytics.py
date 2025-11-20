@@ -480,3 +480,5 @@ class QualityAnalytics:
             return {}
 
 
+
+

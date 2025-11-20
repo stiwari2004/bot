@@ -166,3 +166,5 @@ class AgentWorkerController(BaseController):
             logger.error(f"Error recording worker event: {e}", exc_info=True)
             raise self.handle_error(e, "Failed to record worker event")
 
+
+

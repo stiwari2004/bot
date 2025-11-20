@@ -143,3 +143,5 @@ class AnalyticsController(BaseController):
             logger.error(f"Error getting runbook metrics: {e}", exc_info=True)
             raise self.handle_error(e, "Failed to get runbook metrics")
 
+
+

@@ -159,3 +159,5 @@ az role assignment list --scope /subscriptions/b80e9168-f3ac-4c55-9260-356cdf023
 
 
 
+
+

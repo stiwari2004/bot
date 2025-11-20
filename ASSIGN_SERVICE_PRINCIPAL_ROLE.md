@@ -130,3 +130,5 @@ After Fix:
 Once the service principal has the Reader role, discovery will work!
 
 
+
+

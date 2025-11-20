@@ -13,3 +13,5 @@ docker exec $containerName psql -U postgres -d troubleshooting_ai -c "SELECT id,
 Write-Host "`nDone! Please refresh the ticket in the UI." -ForegroundColor Green
 
 
+
+

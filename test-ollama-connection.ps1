@@ -151,3 +151,5 @@ Write-Host "  ollama pull llama3.2" -ForegroundColor White
 
 
 
+
+

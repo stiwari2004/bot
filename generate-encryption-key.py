@@ -13,3 +13,5 @@ print(f"  - CREDENTIAL_ENCRYPTION_KEY={key.decode()}")
 
 
 
+
+

@@ -85,3 +85,5 @@ export function EventStreamView({ events }: EventStreamViewProps) {
   );
 }
 
+
+

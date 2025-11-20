@@ -21,3 +21,5 @@ Write-Host "`nChecking for runbook references in meta_data..." -ForegroundColor 
 docker exec $containerName psql -U postgres -d troubleshooting_ai -c "SELECT id, title, meta_data->'matched_runbooks' as matched_runbooks FROM tickets WHERE id = 31 AND tenant_id = 1;" 2>&1
 
 
+
+

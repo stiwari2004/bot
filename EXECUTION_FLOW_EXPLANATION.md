@@ -79,3 +79,5 @@ Check:
 4. Service Principal has "Virtual Machine Contributor" role
 
 
+
+
