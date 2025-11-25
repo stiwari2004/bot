@@ -278,33 +278,45 @@ class ManageEngineTicketFetcher:
         if not access_token:
             return None
         
-        # Check if token is expired (with 5 minute buffer)
-        if expires_at:
-            from datetime import datetime, timezone
-            try:
-                expires_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
-                now = datetime.now(timezone.utc)
-                if expires_dt <= now:
-                    # Token expired, try to refresh
-                    if refresh_token and client_id and client_secret:
-                        try:
-                            new_tokens = await self.oauth_service.refresh_access_token(
-                                refresh_token, client_id, client_secret, domain=zoho_domain
-                            )
-                            # Update connection_meta (caller should persist this)
-                            connection_meta["access_token"] = new_tokens["access_token"]
-                            if "refresh_token" in new_tokens:
-                                connection_meta["refresh_token"] = new_tokens["refresh_token"]
-                            if "expires_in" in new_tokens:
-                                from datetime import datetime, timezone, timedelta
-                                connection_meta["expires_at"] = (datetime.now(timezone.utc) + timedelta(seconds=new_tokens["expires_in"])).timestamp()
-                            access_token = new_tokens["access_token"]
-                            logger.info("Refreshed ManageEngine OAuth token")
-                        except Exception as e:
-                            logger.error(f"Failed to refresh ManageEngine token: {e}")
-                            return None
-            except Exception as e:
-                logger.warning(f"Error checking token expiry: {e}")
+        # Check if token is expired (with 5 minute buffer, same as Zoho)
+        if self.oauth_service.is_token_expired(expires_at):
+            # Token expired, try to refresh
+            if refresh_token and client_id and client_secret:
+                try:
+                    logger.info(f"Refreshing ManageEngine access token using domain: {zoho_domain}")
+                    # Pass existing refresh_token to preserve it if Zoho doesn't return a new one
+                    new_tokens = await self.oauth_service.refresh_access_token(
+                        refresh_token, client_id, client_secret, domain=zoho_domain,
+                        existing_refresh_token=refresh_token
+                    )
+                    # Update connection_meta (caller should persist this)
+                    # Use update() to match Zoho's approach and ensure all fields are updated
+                    connection_meta.update(new_tokens)
+                    access_token = new_tokens["access_token"]
+                    logger.info(
+                        f"Refreshed ManageEngine OAuth token (expires_at: {new_tokens.get('expires_at')}, "
+                        f"refresh_token_preserved: {bool(new_tokens.get('refresh_token'))})"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to refresh ManageEngine token: {e}", exc_info=True)
+                    # Check if it's a refresh_token specific error
+                    error_str = str(e).lower()
+                    if "invalid" in error_str and "refresh" in error_str:
+                        logger.error("Refresh token appears to be invalid or expired. Re-authorization required.")
+                    return None
+            else:
+                missing = []
+                if not refresh_token:
+                    missing.append("refresh_token")
+                if not client_id:
+                    missing.append("client_id")
+                if not client_secret:
+                    missing.append("client_secret")
+                logger.warning(
+                    f"ManageEngine token expired but missing required credentials: {', '.join(missing)}. "
+                    "Re-authorization required."
+                )
+                return None
         
         return access_token
     

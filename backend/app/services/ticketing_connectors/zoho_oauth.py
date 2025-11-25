@@ -157,6 +157,12 @@ class ZohoOAuthService:
             
             logger.info(f"Zoho token response keys: {list(token_data.keys())}")
             
+            # Log FULL response for debugging (sanitize access_token but keep structure)
+            sanitized_response = token_data.copy()
+            if "access_token" in sanitized_response:
+                sanitized_response["access_token"] = f"***{sanitized_response['access_token'][-10:]}" if len(sanitized_response["access_token"]) > 10 else "***"
+            logger.info(f"Zoho token exchange FULL response (sanitized): {sanitized_response}")
+            
             # Calculate expiration time
             expires_in = token_data.get("expires_in", 3600)
             expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
@@ -168,11 +174,21 @@ class ZohoOAuthService:
                 logger.error(f"Zoho token response missing access_token! Full response: {token_data}")
                 raise Exception("Zoho did not return an access_token in the response")
             
-            logger.info(f"Successfully extracted access_token (length: {len(access_token) if access_token else 0}), refresh_token: {bool(refresh_token)}")
+            # Log detailed information about refresh_token
+            if refresh_token:
+                logger.info(f"✅ SUCCESS: Zoho returned refresh_token! access_token length: {len(access_token)}, refresh_token length: {len(refresh_token)}")
+            else:
+                logger.error(
+                    f"❌ CRITICAL: Zoho did not return refresh_token in token exchange response! "
+                    f"This will prevent automatic token refresh. Response keys: {list(token_data.keys())}, "
+                    f"Full response (sanitized): {sanitized_response}"
+                )
+                # Don't fail, but log a warning - some OAuth apps may not issue refresh tokens
+                # or user may have already authorized before
             
             return {
                 "access_token": access_token,
-                "refresh_token": refresh_token,
+                "refresh_token": refresh_token,  # May be None if Zoho didn't return it
                 "expires_in": expires_in,
                 "expires_at": expires_at.isoformat(),
                 "token_type": token_data.get("token_type", "Bearer"),
@@ -190,18 +206,26 @@ class ZohoOAuthService:
         refresh_token: str,
         client_id: str,
         client_secret: str,
-        domain: Optional[str] = None
+        domain: Optional[str] = None,
+        existing_refresh_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Refresh access token using refresh token
         
+        According to Zoho OAuth 2.0 documentation:
+        - Refresh tokens do not expire and can be reused
+        - Zoho may or may not return a new refresh_token in the refresh response
+        - If a new refresh_token is returned, use it; otherwise, preserve the existing one
+        
         Args:
-            refresh_token: Zoho refresh token
+            refresh_token: Zoho refresh token to use for refresh
             client_id: Zoho OAuth client ID
             client_secret: Zoho OAuth client secret
+            domain: Zoho domain (com, in, etc.)
+            existing_refresh_token: The existing refresh_token to preserve if Zoho doesn't return a new one
         
         Returns:
-            Dictionary with new access_token, expires_in, etc.
+            Dictionary with new access_token, refresh_token (preserved or new), expires_in, etc.
         """
         try:
             data = {
@@ -212,6 +236,8 @@ class ZohoOAuthService:
             }
             
             refresh_url = self._get_token_url(domain)  # Refresh uses same URL as token
+            logger.debug(f"Refreshing token via {refresh_url}")
+            
             response = await self.client.post(
                 refresh_url,
                 data=data,
@@ -221,22 +247,46 @@ class ZohoOAuthService:
             
             token_data = response.json()
             
+            # Check for errors in response (Zoho sometimes returns 200 with error in body)
+            if "error" in token_data:
+                error_msg = token_data.get("error_description") or token_data.get("error")
+                logger.error(f"Zoho returned error in refresh response: {error_msg}, Full response: {token_data}")
+                raise Exception(f"Zoho OAuth refresh error: {error_msg}")
+            
             # Calculate expiration time
             expires_in = token_data.get("expires_in", 3600)
             expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
             
+            # Handle refresh_token: Zoho may or may not return a new one
+            # If Zoho returns a new refresh_token, use it; otherwise, preserve the existing one
+            new_refresh_token = token_data.get("refresh_token")
+            if not new_refresh_token:
+                # Zoho didn't return a new refresh_token, preserve the existing one
+                # Use the one passed as parameter (existing_refresh_token) or the one used for refresh
+                preserved_refresh_token = existing_refresh_token or refresh_token
+                logger.debug("Zoho did not return new refresh_token, preserving existing one")
+            else:
+                # Zoho returned a new refresh_token, use it
+                preserved_refresh_token = new_refresh_token
+                logger.debug("Zoho returned new refresh_token, using it")
+            
+            if not preserved_refresh_token:
+                logger.warning("No refresh_token available to preserve - this may cause issues on next refresh")
+            
             return {
                 "access_token": token_data.get("access_token"),
+                "refresh_token": preserved_refresh_token,  # Always include refresh_token
                 "expires_in": expires_in,
                 "expires_at": expires_at.isoformat(),
                 "token_type": token_data.get("token_type", "Bearer"),
                 "api_domain": token_data.get("api_domain", "https://desk.zoho.com")
             }
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to refresh token: {e.response.text}")
+            error_text = e.response.text if hasattr(e.response, 'text') else str(e.response.content)
+            logger.error(f"Failed to refresh token: HTTP {e.response.status_code} - {error_text}")
             raise Exception(f"Token refresh failed: {e.response.status_code}")
         except Exception as e:
-            logger.error(f"Error refreshing token: {e}")
+            logger.error(f"Error refreshing token: {e}", exc_info=True)
             raise
     
     def is_token_expired(self, expires_at: Optional[str]) -> bool:

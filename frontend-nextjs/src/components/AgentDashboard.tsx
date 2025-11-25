@@ -4,13 +4,15 @@
  */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
   ExclamationTriangleIcon,
   ArrowRightIcon,
+  PlayIcon,
+  StopIcon,
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 
@@ -228,15 +230,151 @@ interface ExecutionDetailViewProps {
   onClose: () => void;
 }
 
+interface StepExecutionState {
+  step_number: number;
+  step_type: string;
+  command: string;
+  description: string;
+  status: 'pending' | 'executing' | 'completed' | 'failed';
+  output: string;
+  error: string;
+  duration_ms?: number;
+  started_at?: string;
+  completed_at?: string;
+}
+
 function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
   const [execution, setExecution] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'detailed' | 'summary'>('detailed');
+  const [stepStates, setStepStates] = useState<Map<number, StepExecutionState>>(new Map());
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const outputRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
+  // Fetch initial execution status
   useEffect(() => {
     fetchExecutionStatus();
-    const interval = setInterval(fetchExecutionStatus, 2000);
-    return () => clearInterval(interval);
   }, [sessionId]);
+
+  // WebSocket connection for real-time events
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const toWebSocketUrl = (baseUrl: string) => {
+      if (baseUrl.startsWith('https://')) {
+        return `wss://${baseUrl.slice('https://'.length)}`;
+      }
+      if (baseUrl.startsWith('http://')) {
+        return `ws://${baseUrl.slice('http://'.length)}`;
+      }
+      return baseUrl;
+    };
+
+    const wsUrl = `${toWebSocketUrl(apiConfig.baseUrl)}/api/v1/executions/ws/sessions/${sessionId}`;
+    const socket = new WebSocket(wsUrl);
+    wsRef.current = socket;
+
+    socket.onopen = () => {
+      setWsConnected(true);
+      console.log('WebSocket connected for session', sessionId);
+    };
+
+    socket.onclose = () => {
+      setWsConnected(false);
+      console.log('WebSocket disconnected for session', sessionId);
+    };
+
+    socket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setWsConnected(false);
+    };
+
+    socket.onmessage = (message) => {
+      try {
+        const data = JSON.parse(message.data);
+        if (Array.isArray(data.events)) {
+          data.events.forEach((event: any) => {
+            handleExecutionEvent(event);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to parse WebSocket message:', err);
+      }
+    };
+
+    return () => {
+      socket.close();
+      wsRef.current = null;
+    };
+  }, [sessionId]);
+
+  const handleExecutionEvent = (event: any) => {
+    const stepNumber = event.step_number || event.payload?.step_number;
+    if (!stepNumber) return;
+
+    setStepStates((prev) => {
+      const newMap = new Map(prev);
+      const current: StepExecutionState = newMap.get(stepNumber) || {
+        step_number: stepNumber,
+        step_type: event.payload?.step_type || 'main',
+        command: event.payload?.command || '',
+        description: event.payload?.description || '',
+        status: 'pending' as const,
+        output: '',
+        error: '',
+        duration_ms: undefined,
+        started_at: undefined,
+        completed_at: undefined,
+      };
+
+      switch (event.event || event.event_type) {
+        case 'execution.step.started':
+          newMap.set(stepNumber, {
+            ...current,
+            command: event.payload?.command || current.command,
+            description: event.payload?.description || current.description,
+            status: 'executing',
+            started_at: event.timestamp || new Date().toISOString(),
+          });
+          break;
+        case 'execution.step.output':
+          newMap.set(stepNumber, {
+            ...current,
+            output: current.output + (event.payload?.output || ''),
+          });
+          // Auto-scroll output
+          setTimeout(() => {
+            const outputEl = outputRefs.current.get(stepNumber);
+            if (outputEl) {
+              outputEl.scrollTop = outputEl.scrollHeight;
+            }
+          }, 10);
+          break;
+        case 'execution.step.completed':
+          newMap.set(stepNumber, {
+            ...current,
+            status: 'completed',
+            output: event.payload?.output || current.output,
+            duration_ms: event.payload?.duration_ms,
+            completed_at: event.timestamp || new Date().toISOString(),
+          });
+          break;
+        case 'execution.step.failed':
+          newMap.set(stepNumber, {
+            ...current,
+            status: 'failed',
+            output: event.payload?.output || current.output,
+            error: event.payload?.error || '',
+            duration_ms: event.payload?.duration_ms,
+            completed_at: event.timestamp || new Date().toISOString(),
+          });
+          break;
+      }
+
+      return newMap;
+    });
+  };
 
   const fetchExecutionStatus = async () => {
     try {
@@ -244,6 +382,28 @@ function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
       if (response.ok) {
         const data = await response.json();
         setExecution(data);
+        
+        // Initialize step states from execution data
+        if (data.steps) {
+          const initialStates = new Map<number, StepExecutionState>();
+          data.steps.forEach((step: any) => {
+            initialStates.set(step.step_number, {
+              step_number: step.step_number,
+              step_type: step.step_type || 'main',
+              command: step.command || '',
+              description: step.notes || '',
+              status: step.completed 
+                ? (step.success ? 'completed' : 'failed')
+                : (step.step_number === data.current_step ? 'executing' : 'pending'),
+              output: step.output || '',
+              error: step.error || '',
+              duration_ms: undefined,
+              started_at: undefined,
+              completed_at: undefined,
+            });
+          });
+          setStepStates(initialStates);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch execution status:', err);
@@ -266,6 +426,12 @@ function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
     return null;
   }
 
+  const formatDuration = (ms?: number) => {
+    if (!ms) return '';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
@@ -274,80 +440,201 @@ function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
           onClick={onClose}
         />
         
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full">
           <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold text-gray-900">Execution Details</h3>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <XCircleIcon className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <h4 className="font-medium text-gray-900 mb-2">Status</h4>
+              <div className="flex items-center gap-3">
+                <h3 className="text-xl font-semibold text-gray-900">Execution Session #{sessionId}</h3>
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  execution.status === 'completed' ? 'bg-green-100 text-green-800' :
-                  execution.status === 'failed' ? 'bg-red-100 text-red-800' :
-                  execution.status === 'waiting_approval' ? 'bg-yellow-100 text-yellow-800' :
+                  execution?.status === 'completed' ? 'bg-green-100 text-green-800' :
+                  execution?.status === 'failed' ? 'bg-red-100 text-red-800' :
+                  execution?.status === 'waiting_approval' ? 'bg-yellow-100 text-yellow-800' :
                   'bg-blue-100 text-blue-800'
                 }`}>
-                  {execution.status}
+                  {execution?.status || 'loading'}
                 </span>
+                <div className="flex items-center gap-2">
+                  <div className={`h-2 w-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="text-xs text-gray-500">
+                    {wsConnected ? 'Live' : 'Disconnected'}
+                  </span>
+                </div>
               </div>
-              
-              <div>
-                <h4 className="font-medium text-gray-900 mb-2">Steps</h4>
-                <div className="space-y-2">
-                  {execution.steps?.map((step: any) => (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 border border-gray-300 rounded-lg">
+                  <button
+                    onClick={() => setViewMode('detailed')}
+                    className={`px-3 py-1 text-sm font-medium rounded-l-lg ${
+                      viewMode === 'detailed'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    Detailed
+                  </button>
+                  <button
+                    onClick={() => setViewMode('summary')}
+                    className={`px-3 py-1 text-sm font-medium rounded-r-lg ${
+                      viewMode === 'summary'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    Summary
+                  </button>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="text-gray-400 hover:text-gray-500"
+                >
+                  <XCircleIcon className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+            
+            {viewMode === 'detailed' ? (
+              <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                {execution?.steps?.map((step: any) => {
+                  const stepState: StepExecutionState = stepStates.get(step.step_number) || {
+                    step_number: step.step_number,
+                    step_type: step.step_type || 'main',
+                    command: step.command || '',
+                    description: step.notes || '',
+                    status: step.completed 
+                      ? (step.success ? 'completed' : 'failed')
+                      : (step.step_number === execution.current_step ? 'executing' : 'pending'),
+                    output: step.output || '',
+                    error: step.error || '',
+                    duration_ms: undefined,
+                    started_at: undefined,
+                    completed_at: undefined,
+                  };
+
+                  return (
                     <div
                       key={step.step_number}
-                      className="border border-gray-200 rounded-lg p-4"
+                      className={`border rounded-lg p-4 ${
+                        stepState.status === 'executing' ? 'border-blue-400 bg-blue-50' :
+                        stepState.status === 'completed' ? 'border-green-300 bg-green-50' :
+                        stepState.status === 'failed' ? 'border-red-300 bg-red-50' :
+                        'border-gray-200 bg-white'
+                      }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">Step {step.step_number}</span>
-                        <div className="flex items-center gap-2">
-                          {step.completed && (
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-gray-900">
+                              Step {step.step_number}
+                            </span>
+                            <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded capitalize">
+                              {stepState.step_type}
+                            </span>
+                            {stepState.status === 'executing' && (
+                              <div className="flex items-center gap-1 text-blue-600">
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600" />
+                                <span className="text-xs font-medium">Executing...</span>
+                              </div>
+                            )}
+                            {stepState.status === 'completed' && (
+                              <div className="flex items-center gap-1 text-green-600">
+                                <CheckCircleIcon className="h-4 w-4" />
+                                <span className="text-xs font-medium">Completed</span>
+                              </div>
+                            )}
+                            {stepState.status === 'failed' && (
+                              <div className="flex items-center gap-1 text-red-600">
+                                <XCircleIcon className="h-4 w-4" />
+                                <span className="text-xs font-medium">Failed</span>
+                              </div>
+                            )}
+                            {stepState.duration_ms && (
+                              <span className="text-xs text-gray-500">
+                                ({formatDuration(stepState.duration_ms)})
+                              </span>
+                            )}
+                          </div>
+                          {stepState.description && (
+                            <p className="text-sm text-gray-600 mb-2">{stepState.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="bg-gray-900 text-green-400 p-3 rounded font-mono text-xs mb-2">
+                        <div className="text-gray-400 mb-1">$ {stepState.command}</div>
+                      </div>
+                      
+                      {stepState.output && (
+                        <div className="mt-2">
+                          <div className="text-xs font-semibold text-gray-700 mb-1">Output:</div>
+                          <div
+                            ref={(el) => {
+                              if (el) outputRefs.current.set(step.step_number, el);
+                            }}
+                            className="bg-gray-900 text-gray-100 p-3 rounded font-mono text-xs max-h-48 overflow-y-auto"
+                          >
+                            <pre className="whitespace-pre-wrap">{stepState.output}</pre>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {stepState.error && (
+                        <div className="mt-2">
+                          <div className="text-xs font-semibold text-red-700 mb-1">Error:</div>
+                          <div className="bg-red-50 border border-red-200 text-red-800 p-3 rounded font-mono text-xs max-h-48 overflow-y-auto">
+                            <pre className="whitespace-pre-wrap">{stepState.error}</pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-3">Summary</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Total Steps:</span>
+                      <span className="ml-2 font-medium">{execution?.steps?.length || 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Duration:</span>
+                      <span className="ml-2 font-medium">
+                        {execution?.total_duration_minutes 
+                          ? `${execution.total_duration_minutes} minutes`
+                          : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Post-Checks</h4>
+                  <div className="space-y-2">
+                    {execution?.steps?.filter((s: any) => s.step_type === 'postcheck').map((step: any) => (
+                      <div
+                        key={step.step_number}
+                        className="border border-gray-200 rounded-lg p-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">{step.notes || 'Post-check'}</span>
+                          {step.completed ? (
                             step.success ? (
                               <CheckCircleIcon className="h-5 w-5 text-green-500" />
                             ) : (
                               <XCircleIcon className="h-5 w-5 text-red-500" />
                             )
-                          )}
-                          {step.requires_approval && (
-                            <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
-                              Requires Approval
-                            </span>
+                          ) : (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
                           )}
                         </div>
                       </div>
-                      <code className="text-sm text-gray-700 block bg-gray-50 p-2 rounded mt-2">
-                        {step.command}
-                      </code>
-                      {step.output && (
-                        <div className="mt-2 text-sm text-gray-600">
-                          <strong>Output:</strong>
-                          <pre className="bg-gray-50 p-2 rounded mt-1 text-xs overflow-x-auto">
-                            {step.output}
-                          </pre>
-                        </div>
-                      )}
-                      {step.error && (
-                        <div className="mt-2 text-sm text-red-600">
-                          <strong>Error:</strong>
-                          <pre className="bg-red-50 p-2 rounded mt-1 text-xs overflow-x-auto">
-                            {step.error}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

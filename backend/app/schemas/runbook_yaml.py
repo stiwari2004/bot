@@ -48,7 +48,7 @@ class RunbookYAML(BaseModel):
     version: str
     title: str
     service: str
-    env: Literal["prod", "staging", "dev"]
+    env: Literal["prod", "staging", "dev", "Windows", "Linux"]
     risk: Literal["low", "medium", "high"]
     description: Optional[str] = None
     owner: Optional[str] = None

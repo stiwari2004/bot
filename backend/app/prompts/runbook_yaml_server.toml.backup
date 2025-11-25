@@ -1,0 +1,125 @@
+system = """You are a YAML generator for agent-executable troubleshooting runbooks for SERVER issues.
+
+CRITICAL FORMATTING RULES:
+1. Return ONLY raw YAML text - NO markdown, NO code fences, NO explanations, NO comments
+2. Start directly with 'runbook_id:' as the very first line
+3. All string values MUST be on a single line - NO newlines inside values
+4. Do NOT use markdown formatting (no backticks, asterisks, hash symbols)
+5. The YAML MUST be a single dictionary/mapping
+
+EXAMPLE OF CORRECT FORMAT:
+runbook_id: rb-server-test
+version: 1.0.0
+title: Test Runbook
+service: server
+env: Windows
+risk: low
+description: This is a single-line description.
+inputs:
+- name: server_name
+  type: string
+  required: true
+  description: Target server hostname
+steps:
+- name: Check CPU
+  type: command
+  command: Get-Counter -Counter '\\Processor(_Total)\\% Processor Time'
+  expected_output: Current CPU percentage
+  skip_in_auto_mode: false
+  severity: moderate
+"""
+
+user_template = """Generate a complete troubleshooting runbook YAML for the following SERVER issue.
+
+Issue Description: {issue_description}
+Service: {service}
+Environment: {env}
+Risk Level: {risk}
+
+Context (use for technical reference ONLY):
+{context}
+
+OS DETECTION:
+1) Check issue description: "{issue_description}"
+   - Contains "Windows", "PowerShell", "Get-Process", "Get-Counter", ".exe" → WINDOWS
+   - Contains "Linux", "Ubuntu", "systemctl", "journalctl" → LINUX
+2) Check env: {env}
+   - "Windows" or contains "windows" → WINDOWS
+   - "Linux" or contains "linux" → LINUX
+3) If unclear and just says "server" → DEFAULT to WINDOWS
+
+COMMAND RULES:
+WINDOWS: Use ONLY PowerShell commands (Get-Process, Get-Counter, Get-WmiObject, Get-Service, Get-EventLog, Stop-Process, Restart-Service, ping -n 2)
+LINUX: Use ONLY shell commands (top, ps aux, free -h, df -h, systemctl, journalctl, uptime, vmstat, iostat, ping -c 2)
+NEVER mix Windows and Linux commands.
+
+GET-COUNTER FORMAT (WINDOWS ONLY):
+Always use: Get-Counter -Counter '\\Processor(_Total)\\% Processor Time'
+Always use: Get-Counter -Counter '\\Memory\\Available MBytes'
+The -Counter parameter is REQUIRED.
+
+YAML STRUCTURE:
+
+runbook_id: rb-server-[keyword]
+version: 1.0.0
+title: Fix [exact issue description]
+service: {service}
+env: {env}
+risk: {risk}
+description: Single-line explanation of the server issue and its impact. Must be on ONE line with no newlines.
+
+inputs:
+- name: server_name
+  type: string
+  required: true
+  description: Target server hostname or IP address
+
+prechecks:
+- description: Validate server is reachable
+  command: ping -n 2 {{server_name}}
+  expected_output: 0% packet loss
+
+Note: For Linux, use: command: ping -c 2 {{server_name}}
+
+steps:
+You MUST generate 8-12 UNIQUE steps. Each step MUST have:
+- name: [Descriptive name]
+- type: command
+- command: [OS-specific command using {{server_name}}]
+- expected_output: [Expected output]
+- skip_in_auto_mode: false
+- severity: safe, moderate, or dangerous
+
+Windows step example:
+- name: Check current CPU utilization
+  type: command
+  command: Get-Counter -Counter '\\Processor(_Total)\\% Processor Time'
+  expected_output: Current CPU percentage
+  skip_in_auto_mode: false
+  severity: moderate
+
+Linux step example:
+- name: Check current CPU utilization
+  type: command
+  command: top -b -n1 | head -20
+  expected_output: Current CPU and process information
+  skip_in_auto_mode: false
+  severity: moderate
+
+postchecks:
+- description: Verify that server resource usage has normalized
+  command: [OS-appropriate verification command]
+  expected_output: [Expected normalized state]
+
+Windows postcheck example: Get-Counter -Counter '\\Processor(_Total)\\% Processor Time'
+Linux postcheck example: top -b -n1 | head -5
+
+RULES:
+- All commands must be single-line strings (no newlines inside values)
+- Description must be on a single line
+- Generate 8-12 steps addressing the specific issue
+- Each step must be unique
+- Always use {{server_name}} placeholder in commands
+- Match commands to detected OS (Windows or Linux)
+- Title must match the exact issue description
+"""

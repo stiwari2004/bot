@@ -1,6 +1,7 @@
 """
 Service type classification for runbook generation
 """
+from typing import Optional
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -112,6 +113,32 @@ class ServiceClassifier:
                 return service
                 
         return "server"  # Final fallback
+    
+    async def detect_os_type(self, issue_description: str) -> Optional[str]:
+        """Detect OS type (Windows/Linux) from issue description."""
+        issue_lower = issue_description.lower()
+        
+        # Windows indicators
+        windows_keywords = [
+            'windows', 'powershell', 'get-process', 'get-counter', 'get-service',
+            'iis', 'wmi', 'win32', '.exe', 'c:\\', 'windows server'
+        ]
+        
+        # Linux indicators
+        linux_keywords = [
+            'linux', 'ubuntu', 'centos', 'rhel', 'debian', 'systemctl', 'journalctl',
+            'apt', 'yum', 'dnf', '/var/log', '/etc/', 'bash', 'shell script'
+        ]
+        
+        windows_score = sum(1 for keyword in windows_keywords if keyword in issue_lower)
+        linux_score = sum(1 for keyword in linux_keywords if keyword in issue_lower)
+        
+        if windows_score > linux_score and windows_score > 0:
+            return "Windows"
+        elif linux_score > windows_score and linux_score > 0:
+            return "Linux"
+        
+        return None  # Could not detect OS type
 
 
 

@@ -1,5 +1,6 @@
 """
-Connection configuration service for execution
+Connection configuration service - CLEAN REWRITE
+Simple service for getting connection config for execution steps
 """
 from typing import Dict, Any
 from sqlalchemy.orm import Session
@@ -45,7 +46,7 @@ class ConnectionService:
                 ci_name = CIExtractionService.extract_ci_from_ticket(ticket_dict)
                 
                 if ci_name:
-                    # Try to find matching infrastructure connection (direct connection)
+                    # Try to find matching infrastructure connection
                     connection = CIExtractionService.find_infrastructure_connection(
                         db, ci_name, session.tenant_id
                     )
@@ -58,7 +59,7 @@ class ConnectionService:
                                 Credential.id == connection.credential_id
                             ).first()
                         
-                        # Build connection config from infrastructure connection
+                        # Build connection config
                         config = {
                             "connector_type": connection.connection_type,
                             "host": connection.target_host,
@@ -84,11 +85,8 @@ class ConnectionService:
                         logger.info(f"Using infrastructure connection for CI: {ci_name}")
                         return config
                     
-                    # If no direct connection found, try cloud discovery (Azure, GCP, AWS)
-                    logger.info(f"No direct connection found for CI '{ci_name}', trying cloud discovery...")
+                    # Try cloud discovery (Azure, GCP, AWS)
                     from app.services.cloud_discovery import CloudDiscoveryService
-                    
-                    # Try Azure VM discovery
                     vm_info = await CloudDiscoveryService.discover_azure_vm(
                         db=db,
                         vm_name=ci_name,
@@ -96,7 +94,6 @@ class ConnectionService:
                     )
                     
                     if vm_info:
-                        logger.info(f"Discovered Azure VM '{ci_name}' from cloud account: {vm_info['resource_id']}")
                         azure_creds = vm_info.get('azure_credentials') or {}
                         config = {
                             "connector_type": "azure_bastion",
@@ -106,17 +103,13 @@ class ConnectionService:
                             "connection_id": vm_info.get('connection_id'),
                             "credential_id": vm_info.get('credential_id'),
                             "azure_credentials": azure_creds,
-                            # Also pass credentials directly as fallback for connector
                             "tenant_id": azure_creds.get('tenant_id'),
                             "client_id": azure_creds.get('client_id'),
                             "client_secret": azure_creds.get('client_secret'),
-                            # Pass OS type if available for shell detection
                             "os_type": vm_info.get('os_type'),
                         }
-                        logger.info(f"Connection config for VM '{ci_name}': has_azure_creds={bool(azure_creds)}, has_tenant_id={bool(azure_creds.get('tenant_id'))}, has_client_id={bool(azure_creds.get('client_id'))}, has_client_secret={bool(azure_creds.get('client_secret'))}, os_type={vm_info.get('os_type')}")
+                        logger.info(f"Discovered Azure VM: {ci_name}")
                         return config
-                    
-                    logger.warning(f"Could not find connection or discover VM for CI: {ci_name}")
                 
                 # Fallback: Check ticket meta_data for connection_config
                 ticket_meta = ticket.meta_data or {}
@@ -127,7 +120,6 @@ class ConnectionService:
                         ticket_meta = {}
                 
                 if ticket_meta.get("connection_config"):
-                    logger.info("Using connection config from ticket metadata")
                     config = ticket_meta["connection_config"]
                     if isinstance(config, dict) and "credential_id" not in config:
                         config["credential_id"] = ticket_meta.get("credential_id")
@@ -138,7 +130,6 @@ class ConnectionService:
         if runbook and runbook.metadata:
             runbook_meta = runbook.metadata
             if isinstance(runbook_meta, dict) and runbook_meta.get("connection_config"):
-                logger.info("Using connection config from runbook metadata")
                 config = runbook_meta["connection_config"]
                 if isinstance(config, dict) and "credential_id" not in config:
                     config["credential_id"] = runbook_meta.get("credential_id")
@@ -150,7 +141,3 @@ class ConnectionService:
             "connector_type": "local",
             "credential_id": None,
         }
-
-
-
-

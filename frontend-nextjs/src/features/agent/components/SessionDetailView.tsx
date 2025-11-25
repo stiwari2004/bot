@@ -193,16 +193,29 @@ export function SessionDetailView({
           <div>
             <dt className="text-gray-500">Last Command</dt>
             <dd className="text-gray-900">
-              {connectionInfo.lastCommandDurationMs !== undefined
-                ? `${formatShortDuration(connectionInfo.lastCommandDurationMs) ?? '—'} · ${
-                    connectionInfo.lastCommandStatus === 'error'
-                      ? 'failed'
-                      : 'success'
-                  }${
-                    connectionInfo.lastCommandRetries
-                      ? ` · retries ${connectionInfo.lastCommandRetries}`
-                      : ''
-                  }`
+              {connectionInfo.lastCommandDurationMs !== undefined || connectionInfo.lastCommand
+                ? (
+                    <>
+                      {connectionInfo.lastCommand && (
+                        <div className="text-xs text-gray-600 mb-1 font-mono truncate" title={connectionInfo.lastCommand}>
+                          {connectionInfo.lastCommand}
+                        </div>
+                      )}
+                      {connectionInfo.lastCommandDurationMs !== undefined && (
+                        <div className="text-xs">
+                          {formatShortDuration(connectionInfo.lastCommandDurationMs) ?? '—'} · {
+                            connectionInfo.lastCommandStatus === 'error'
+                              ? 'failed'
+                              : 'success'
+                          }{
+                            connectionInfo.lastCommandRetries
+                              ? ` · retries ${connectionInfo.lastCommandRetries}`
+                              : ''
+                          }
+                        </div>
+                      )}
+                    </>
+                  )
                 : '—'}
             </dd>
           </div>

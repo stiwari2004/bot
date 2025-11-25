@@ -1,0 +1,150 @@
+system = "You are a YAML generator for agent-executable troubleshooting runbooks for NETWORK issues. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- ')."
+
+user_template = """
+Generate a complete troubleshooting runbook YAML for the following NETWORK issue.
+
+Issue Description: {issue_description}
+Service: {service}
+Environment: {env}
+Risk Level: {risk}
+
+Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
+{context}
+
+CRITICAL - THIS IS A NETWORK ISSUE:
+- Network issues include: connectivity problems, DNS resolution failures, routing issues, firewall problems, network device failures
+- Network issues are about NETWORK CONNECTIVITY and NETWORK DEVICES (switches, routers, firewalls), NOT servers, databases, or web apps
+- Use network-specific commands: ping, traceroute, nslookup, dig, ip, route, nmcli
+- Identify network component from issue description (DNS, routing, firewall, switch, router)
+
+YAML STRUCTURE:
+
+runbook_id: rb-network-[issue-keyword]
+version: 1.0.0
+title: Fix [EXACT match to issue description - e.g., "Fix Network Connectivity Issue"]
+service: {service}
+env: {env}
+risk: {risk}
+description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT NETWORK ISSUE and its impact. DO NOT mention databases, web applications, or servers unless the issue description specifically mentions them.]
+
+INPUTS SECTION - NETWORK-SPECIFIC:
+For NETWORK issues, you typically need host_ip and gateway_ip.
+
+inputs:
+- name: host_ip
+  type: string
+  required: true
+  description: Target host or service IP to test connectivity
+- name: gateway_ip
+  type: string
+  required: true
+  description: Gateway or router IP to verify network reachability
+- name: interface
+  type: string
+  required: false
+  default: "eth0"
+  description: Network interface to restart during remediation
+
+CRITICAL - MATCH INPUTS TO ISSUE:
+- If issue says "cannot reach host" → Include host_ip and gateway_ip
+- If issue says "DNS resolution failed" → Include host_ip (as domain name)
+- NEVER include database_name for pure network issues
+
+prechecks:
+- description: Verify local host has IP assigned to the target interface
+  command: ip addr show {{interface}} | grep 'inet '
+  expected_output: inet 
+
+- description: Ensure DNS resolution is functioning
+  command: nslookup google.com
+  expected_output: Address
+
+steps:
+[Generate 8-12 UNIQUE steps that directly address the EXACT NETWORK issue described above. Use network-specific commands.]
+
+EXAMPLE FOR NETWORK CONNECTIVITY ISSUE:
+If issue description says "Cannot reach remote host", generate:
+
+description: Network connectivity to the remote host is failing, preventing services from communicating. This requires immediate attention to restore network connectivity.
+
+inputs:
+- name: host_ip
+  type: string
+  required: true
+  description: Target host or service IP to test connectivity
+- name: gateway_ip
+  type: string
+  required: true
+  description: Gateway or router IP to verify network reachability
+- name: interface
+  type: string
+  required: false
+  default: "eth0"
+  description: Network interface to restart during remediation
+
+prechecks:
+- description: Verify local host has IP assigned to the target interface
+  command: ip addr show {{interface}} | grep 'inet '
+  expected_output: inet 
+
+- description: Ensure DNS resolution is functioning
+  command: nslookup google.com
+  expected_output: Address
+
+steps:
+- name: Check physical connections (manual)
+  type: manual
+  description: Ensure all network cables, switches, and access points are connected and powered. If possible, verify link lights on the switch port and NIC.
+  skip_in_auto_mode: true
+
+- name: Verify gateway connectivity
+  type: command
+  command: ping -c 4 {{gateway_ip}}
+  expected_output: 0% packet loss
+  timeout: 30
+  skip_in_auto_mode: false
+  severity: moderate
+
+- name: Restart network interface if needed
+  type: command
+  command: nmcli connection up {{interface}}
+  expected_output: Connection activated successfully
+  skip_in_auto_mode: false
+  severity: safe
+
+- name: Trace route to host
+  type: command
+  command: traceroute {{host_ip}}
+  expected_output: Route path to host
+  skip_in_auto_mode: false
+  severity: moderate
+
+- name: Verify end-to-end connectivity
+  type: command
+  command: ping -c 4 {{host_ip}}
+  expected_output: 0% packet loss
+  skip_in_auto_mode: false
+  severity: moderate
+
+postchecks:
+- description: Confirm all services dependent on the network are operational
+  command: systemctl list-units --type=service | grep network
+  expected_output: active (running)
+
+CRITICAL RULES FOR NETWORK ISSUES:
+1. Title MUST match the EXACT issue description - if issue says "connectivity lost", title must say "connectivity lost"
+2. Description MUST explain the NETWORK issue, not database, web application, or server issues
+3. Use network-specific commands (ping, traceroute, nslookup, dig, ip, route, nmcli)
+4. NEVER generate database commands (SELECT, DBCC) for pure network issues
+5. NEVER generate web application commands (curl, nginx) for pure network issues
+6. NEVER hardcode values - ALWAYS use {{host_ip}}, {{gateway_ip}}, {{interface}} placeholders
+7. Inputs should include host_ip and gateway_ip, optionally interface
+8. Generate 8-12 complete steps that address the exact network issue described
+9. Each step must be UNIQUE - no duplicates
+10. Match network component to commands (DNS → nslookup/dig, routing → traceroute/route, interface → ip/nmcli)
+"""
+
+
+
+
+

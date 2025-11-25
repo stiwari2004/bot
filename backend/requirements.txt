@@ -31,6 +31,7 @@ aiofiles==23.2.1
 tqdm>=4.60.0
 requests==2.31.0
 toml==0.10.2  # For prompt templates (POML)
+pyyaml==6.0.1  # For YAML parsing
 redis==5.0.1
 prometheus-client==0.17.1
 opentelemetry-api==1.23.0

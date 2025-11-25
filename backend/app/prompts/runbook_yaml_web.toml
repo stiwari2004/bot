@@ -1,0 +1,228 @@
+system = "You are a YAML generator for agent-executable troubleshooting runbooks for WEB APPLICATION issues. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- ')."
+
+user_template = """
+Generate a complete troubleshooting runbook YAML for the following WEB APPLICATION issue.
+
+Issue Description: {issue_description}
+Service: {service}
+Environment: {env}
+Risk Level: {risk}
+
+Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
+{context}
+
+CRITICAL - THIS IS A WEB APPLICATION ISSUE:
+- Web application issues include: HTTP errors (404, 500), slow response times, web server down, API failures, load balancer issues
+- Web application issues are about WEB SERVERS and WEB APPS (nginx, Apache, IIS, web services), NOT databases, servers, or network
+- Use web-specific commands: curl, wget, systemctl (for web servers), netstat, lsof
+- Identify web server type from issue description (nginx, Apache, IIS)
+
+YAML STRUCTURE:
+
+runbook_id: rb-web-[issue-keyword]
+version: 1.0.0
+title: Fix [EXACT match to issue description - e.g., "Fix Web Application 500 Error"]
+service: {service}
+env: {env}
+risk: {risk}
+description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT WEB APPLICATION ISSUE and its impact. DO NOT mention databases, servers, or network connectivity unless the issue description specifically mentions them.]
+
+INPUTS SECTION - WEB APPLICATION-SPECIFIC:
+For WEB APPLICATION issues, you typically need app_url and optionally server_name.
+
+inputs:
+- name: app_url
+  type: string
+  required: true
+  description: Web application URL to test
+- name: server_name
+  type: string
+  required: false
+  description: Target server hostname or IP address (if needed for server-side commands)
+- name: app_port
+  type: string
+  required: false
+  default: "80"
+  description: Application port number
+
+CRITICAL - MATCH INPUTS TO ISSUE:
+- If issue says "web app 500 error" → Include app_url, optionally server_name
+- If issue says "web server not responding" → Include app_url and server_name
+- NEVER include database_name for pure web application issues
+
+CRITICAL - PRECHECKS MUST CHECK THE ACTUAL ISSUE:
+The precheck MUST verify the actual issue reported in "{issue_description}":
+- If issue says "500 error" or "internal server error" → Precheck MUST check HTTP status code
+- If issue says "slow response" or "timeout" → Precheck MUST check response time
+- If issue says "web server down" → Precheck MUST check if web server is running
+- NEVER use generic checks - you MUST check the actual metric/status
+
+WRONG precheck for 500 error:
+- description: Verify web server is running
+  command: systemctl status nginx
+  ❌ This doesn't check the HTTP error, so it can't detect false positives!
+
+RIGHT precheck for 500 error:
+- description: Check HTTP status code to verify issue
+  command: curl -I {{app_url}} | head -1
+  expected_output: HTTP status code (500, 200, etc.)
+  ✅ This checks the actual HTTP error, allowing false positive detection!
+
+RIGHT precheck for slow response:
+- description: Check response time to verify issue
+  command: curl -o /dev/null -s -w "%{time_total}" {{app_url}}
+  expected_output: Response time in seconds
+  ✅ This checks response time, allowing false positive detection!
+
+prechecks:
+- description: Check [ACTUAL METRIC FROM ISSUE] to verify issue
+  command: [COMMAND TO CHECK THE ACTUAL METRIC]
+  expected_output: [METRIC VALUE]
+
+[You MAY include an additional connectivity check, but the PRIMARY precheck MUST check the actual issue]
+
+steps:
+[Generate 8-12 UNIQUE steps that directly address the EXACT WEB APPLICATION issue described above. Use web-specific commands.]
+
+EXAMPLE FOR WEB APPLICATION ERROR:
+If issue description says "Web application returning 500 error", generate:
+
+description: The web application is returning 500 Internal Server Error, causing users to be unable to access the service. This requires immediate attention to restore service availability.
+
+inputs:
+- name: app_url
+  type: string
+  required: true
+  description: Web application URL to test
+- name: server_name
+  type: string
+  required: false
+  description: Target server hostname or IP address
+
+prechecks:
+- description: Verify web server is running
+  command: systemctl status nginx
+  expected_output: active (running)
+
+CRITICAL - MAIN STEPS MUST INCLUDE REMEDIATION:
+The main steps MUST do MORE than just diagnose - they MUST FIX the issue:
+- Steps should: Diagnose → Identify root cause → REMEDIATE → Verify
+- NEVER generate only diagnostic steps - you MUST include remediation steps
+- The goal is to RESOLVE the ticket or ESCALATE, not just gather information
+
+WRONG (diagnostics only - no remediation):
+steps:
+- name: Check application health endpoint
+  command: curl -I {{app_url}}
+- name: Check web server error logs
+  command: tail -n 50 /var/log/nginx/error.log
+- name: Check application process status
+  command: ps aux | grep -i nginx
+❌ These only diagnose - they don't FIX anything!
+
+RIGHT (diagnostics + remediation):
+steps:
+- name: Check application health endpoint
+  type: command
+  command: curl -I {{app_url}}
+  expected_output: HTTP status code
+  skip_in_auto_mode: false
+  severity: moderate
+- name: Check web server error logs
+  type: command
+  command: tail -n 50 /var/log/nginx/error.log
+  expected_output: Recent error log entries
+  skip_in_auto_mode: false
+  severity: moderate
+- name: Identify root cause from logs
+  type: command
+  command: grep -i "error\|exception\|fatal" /var/log/nginx/error.log | tail -20
+  expected_output: Error patterns identified
+  skip_in_auto_mode: false
+  severity: moderate
+- name: Clear application cache if needed
+  type: command
+  command: rm -rf /var/cache/nginx/*
+  expected_output: Cache cleared
+  skip_in_auto_mode: false
+  severity: moderate
+- name: Restart web server to apply fixes
+  type: command
+  command: systemctl restart nginx
+  expected_output: Web server restarted successfully
+  skip_in_auto_mode: false
+  severity: moderate
+✅ These diagnose AND fix the issue!
+
+STEP STRUCTURE REQUIREMENTS:
+1. First 2-3 steps: DIAGNOSE (identify the problem)
+2. Next 2-4 steps: REMEDIATE (fix the problem - restart services, clear caches, fix configs, etc.)
+3. Last 1-2 steps: VERIFY (confirm the fix worked)
+
+CRITICAL - POSTCHECKS MUST VERIFY RESOLUTION:
+The postcheck MUST verify that the EXACT issue from "{issue_description}" is RESOLVED:
+- If issue was "500 error" → Postcheck MUST check HTTP status is now 200
+- If issue was "slow response" → Postcheck MUST check response time is now normal
+- If issue was "web server down" → Postcheck MUST check web server is now running
+- The postcheck MUST use the SAME metric as the precheck to compare before/after
+
+WRONG postcheck (doesn't verify resolution):
+- description: Verify server is reachable
+  command: ping -c 2 {{server_name}}
+  ❌ This doesn't verify the web application issue is fixed!
+
+RIGHT postcheck for 500 error:
+- description: Verify HTTP status code has returned to normal
+  command: curl -I {{app_url}} | head -1
+  expected_output: HTTP/1.1 200 OK
+  ✅ This verifies the 500 error is resolved!
+
+RIGHT postcheck for slow response:
+- description: Verify response time has returned to normal
+  command: curl -o /dev/null -s -w "%{time_total}" {{app_url}}
+  expected_output: Response time below threshold (typically < 2 seconds)
+  ✅ This verifies the slow response issue is resolved!
+
+postchecks:
+- description: Verify [ISSUE FROM DESCRIPTION] has been resolved
+  command: [SAME COMMAND AS PRECHECK TO COMPARE BEFORE/AFTER]
+  expected_output: [METRIC VALUE INDICATING RESOLUTION]
+
+CRITICAL RULES FOR WEB APPLICATION ISSUES:
+1. Title MUST match the EXACT issue description - if issue says "500 error", title must say "500 error"
+2. Description MUST explain the WEB APPLICATION issue, not database or server issues
+3. Use web-specific commands (curl, wget, systemctl for web servers, netstat, lsof)
+4. NEVER generate database commands (SELECT, DBCC) for pure web application issues
+5. NEVER generate server commands (top, free, df) for pure web application issues
+6. NEVER hardcode values - ALWAYS use {{app_url}}, {{server_name}}, {{app_port}} placeholders
+7. Inputs should include app_url, optionally server_name and app_port
+8. Generate EXACTLY 5-6 complete steps (no more, no less) that address the exact web application issue described
+9. Each step must be UNIQUE - no duplicates
+10. Match web server type to commands (nginx → nginx commands, Apache → apache2 commands, IIS → PowerShell commands)
+11. PRECHECK MUST check the actual metric from the issue description (HTTP status, response time, etc.) - NOT just server status
+12. MAIN STEPS MUST include remediation steps, not just diagnostics - the goal is to FIX the issue
+13. POSTCHECK MUST verify the issue is resolved using the same metric as the precheck
+14. Generate EXACTLY 3 precheck steps (no more, no less)
+15. Generate EXACTLY 1 postcheck step (no more, no less)
+11. PRECHECK MUST check the actual metric from the issue description (HTTP status, response time, etc.) - NOT just server status
+12. MAIN STEPS MUST include remediation steps, not just diagnostics - the goal is to FIX the issue
+13. POSTCHECK MUST verify the issue is resolved using the same metric as the precheck
+
+CRITICAL - RUNBOOK GOAL:
+The runbook MUST lead to ONE of these outcomes:
+1. RESOLVE: Issue is fixed → Ticket closed automatically
+2. ESCALATE: Issue cannot be fixed automatically → Ticket escalated to L2/L3
+
+To achieve this:
+- Precheck checks actual metric → Detects false positives → Closes ticket if false positive
+- Main steps diagnose AND remediate → Fixes the issue → Resolves ticket if successful
+- Postcheck verifies resolution → Confirms fix worked → Closes ticket if resolved
+- If remediation fails or postcheck shows issue persists → Escalate ticket
+
+NEVER generate runbooks that only do health checks without fixing anything!
+"""
+
+
+
+
+

@@ -126,21 +126,40 @@ async def create_execution_session(data: ExecutionSessionCreate, db: Session = D
 @router.get("/demo/sessions/{session_id}", response_model=ExecutionSessionResponse)
 async def get_execution_session(session_id: int, db: Session = Depends(get_db)):
     """Get execution session details with all steps"""
-    controller = ExecutionController(db, tenant_id=1)  # Demo tenant
-    return controller.get_execution_session(session_id)
+    try:
+        controller = ExecutionController(db, tenant_id=1)  # Demo tenant
+        result = controller.get_execution_session(session_id)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Execution session {session_id} not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting execution session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get execution session: {str(e)}"
+        )
 
 
 @router.get("/demo/sessions/{session_id}/events", response_model=List[ExecutionEventResponse])
 async def list_session_events(
     session_id: int,
     since_id: Optional[int] = None,
-    limit: int = 50,
+    limit: int = 200,  # Increased default limit
     db: Session = Depends(get_db),
 ):
     """Return recorded execution events for a session."""
-    controller = ExecutionController(db, tenant_id=1)  # Demo tenant
-    events = controller.list_session_events(session_id, since_id, limit)
-    return [ExecutionEventResponse(**event) for event in events]
+    try:
+        controller = ExecutionController(db, tenant_id=1)  # Demo tenant
+        events = controller.list_session_events(session_id, since_id, limit)
+        if events is None:
+            return []
+        return [ExecutionEventResponse(**event) for event in events]
+    except Exception as e:
+        logger.error(f"Error listing events for session {session_id}: {e}", exc_info=True)
+        # Return empty list instead of crashing
+        return []
 
 
 @router.patch("/demo/sessions/{session_id}/steps")

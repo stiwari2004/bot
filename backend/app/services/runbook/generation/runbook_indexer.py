@@ -138,9 +138,8 @@ class RunbookIndexer:
                 
                 logger.info(f"Created document {document.id} for runbook {runbook.id}")
             
-            # Chunk the content using ingestion service
-            ingestion_service = IngestionService()
-            chunks = await ingestion_service._create_chunks(document.id, searchable_text)
+            # Chunk the content using YAML-aware chunking for runbooks
+            chunks = await self._create_runbook_chunks(document.id, searchable_text)
             
             # Create ChunkData objects for vector store
             chunk_data_objects = []
@@ -223,6 +222,103 @@ class RunbookIndexer:
         except Exception as e:
             logger.error(f"Error building searchable text for runbook {runbook.id}: {e}")
             return ""
+    
+    async def _create_runbook_chunks(self, document_id: int, content: str) -> list:
+        """
+        Create chunks from runbook content using YAML-aware chunking.
+        Preserves YAML structure by chunking at section boundaries (prechecks, steps, postchecks).
+        """
+        import re
+        import hashlib
+        from app.core.config import settings
+        
+        chunks = []
+        
+        # Split content into logical sections
+        sections = []
+        current_section = []
+        current_section_name = None
+        
+        lines = content.split('\n')
+        
+        for line in lines:
+            # Detect section headers (Title:, Issue:, Step:, Precheck:, Postcheck:, Command:)
+            section_match = re.match(r'^(Title|Issue|Description|Service Type|Step|Precheck|Postcheck|Command):\s*(.+)$', line, re.IGNORECASE)
+            
+            if section_match:
+                # Save previous section if it exists
+                if current_section and current_section_name:
+                    sections.append({
+                        'name': current_section_name,
+                        'content': '\n'.join(current_section)
+                    })
+                
+                # Start new section
+                current_section_name = section_match.group(1)
+                current_section = [line]
+            else:
+                current_section.append(line)
+        
+        # Add last section
+        if current_section and current_section_name:
+            sections.append({
+                'name': current_section_name,
+                'content': '\n'.join(current_section)
+            })
+        
+        # If no sections found, fall back to sentence-based chunking
+        if not sections:
+            from app.services.ingestion import IngestionService
+            ingestion_service = IngestionService()
+            return await ingestion_service._create_chunks(document_id, content)
+        
+        # Create chunks from sections, grouping related sections together
+        chunk_size = settings.CHUNK_SIZE * 4  # Approximate characters
+        current_chunk_parts = []
+        current_chunk_size = 0
+        
+        for section in sections:
+            section_text = section['content']
+            section_size = len(section_text)
+            
+            # If adding this section would exceed chunk size, save current chunk
+            if current_chunk_size + section_size > chunk_size and current_chunk_parts:
+                chunk_text = '\n\n'.join(current_chunk_parts)
+                chunks.append({
+                    "text": chunk_text.strip(),
+                    "hash": hashlib.sha256(chunk_text.strip().encode()).hexdigest(),
+                    "metadata": {
+                        "chunk_type": "runbook_section",
+                        "length": len(chunk_text.strip())
+                    }
+                })
+                current_chunk_parts = []
+                current_chunk_size = 0
+            
+            # Add section to current chunk
+            current_chunk_parts.append(section_text)
+            current_chunk_size += section_size
+        
+        # Add the last chunk
+        if current_chunk_parts:
+            chunk_text = '\n\n'.join(current_chunk_parts)
+            chunks.append({
+                "text": chunk_text.strip(),
+                "hash": hashlib.sha256(chunk_text.strip().encode()).hexdigest(),
+                "metadata": {
+                    "chunk_type": "runbook_section",
+                    "length": len(chunk_text.strip())
+                }
+            })
+        
+        return chunks if chunks else [{
+            "text": content.strip(),
+            "hash": hashlib.sha256(content.strip().encode()).hexdigest(),
+            "metadata": {
+                "chunk_type": "runbook_full",
+                "length": len(content.strip())
+            }
+        }]
 
 
 

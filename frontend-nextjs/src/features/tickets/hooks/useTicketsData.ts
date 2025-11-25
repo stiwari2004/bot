@@ -93,7 +93,7 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
     }
   }, [selectedTicket, fetchTicketDetail]);
 
-  const filteredTickets = tickets.filter((ticket) => {
+  const filteredTickets = tickets.filter((ticket: Ticket) => {
     if (filterStatus !== 'all' && ticket.status !== filterStatus) {
       return false;
     }
@@ -134,7 +134,7 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
     const detailMatch =
       ticketDetail && ticketDetail.id === ticketId ? ticketDetail : null;
     const listMatch =
-      tickets.find((item) => item.id === ticketId) ?? (detailMatch || null);
+      tickets.find((item: Ticket) => item.id === ticketId) ?? (detailMatch || null);
     const hostFromMeta =
       detailMatch?.meta_data?.configuration_item ||
       detailMatch?.meta_data?.hostname ||
@@ -192,7 +192,7 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
       const detailMatch =
         ticketDetail && ticketDetail.id === ticketId ? ticketDetail : null;
       const listMatch =
-        tickets.find((item) => item.id === ticketId) ?? (detailMatch || null);
+        tickets.find((item: Ticket) => item.id === ticketId) ?? (detailMatch || null);
 
       const requestBody = {
         runbook_id: runbookId,
@@ -201,37 +201,91 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
         metadata,
       };
       
-      console.log(`[Execute] Calling ${apiConfig.endpoints.executions.createSession()}`, requestBody);
+      const endpoint = apiConfig.endpoints.executions.createSession();
+      console.log(`[Execute] Calling ${endpoint}`);
+      console.log(`[Execute] Request body:`, JSON.stringify(requestBody, null, 2));
+      console.log(`[Execute] About to call fetch...`);
 
-      const response = await fetch(apiConfig.endpoints.executions.createSession(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+      let response;
+      try {
+        // Add timeout to detect hanging requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          console.error(`[Execute] Request timeout after 30 seconds`);
+        }, 30000);
 
-      console.log(`[Execute] Response status: ${response.status}`, response);
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        console.log(`[Execute] Fetch completed, status: ${response.status}`);
+        console.log(`[Execute] Response headers:`, Object.fromEntries(response.headers.entries()));
+      } catch (fetchError: any) {
+        if (fetchError.name === 'AbortError') {
+          console.error(`[Execute] Request was aborted (timeout)`);
+          throw new Error('Request timeout - server took too long to respond');
+        }
+        console.error(`[Execute] Fetch error:`, fetchError);
+        console.error(`[Execute] Fetch error details:`, {
+          name: fetchError.name,
+          message: fetchError.message,
+          stack: fetchError.stack,
+        });
+        throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
+      }
+
+      console.log(`[Execute] Response status: ${response.status}`);
+      console.log(`[Execute] Response ok: ${response.ok}`);
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = { detail: `HTTP ${response.status}: ${response.statusText}` };
+        }
         console.error(`[Execute] Error response:`, errorData);
         throw new Error(errorData.detail || 'Failed to execute runbook');
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        const responseText = await response.text();
+        console.log(`[Execute] Response text:`, responseText);
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error(`[Execute] Failed to parse response:`, e);
+        throw new Error('Invalid response from server');
+      }
+      
       console.log(`[Execute] Success response:`, data);
       const sessionId = data?.id ?? data?.session_id;
-      const statusMessage = data?.status ? `Status: ${data.status}` : '';
-      alert(
-        ['Execution session created!', statusMessage, sessionId ? `Session ID: ${sessionId}` : '']
-          .filter(Boolean)
-          .join('\n')
-      );
+      console.log(`[Execute] Extracted sessionId:`, sessionId);
+      console.log(`[Execute] onSessionLaunched callback exists:`, !!onSessionLaunched);
+      
       if (sessionId) {
-        onSessionLaunched?.(sessionId);
+        // Navigate to agent-workspace immediately without alert
+        console.log(`[Execute] Calling onSessionLaunched with sessionId:`, sessionId);
+        if (onSessionLaunched) {
+          onSessionLaunched(sessionId);
+          console.log(`[Execute] onSessionLaunched called successfully`);
+        } else {
+          console.error(`[Execute] onSessionLaunched is not defined!`);
+          alert(`Session created (ID: ${sessionId}) but navigation callback not available`);
+        }
         setSelectedTicket(null);
         setTicketDetail(null);
+      } else {
+        // Only show alert if session creation failed
+        console.error(`[Execute] No sessionId in response:`, data);
+        alert('Execution session created but no session ID returned');
       }
       
       // Refresh tickets and detail

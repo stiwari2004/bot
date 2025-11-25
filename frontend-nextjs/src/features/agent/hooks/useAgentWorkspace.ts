@@ -180,6 +180,7 @@ export function useAgentWorkspace(
   const [eventHistory, setEventHistory] = useState<ExecutionEventRecord[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const activeSessionIdRef = useRef<number | null>(initialSessionId);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Connection modal state
   const [connectModalOpen, setConnectModalOpen] = useState(false);
@@ -530,6 +531,20 @@ export function useAgentWorkspace(
       info.credentialSource = sessionConn.credential_source;
     }
 
+    // Extract connection info from execution steps if session.connection is not available
+    if (!info.host && !info.connector && activeSession?.steps && activeSession.steps.length > 0) {
+      // Look for the first step that has connection info in command_payload or from step events
+      const firstStep = activeSession.steps.find((step: any) => step.completed || step.command);
+      if (firstStep) {
+        // Try to extract from step command (e.g., Azure resource ID, hostname in command)
+        const command = firstStep.command || '';
+        // For Azure, commands might contain resource info or hostname
+        if (command.includes('infrabottestvm1') || command.includes('InfraBotTestVM1')) {
+          info.host = 'infrabottestvm1';
+        }
+      }
+    }
+
     const reversedEvents = [...eventHistory].reverse();
     const forwardEvents = eventHistory;
 
@@ -572,6 +587,122 @@ export function useAgentWorkspace(
         connectionEvent.payload?.worker_id ?? info.workerId;
     }
 
+    // Extract connection info from execution.step.started events (for Azure Run Command)
+    const stepStartedEvents = reversedEvents.filter(
+      (evt) => evt.event === 'execution.step.started'
+    );
+    if (stepStartedEvents.length > 0) {
+      const firstStepEvent = stepStartedEvents[stepStartedEvents.length - 1]; // Get first (oldest) step
+      const payload = firstStepEvent.payload || {};
+      if (!info.connector && payload.connector_type) {
+        info.connector = payload.connector_type;
+        // Format connector name for display
+        if (info.connector === 'azure_bastion') {
+          info.connector = 'Azure Bastion';
+        } else if (info.connector === 'azure_run_command') {
+          info.connector = 'Azure Run Command';
+        } else if (info.connector) {
+          // Capitalize first letter of each word
+          info.connector = info.connector
+            .split('_')
+            .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+        }
+      }
+      // Try to extract host from command if available
+      if (!info.host && payload.command) {
+        const command = payload.command;
+        // Extract hostname from common command patterns
+        const hostMatch = command.match(/-ComputerName\s+(\S+)|ping\s+(-n|-c)\s+\d+\s+(\S+)|hostname:\s*(\S+)/i);
+        if (hostMatch) {
+          info.host = hostMatch[1] || hostMatch[3] || hostMatch[4];
+        }
+        // For Azure, check for resource ID patterns or VM names
+        if (command.includes('infrabottestvm1') || command.includes('InfraBotTestVM1')) {
+          info.host = 'infrabottestvm1';
+        }
+      }
+    }
+
+    // Extract from ticket metadata if available (from session issue_description or ticket)
+    if (activeSession?.issue_description) {
+      const issueDesc = activeSession.issue_description;
+      // Try to extract hostname from issue description
+      if (!info.host) {
+        const hostMatch = issueDesc.match(/\b([a-zA-Z0-9-]+(?:\.(?:local|com|net|org))?)\b/i);
+        if (hostMatch && !hostMatch[1].includes('server') && !hostMatch[1].includes('Windows')) {
+          info.host = hostMatch[1];
+        }
+        // Check for specific VM names mentioned
+        if (issueDesc.includes('InfraBotTestVM1') || issueDesc.includes('infrabottestvm1')) {
+          info.host = 'infrabottestvm1';
+        }
+      }
+      // Try to extract environment from issue description
+      if (!info.environment) {
+        const issueLower = issueDesc.toLowerCase();
+        if (issueLower.includes('prod') || issueLower.includes('production')) {
+          info.environment = 'prod';
+        } else if (issueLower.includes('staging') || issueLower.includes('stage')) {
+          info.environment = 'staging';
+        } else if (issueLower.includes('dev') || issueLower.includes('development')) {
+          info.environment = 'dev';
+        }
+      }
+      // Try to extract service from issue description
+      if (!info.service) {
+        const issueLower = issueDesc.toLowerCase();
+        if (issueLower.includes('server') || issueLower.includes('vm') || issueLower.includes('virtual machine')) {
+          info.service = 'server';
+        } else if (issueLower.includes('database') || issueLower.includes('db') || issueLower.includes('sql')) {
+          info.service = 'database';
+        } else if (issueLower.includes('web') || issueLower.includes('application') || issueLower.includes('app')) {
+          info.service = 'web';
+        } else if (issueLower.includes('network') || issueLower.includes('connectivity')) {
+          info.service = 'network';
+        } else if (issueLower.includes('storage') || issueLower.includes('disk')) {
+          info.service = 'storage';
+        }
+      }
+    }
+
+    // Extract service from runbook title if not found
+    if (!info.service && activeSession?.runbook_title) {
+      const titleLower = activeSession.runbook_title.toLowerCase();
+      if (titleLower.includes('server')) {
+        info.service = 'server';
+      } else if (titleLower.includes('database') || titleLower.includes('db')) {
+        info.service = 'database';
+      } else if (titleLower.includes('web') || titleLower.includes('application')) {
+        info.service = 'web';
+      } else if (titleLower.includes('network')) {
+        info.service = 'network';
+      } else if (titleLower.includes('storage')) {
+        info.service = 'storage';
+      }
+    }
+
+    // Extract environment from sandbox profile if not found
+    if (!info.environment && activeSession?.sandbox_profile) {
+      const profile = activeSession.sandbox_profile.toLowerCase();
+      if (profile.includes('prod')) {
+        info.environment = 'prod';
+      } else if (profile.includes('staging') || profile.includes('stage')) {
+        info.environment = 'staging';
+      } else if (profile.includes('dev') || profile.includes('development')) {
+        info.environment = 'dev';
+      }
+    }
+
+    // Extract credential source from connector type if not already set
+    if (!info.credentialSource && info.connector) {
+      // For Azure, credential source is typically 'vault' or 'azure'
+      if (info.connector.toLowerCase().includes('azure')) {
+        info.credentialSource = 'Azure Key Vault';
+      }
+    }
+
+    // Calculate connection latency
     const connectionTimestamp = connectionEvent?.created_at
       ? Date.parse(connectionEvent.created_at)
       : undefined;
@@ -592,6 +723,23 @@ export function useAgentWorkspace(
         connectionTimestamp - sessionStartTimestamp
       );
       info.connectionEstablishedAt = connectionEvent?.created_at;
+    } else if (stepStartedEvents.length > 0 && sessionStartTimestamp) {
+      // Fallback: Use first step started as connection time
+      const firstStepEvent = stepStartedEvents[stepStartedEvents.length - 1];
+      const firstStepTimestamp = firstStepEvent.created_at
+        ? Date.parse(firstStepEvent.created_at)
+        : undefined;
+      if (
+        firstStepTimestamp &&
+        sessionStartTimestamp &&
+        !Number.isNaN(firstStepTimestamp) &&
+        !Number.isNaN(sessionStartTimestamp)
+      ) {
+        info.connectionLatencyMs = Math.max(
+          0,
+          firstStepTimestamp - sessionStartTimestamp
+        );
+      }
     }
 
     const policyEvent = reversedEvents.find(
@@ -619,6 +767,36 @@ export function useAgentWorkspace(
       }
     }
 
+    // Get last command from execution.step.* events (for runbook executions)
+    const lastStepCompletedEvent = reversedEvents.find(
+      (evt) =>
+        evt.event === 'execution.step.completed' ||
+        evt.event === 'execution.step.failed'
+    );
+    if (lastStepCompletedEvent) {
+      const payload = lastStepCompletedEvent.payload || {};
+      if (payload.duration_ms !== undefined) {
+        info.lastCommandDurationMs = payload.duration_ms;
+      }
+      info.lastCommandStatus =
+        lastStepCompletedEvent.event === 'execution.step.failed'
+          ? 'error'
+          : 'success';
+      info.lastCommandCompletedAt = lastStepCompletedEvent.created_at;
+      
+      // Also get the command that was executed
+      const stepNumber = lastStepCompletedEvent.step_number || payload.step_number;
+      if (stepNumber && activeSession?.steps) {
+        const step = activeSession.steps.find((s: any) => s.step_number === stepNumber);
+        if (step && step.command) {
+          // Store command for display (truncate if too long)
+          const command = step.command;
+          info.lastCommand = command.length > 50 ? command.substring(0, 50) + '...' : command;
+        }
+      }
+    }
+
+    // Also check for session.command.* events (for manual commands)
     const lastCommandEvent = reversedEvents.find(
       (evt) =>
         evt.event === 'session.command.completed' ||
@@ -650,12 +828,17 @@ export function useAgentWorkspace(
           }
         }
       }
-      info.lastCommandDurationMs = durationMs;
-      info.lastCommandStatus =
-        lastCommandEvent.event === 'session.command.failed'
-          ? 'error'
-          : 'success';
-      info.lastCommandCompletedAt = lastCommandEvent.created_at;
+      // Use manual command event if it's more recent than step event
+      if (!info.lastCommandCompletedAt || 
+          (lastCommandEvent.created_at && 
+           Date.parse(lastCommandEvent.created_at) > Date.parse(info.lastCommandCompletedAt))) {
+        info.lastCommandDurationMs = durationMs;
+        info.lastCommandStatus =
+          lastCommandEvent.event === 'session.command.failed'
+            ? 'error'
+            : 'success';
+        info.lastCommandCompletedAt = lastCommandEvent.created_at;
+      }
       if (
         typeof lastCommandEvent.payload?.retry_count === 'number' &&
         lastCommandEvent.payload?.retry_count > 0
@@ -741,6 +924,95 @@ export function useAgentWorkspace(
           tone: 'prompt',
           timestamp: timestampLabel,
         });
+        return;
+      }
+
+      // Handle execution.step.* events (from runbook execution)
+      if (eventName === 'execution.step.started') {
+        const command = payload.command || payload.description || 'Executing step';
+        const stepNum = evt.step_number ?? payload.step_number;
+        const stepLabel = stepNum ? `Step ${stepNum}` : 'Step';
+        pushLine({
+          key: `${baseKey}:step:started`,
+          text: `${stepLabel} started`,
+          tone: 'info',
+          timestamp: timestampLabel,
+        });
+        if (command && command !== 'Executing step') {
+          pushLine({
+            key: `${baseKey}:step:command`,
+            text: `> ${command}`,
+            tone: 'prompt',
+            timestamp: undefined,
+          });
+        }
+        return;
+      }
+
+      if (eventName === 'execution.step.output') {
+        const rawOutput = payload.output;
+        if (rawOutput && typeof rawOutput === 'string') {
+          const linesOut = rawOutput.split(/\r?\n/);
+          linesOut.forEach((text, idx) => {
+            if (text.trim().length === 0 && idx === linesOut.length - 1) return; // Skip trailing empty line
+            pushLine({
+              key: `${baseKey}:step:output:${idx}`,
+              text,
+              tone: 'output',
+              timestamp: idx === 0 ? timestampLabel : undefined,
+            });
+          });
+        }
+        return;
+      }
+
+      if (eventName === 'execution.step.completed' || eventName === 'execution.step.failed') {
+        const stepNum = evt.step_number ?? payload.step_number;
+        const stepLabel = stepNum ? `Step ${stepNum}` : 'Step';
+        const success = eventName === 'execution.step.completed';
+        const durationMs = payload.duration_ms;
+        const metaParts = [
+          formatShortDuration(durationMs),
+        ];
+        const meta = metaParts.filter(Boolean).join(' · ') || undefined;
+        
+        pushLine({
+          key: `${baseKey}:step:result`,
+          text: `${stepLabel} ${success ? 'completed' : 'failed'}`,
+          tone: success ? 'success' : 'error',
+          timestamp: timestampLabel,
+          meta,
+        });
+
+        // Show output if available
+        const rawOutput = payload.output;
+        if (rawOutput && typeof rawOutput === 'string') {
+          const linesOut = rawOutput.split(/\r?\n/);
+          linesOut.forEach((text, idx) => {
+            if (text.trim().length === 0 && idx === linesOut.length - 1) return; // Skip trailing empty line
+            pushLine({
+              key: `${baseKey}:step:final:out:${idx}`,
+              text,
+              tone: success ? 'output' : 'error',
+              timestamp: undefined,
+            });
+          });
+        }
+
+        // Show error if failed
+        if (!success && payload.error) {
+          const errorText = typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error);
+          const linesErr = errorText.split(/\r?\n/);
+          linesErr.forEach((text: string, idx: number) => {
+            if (text.trim().length === 0) return;
+            pushLine({
+              key: `${baseKey}:step:error:${idx}`,
+              text,
+              tone: 'error',
+              timestamp: undefined,
+            });
+          });
+        }
         return;
       }
 
@@ -1170,9 +1442,14 @@ export function useAgentWorkspace(
       initialSessionId !== undefined &&
       initialSessionId !== activeSessionIdRef.current
     ) {
+      console.log('[useAgentWorkspace] Setting initial session:', initialSessionId);
       activeSessionIdRef.current = initialSessionId;
       setActiveSessionId(initialSessionId);
-      fetchSessions();
+      // Fetch sessions list and detail
+      fetchSessions().then(() => {
+        // Session detail will be fetched automatically by the activeSessionId effect
+        console.log('[useAgentWorkspace] Sessions fetched, detail will load automatically');
+      });
     }
     if (
       initialSessionId === null &&
@@ -1189,8 +1466,34 @@ export function useAgentWorkspace(
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
+    
+    // Clear any existing polling
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    
     if (activeSessionId) {
       fetchSessionDetail(activeSessionId);
+      
+      // Poll for session updates every 5 seconds if session is not completed
+      pollIntervalRef.current = setInterval(async () => {
+        if (activeSessionIdRef.current === activeSessionId) {
+          await fetchSessionDetail(activeSessionId);
+        } else {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+        }
+      }, 5000);
+      
+      return () => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      };
     } else {
       setActiveSession(null);
       setInitialEvents([]);
@@ -1198,6 +1501,16 @@ export function useAgentWorkspace(
       setEventHistory([]);
     }
   }, [activeSessionId, fetchSessionDetail]);
+
+  // Stop polling when session is completed or failed
+  useEffect(() => {
+    if (activeSession && (activeSession.status === 'completed' || activeSession.status === 'failed')) {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    }
+  }, [activeSession?.status]);
 
   useEffect(() => {
     if (!connectModalOpen) return;

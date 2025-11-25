@@ -28,6 +28,12 @@ class Ticket(Base):
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     analyzed_at = Column(DateTime(timezone=True), nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
+    precheck_analysis_result = Column(JSON, nullable=True)  # Store precheck analysis result
+    precheck_executed_at = Column(DateTime(timezone=True), nullable=True)  # When prechecks ran
+    precheck_status = Column(String(20), nullable=True)  # "success", "failed", "ambiguous"
+    resolution_verified_at = Column(DateTime(timezone=True), nullable=True)  # When resolution verified
+    external_ticket_updated_at = Column(DateTime(timezone=True), nullable=True)  # Last external sync
+    escalation_reason = Column(Text, nullable=True)  # Reason for escalation
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

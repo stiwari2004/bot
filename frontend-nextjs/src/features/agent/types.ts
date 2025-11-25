@@ -106,6 +106,7 @@ export interface ConnectionInfo {
   lastCommandStatus?: 'success' | 'error';
   lastCommandCompletedAt?: string;
   lastCommandRetries?: number;
+  lastCommand?: string;
   clusterId?: string;
   deviceId?: string;
 }

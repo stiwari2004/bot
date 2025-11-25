@@ -214,6 +214,7 @@ async def get_ticketing_connection(
 
 
 @router.put("/ticketing-connections/{connection_id}")
+@router.patch("/ticketing-connections/{connection_id}")
 async def update_ticketing_connection(
     connection_id: int,
     update: TicketingConnectionUpdate,
@@ -402,6 +403,7 @@ async def test_ticketing_connection(
 
 
 @router.get("/ticketing-connections/{connection_id}/oauth/authorize")
+@router.post("/ticketing-connections/{connection_id}/oauth/authorize")
 async def authorize_oauth_connection(
     connection_id: int,
     db: Session = Depends(get_db)
@@ -421,15 +423,17 @@ async def authorize_oauth_connection(
         # Check if already authorized
         meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
         existing_token = meta_data.get("access_token")
+        existing_refresh_token = meta_data.get("refresh_token")
         if existing_token:
             logger.info(f"Connection {connection_id} already has access_token, but user requested re-authorization")
-            # Clear existing token to force re-authorization
+            # Clear access_token and expires_at, but preserve refresh_token
+            # (Zoho may not return a new refresh_token if app was already authorized)
             meta_data.pop("access_token", None)
-            meta_data.pop("refresh_token", None)
             meta_data.pop("expires_at", None)
+            # Keep refresh_token - will be updated in callback if Zoho returns a new one
             connection.meta_data = json.dumps(meta_data)
             db.commit()
-            logger.info(f"Cleared existing tokens for connection {connection_id} to allow re-authorization")
+            logger.info(f"Cleared access_token for connection {connection_id} to allow re-authorization. Preserving refresh_token: {bool(existing_refresh_token)}")
         
         # Zoho OAuth flow
         if connection.tool_name == "zoho":
@@ -586,9 +590,20 @@ async def oauth_callback(
             )
             
             logger.info(f"Token exchange successful for connection {connection_id}")
+            logger.info(f"Token data received: keys={list(token_data.keys())}, has_refresh_token={bool(token_data.get('refresh_token'))}")
             
-            # Update meta_data with tokens
-            meta_data.update(token_data)
+            # Preserve existing refresh_token if Zoho didn't return a new one
+            # (Zoho may not return refresh_token if app was already authorized)
+            existing_refresh_token = meta_data.get("refresh_token")
+            new_refresh_token = token_data.get("refresh_token")
+            
+            if not new_refresh_token and existing_refresh_token:
+                logger.info(f"Zoho did not return new refresh_token, preserving existing one for connection {connection_id}")
+                token_data["refresh_token"] = existing_refresh_token
+            
+            # Update meta_data with tokens (filter out None values to avoid saving null)
+            token_data_clean = {k: v for k, v in token_data.items() if v is not None}
+            meta_data.update(token_data_clean)
             meta_data.pop("oauth_state", None)  # Remove temporary state
             connection.meta_data = json.dumps(meta_data)
             connection.last_sync_at = datetime.utcnow()
@@ -607,10 +622,20 @@ async def oauth_callback(
             db.refresh(connection)
             updated_meta = json.loads(connection.meta_data) if connection.meta_data else {}
             has_token = bool(updated_meta.get("access_token"))
-            logger.info(f"OAuth authorization successful for connection {connection_id}. Token saved: {has_token}")
+            has_refresh_token = bool(updated_meta.get("refresh_token"))
+            logger.info(
+                f"OAuth authorization successful for connection {connection_id}. "
+                f"access_token saved: {has_token}, refresh_token saved: {has_refresh_token}"
+            )
             
             if not has_token:
                 logger.error(f"WARNING: OAuth callback completed but access_token not found in database for connection {connection_id}")
+            
+            if not has_refresh_token:
+                logger.warning(
+                    f"WARNING: OAuth callback completed but refresh_token not found in database for connection {connection_id}. "
+                    f"This will cause issues when access_token expires. Token data keys: {list(token_data.keys())}"
+                )
             
             return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_success=true&connection_id={connection_id}")
             

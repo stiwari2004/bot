@@ -16,7 +16,10 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
   const [issueDescription, setIssueDescription] = useState(
     ticket ? `${ticket.title}${ticket.description ? '\n\n' + ticket.description : ''}` : ''
   );
-  const [serviceType, setServiceType] = useState(ticket?.service || 'auto');
+  // CI Type: server, database, web, storage, network
+  const [ciType, setCiType] = useState('auto');
+  // OS Type: Windows, Linux (only for servers)
+  const [osType, setOsType] = useState<string>('auto');
   const [envType, setEnvType] = useState(ticket?.environment || 'prod');
   const [riskLevel, setRiskLevel] = useState(
     ticket?.severity === 'critical' ? 'high' : ticket?.severity === 'high' ? 'medium' : 'low'
@@ -24,6 +27,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
   const [runbook, setRunbook] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detectingOS, setDetectingOS] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -35,12 +39,88 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
   useEffect(() => {
     if (!ticket) return;
     setIssueDescription(`${ticket.title}${ticket.description ? '\n\n' + ticket.description : ''}`);
-    setServiceType(ticket.service || 'auto');
+    // Map ticket.service to CI type (if it's Windows/Linux, treat as server)
+    const ticketService = ticket.service || 'auto';
+    if (ticketService === 'Windows' || ticketService === 'Linux') {
+      setCiType('server');
+      setOsType(ticketService);
+    } else {
+      setCiType(ticketService || 'auto');
+      setOsType('auto');
+    }
     setEnvType(ticket.environment || 'prod');
     setRiskLevel(ticket.severity === 'critical' ? 'high' : ticket.severity === 'high' ? 'medium' : 'low');
     setRunbook(null);
     setError(null);
   }, [ticket]);
+
+  // Auto-detect OS from server name in issue description (for servers only)
+  useEffect(() => {
+    const detectOS = async () => {
+      // Only detect OS if CI type is server (or auto which might be server)
+      if (ciType !== 'auto' && ciType !== 'server') {
+        return;
+      }
+      
+      // Don't override if OS type is already set manually
+      if (osType !== 'auto') {
+        return;
+      }
+
+      // Extract server name from issue description (simple pattern matching)
+      const serverPatterns = [
+        /\b([A-Za-z0-9-]+(?:VM|vm|Server|server))\b/g,
+        /\b([A-Za-z0-9-]+\.(?:local|com|net|org))\b/g,
+        /\b(InfraBotTestVM\d+)\b/gi,
+      ];
+
+      let serverName: string | null = null;
+      for (const pattern of serverPatterns) {
+        const matches = issueDescription.match(pattern);
+        if (matches && matches.length > 0) {
+          serverName = matches[0];
+          break;
+        }
+      }
+
+      // Also check for common server name patterns
+      if (!serverName) {
+        const words = issueDescription.split(/\s+/);
+        for (const word of words) {
+          // Look for words that might be server names (alphanumeric with dashes, 3+ chars)
+          if (/^[A-Za-z0-9-]{3,}$/.test(word) && !['server', 'database', 'service', 'application'].includes(word.toLowerCase())) {
+            serverName = word;
+            break;
+          }
+        }
+      }
+
+      if (serverName) {
+        setDetectingOS(true);
+        try {
+          const response = await fetch(apiConfig.endpoints.runbooks.detectOS(serverName));
+          if (response.ok) {
+            const data = await response.json();
+            if (data.detected && data.os_type) {
+              setOsType(data.os_type);  // Set OS type
+              // If CI type is auto, set it to server since we detected an OS
+              if (ciType === 'auto') {
+                setCiType('server');
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Failed to detect OS:', err);
+        } finally {
+          setDetectingOS(false);
+        }
+      }
+    };
+
+    // Debounce the detection
+    const timeoutId = setTimeout(detectOS, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [issueDescription, ciType, osType]);
 
   if (!ticket) {
     return null; // Don't render if no ticket
@@ -56,9 +136,19 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
 
     try {
       const url = apiConfig.endpoints.runbooks.generateAgent();
+      
+      // Determine service parameter: if CI type is server and OS type is set, use OS type for backward compatibility
+      // Otherwise use CI type
+      let serviceParam = ciType;
+      if (ciType === 'server' && osType !== 'auto' && osType !== '') {
+        serviceParam = osType; // Backward compatibility: Windows/Linux treated as server
+      } else if (ciType === 'auto') {
+        serviceParam = 'auto';
+      }
+      
       const params = new URLSearchParams({
         issue_description: issueDescription,
-        service: serviceType,
+        service: serviceParam,
         env: envType,
         risk: riskLevel,
       });
@@ -162,22 +252,57 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Service Type</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">CI Type *</label>
                   <select
-                    value={serviceType}
-                    onChange={(e) => setServiceType(e.target.value)}
+                    value={ciType}
+                    onChange={(e) => {
+                      setCiType(e.target.value);
+                      // Reset OS type if CI type is not server
+                      if (e.target.value !== 'server' && e.target.value !== 'auto') {
+                        setOsType('auto');
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="auto">Auto-detect</option>
+                    <option value="server">Server</option>
                     <option value="database">Database</option>
-                    <option value="api">API</option>
-                    <option value="infrastructure">Infrastructure</option>
+                    <option value="web">Web Application</option>
+                    <option value="storage">Storage</option>
+                    <option value="network">Network</option>
                   </select>
+                  <p className="mt-1 text-xs text-gray-500">CI Type: server, router, switch, storage, etc.</p>
                 </div>
+                
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Environment</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    OS Type {ciType === 'server' || ciType === 'auto' ? '*' : '(N/A)'}
+                  </label>
+                  <select
+                    value={osType}
+                    onChange={(e) => setOsType(e.target.value)}
+                    disabled={ciType !== 'server' && ciType !== 'auto'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="auto">Auto-detect {detectingOS && '(detecting...)'}</option>
+                    <option value="Windows">Windows</option>
+                    <option value="Linux">Linux</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {ciType === 'server' || ciType === 'auto' 
+                      ? 'OS Type: Windows or Linux (only for servers)'
+                      : 'OS Type not applicable for this CI type'}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Environment
+                  </label>
                   <select
                     value={envType}
                     onChange={(e) => setEnvType(e.target.value)}
@@ -186,6 +311,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                     <option value="prod">Production</option>
                     <option value="staging">Staging</option>
                     <option value="dev">Development</option>
+                    <option value="testing">Testing</option>
                   </select>
                 </div>
                 <div>

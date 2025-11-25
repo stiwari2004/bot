@@ -141,8 +141,14 @@ class TicketingPoller:
         """Poll a single connection for tickets"""
         logger.info(f"Polling {connection.tool_name} connection {connection.id}")
         
+        # Track if tokens were refreshed (so we can persist them even if fetch fails)
+        tokens_refreshed = False
+        original_meta_data = None
+        
         try:
             meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+            # Store original to detect if tokens changed
+            original_meta_data = json.dumps(meta_data) if meta_data else None
             
             # Determine last sync time (default to 1 hour ago if never synced)
             since = None
@@ -176,6 +182,12 @@ class TicketingPoller:
             else:
                 logger.warning(f"Unsupported tool for polling: {connection.tool_name}")
                 return
+            
+            # Check if tokens were refreshed (meta_data changed)
+            current_meta_data = json.dumps(meta_data) if meta_data else None
+            if current_meta_data != original_meta_data:
+                tokens_refreshed = True
+                logger.info(f"Tokens were refreshed for {connection.tool_name} connection {connection.id}")
             
             # Create/update tickets in database
             created_count = 0
@@ -220,9 +232,14 @@ class TicketingPoller:
                     logger.error(f"Error processing ticket {ticket_data.get('external_id')}: {e}")
                     continue
             
-            # Update connection metadata if tokens were refreshed (for Zoho)
-            if connection.tool_name == "zoho" and meta_data:
+            # Update connection metadata if tokens were refreshed (for Zoho and ManageEngine)
+            # Always persist tokens if they were refreshed, even if fetch_tickets() succeeded
+            if connection.tool_name in ("zoho", "manageengine") and meta_data:
                 connection.meta_data = json.dumps(meta_data)
+                if tokens_refreshed:
+                    logger.info(f"Persisted refreshed tokens for {connection.tool_name} connection {connection.id}")
+                else:
+                    logger.debug(f"Persisted tokens for {connection.tool_name} connection {connection.id}")
             
             # Update connection sync status
             connection.last_sync_at = datetime.now(timezone.utc)
@@ -237,14 +254,35 @@ class TicketingPoller:
             )
             
         except Exception as e:
-            logger.error(f"Error polling {connection.tool_name} connection {connection.id}: {e}")
-            try:
-                connection.last_sync_at = datetime.now(timezone.utc)
-                connection.last_sync_status = "failed"
-                connection.last_error = str(e)
-                db.commit()
-            except Exception:
-                db.rollback()
+            logger.error(f"Error polling {connection.tool_name} connection {connection.id}: {e}", exc_info=True)
+            
+            # CRITICAL: Persist refreshed tokens even if fetch_tickets() failed
+            # This ensures we don't lose refreshed tokens due to API errors
+            if tokens_refreshed and connection.tool_name in ("zoho", "manageengine") and meta_data:
+                try:
+                    logger.warning(
+                        f"Fetch failed but tokens were refreshed. Persisting tokens for {connection.tool_name} "
+                        f"connection {connection.id} to prevent token loss."
+                    )
+                    connection.meta_data = json.dumps(meta_data)
+                    # Also update sync status but mark as failed
+                    connection.last_sync_at = datetime.now(timezone.utc)
+                    connection.last_sync_status = "failed"
+                    connection.last_error = str(e)[:500]  # Limit error length
+                    db.commit()
+                    logger.info(f"Successfully persisted refreshed tokens despite fetch failure")
+                except Exception as persist_error:
+                    logger.error(f"Failed to persist refreshed tokens after fetch error: {persist_error}", exc_info=True)
+                    db.rollback()
+            else:
+                # No tokens refreshed, just update error status
+                try:
+                    connection.last_sync_at = datetime.now(timezone.utc)
+                    connection.last_sync_status = "failed"
+                    connection.last_error = str(e)[:500]  # Limit error length
+                    db.commit()
+                except Exception:
+                    db.rollback()
             raise
 
 

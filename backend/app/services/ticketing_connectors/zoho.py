@@ -153,17 +153,37 @@ class ZohoTicketFetcher:
             if refresh_token and client_id and client_secret:
                 try:
                     logger.info(f"Refreshing Zoho access token using domain: {zoho_domain}")
+                    # Pass existing refresh_token to preserve it if Zoho doesn't return a new one
                     new_tokens = await self.oauth_service.refresh_access_token(
-                        refresh_token, client_id, client_secret, domain=zoho_domain
+                        refresh_token, client_id, client_secret, domain=zoho_domain,
+                        existing_refresh_token=refresh_token
                     )
                     # Update connection_meta (caller should persist this)
                     connection_meta.update(new_tokens)
                     access_token = new_tokens["access_token"]
+                    logger.info(
+                        f"Refreshed Zoho OAuth token (expires_at: {new_tokens.get('expires_at')}, "
+                        f"refresh_token_preserved: {bool(new_tokens.get('refresh_token'))})"
+                    )
                 except Exception as e:
-                    logger.error(f"Failed to refresh token: {e}")
+                    logger.error(f"Failed to refresh token: {e}", exc_info=True)
+                    # Check if it's a refresh_token specific error
+                    error_str = str(e).lower()
+                    if "invalid" in error_str and "refresh" in error_str:
+                        logger.error("Refresh token appears to be invalid or expired. Re-authorization required.")
                     return None
             else:
-                logger.warning("Token expired but no refresh token available")
+                missing = []
+                if not refresh_token:
+                    missing.append("refresh_token")
+                if not client_id:
+                    missing.append("client_id")
+                if not client_secret:
+                    missing.append("client_secret")
+                logger.warning(
+                    f"Zoho token expired but missing required credentials: {', '.join(missing)}. "
+                    "Re-authorization required."
+                )
                 return None
         
         return access_token

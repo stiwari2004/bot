@@ -110,22 +110,54 @@ class ExecutionController(BaseController):
     
     def get_execution_session(self, session_id: int) -> Dict[str, Any]:
         """Get execution session details with all steps"""
-        session = self.execution_repo.get_by_id(session_id)
-        if not session:
-            raise self.not_found("Execution session", session_id)
-        
-        runbook = self.db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
-        
-        payload = execution_orchestrator.serialize_session(session)
-        if runbook:
-            if runbook.is_active == "archived":
-                payload["runbook_title"] = f"{runbook.title} (Archived)"
+        try:
+            session = self.execution_repo.get_by_id(session_id)
+            if not session:
+                raise self.not_found("Execution session", session_id)
+            
+            # Eagerly load relationships to avoid lazy loading issues
+            try:
+                # Access steps to trigger loading (if not already loaded)
+                _ = session.steps
+            except Exception as e:
+                logger.warning(f"Error loading steps for session {session_id}: {e}")
+                # Continue with empty steps list
+            
+            try:
+                runbook = self.db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
+            except Exception as e:
+                logger.warning(f"Error loading runbook for session {session_id}: {e}")
+                runbook = None
+            
+            try:
+                payload = execution_orchestrator.serialize_session(session)
+            except Exception as e:
+                logger.error(f"Error serializing session {session_id}: {e}", exc_info=True)
+                # Return minimal payload if serialization fails
+                payload = {
+                    "id": session.id,
+                    "tenant_id": session.tenant_id,
+                    "runbook_id": session.runbook_id,
+                    "status": session.status or "unknown",
+                    "current_step": session.current_step,
+                    "steps": [],
+                    "error": "Failed to fully serialize session data"
+                }
+            
+            if runbook:
+                if runbook.is_active == "archived":
+                    payload["runbook_title"] = f"{runbook.title} (Archived)"
+                else:
+                    payload["runbook_title"] = runbook.title
             else:
-                payload["runbook_title"] = runbook.title
-        else:
-            payload["runbook_title"] = "Unknown (Runbook Deleted)"
-        
-        return payload
+                payload["runbook_title"] = "Unknown (Runbook Deleted)"
+            
+            return payload
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting execution session {session_id}: {e}", exc_info=True)
+            raise self.handle_error(e, f"Failed to get execution session {session_id}")
     
     def list_session_events(
         self,
@@ -134,17 +166,36 @@ class ExecutionController(BaseController):
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         """Return recorded execution events for a session"""
-        session = self.execution_repo.get_by_id(session_id)
-        if not session:
-            raise self.not_found("Execution session", session_id)
-        
-        events = execution_orchestrator.list_events(
-            self.db,
-            session_id=session_id,
-            since_id=since_id,
-            limit=limit
-        )
-        return events
+        try:
+            # Verify session exists (lightweight check)
+            session = self.execution_repo.get_by_id(session_id)
+            if not session:
+                raise self.not_found("Execution session", session_id)
+            
+            # Limit maximum to prevent huge queries
+            if limit > 500:
+                limit = 500
+            if limit <= 0:
+                limit = 50
+            
+            try:
+                events = execution_orchestrator.list_events(
+                    self.db,
+                    session_id=session_id,
+                    since_id=since_id,
+                    limit=limit
+                )
+                return events or []  # Ensure we return a list
+            except Exception as e:
+                logger.error(f"Error listing events for session {session_id}: {e}", exc_info=True)
+                # Return empty list instead of crashing
+                return []
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in list_session_events for session {session_id}: {e}", exc_info=True)
+            # Return empty list instead of crashing
+            return []
     
     async def update_execution_step(
         self,

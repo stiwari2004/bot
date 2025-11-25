@@ -155,13 +155,94 @@ RIGHT: description: Target server hostname or IP address ✅
 RIGHT: description: Database name (required for database issues) ✅
 The description field must be proper descriptive text, NOT "Parameter: X" format.
 
-prechecks:
+CRITICAL - PRECHECKS MUST CHECK THE ACTUAL METRIC:
+The precheck MUST verify the actual issue reported in "{issue_description}":
+- If issue says "CPU high" or "CPU utilization" → Precheck MUST check CPU usage
+- If issue says "memory" or "RAM" → Precheck MUST check memory usage
+- If issue says "disk" or "disk space" → Precheck MUST check disk usage
+- If issue says "transaction log full" → Precheck MUST check transaction log space
+- If issue says "connection pool" → Precheck MUST check connection count
+- NEVER use generic "ping" as the only precheck for resource issues - you MUST check the actual metric
+
+WRONG precheck for CPU issue:
 - description: Check server is reachable via ping
   command: ping -c 2 __SERVER_NAME__
-  expected_output: 0% packet loss
+  ❌ This doesn't check CPU, so it can't detect false positives!
+
+RIGHT precheck for CPU issue (Windows):
+- description: Check current CPU utilization to verify issue
+  command: Get-Counter -Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1
+  expected_output: CPU percentage value
+  ✅ This checks CPU, allowing false positive detection!
+
+RIGHT precheck for CPU issue (Linux):
+- description: Check current CPU utilization to verify issue
+  command: top -b -n1 | head -5 | grep -i "cpu"
+  expected_output: CPU percentage value
+  ✅ This checks CPU, allowing false positive detection!
+
+RIGHT precheck for transaction log issue:
+- description: Check transaction log space usage to verify issue
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+  expected_output: Transaction log space percentage
+  ✅ This checks log space, allowing false positive detection!
+
+You MAY include a connectivity check as an ADDITIONAL precheck, but the PRIMARY precheck MUST check the actual metric.
+
+prechecks:
+- description: Check [ACTUAL METRIC FROM ISSUE] to verify issue
+  command: [COMMAND TO CHECK THE ACTUAL METRIC]
+  expected_output: [METRIC VALUE]
+
+CRITICAL - STRUCTURE REQUIREMENTS (MANDATORY):
+- prechecks: You MUST generate EXACTLY 3 precheck steps (no more, no less)
+- steps: You MUST generate EXACTLY 5-6 main steps (no more, no less)
+- postchecks: You MUST generate EXACTLY 1 postcheck step that verifies resolution
+
+CRITICAL - ISSUE DESCRIPTION PARSING:
+1. Extract the EXACT metric/issue mentioned in "{issue_description}" (CPU, memory, disk, transaction log, connection pool, error code, etc.)
+2. Extract the EXACT service type mentioned (Windows, Linux, MSSQL, PostgreSQL, etc.)
+3. Extract the EXACT problem description (high utilization, full, exhausted, slow, error, etc.)
+4. Generate runbook that addresses ONLY these extracted elements
+5. DO NOT add unrelated checks or steps
 
 steps:
-[Generate 8-12 UNIQUE steps that directly address the EXACT issue described above. Match the issue type.]
+[Generate EXACTLY 5-6 UNIQUE steps (no more, no less) that directly address the EXACT issue described above. Match the issue type.]
+
+CRITICAL - MAIN STEPS MUST INCLUDE REMEDIATION:
+The main steps MUST do MORE than just diagnose - they MUST FIX the issue:
+- Steps should: Diagnose → Identify root cause → REMEDIATE → Verify
+- NEVER generate only diagnostic steps - you MUST include remediation steps
+- The goal is to RESOLVE the ticket or ESCALATE, not just gather information
+
+WRONG (diagnostics only - no remediation):
+steps:
+- name: Check log space
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+- name: Check active transactions
+  command: DBCC OPENTRAN('__DATABASE_NAME__')
+❌ These only diagnose - they don't FIX anything!
+
+RIGHT (diagnostics + remediation):
+steps:
+- name: Check log space usage reason
+  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
+  expected_output: Reason for log space usage
+- name: Check active transactions blocking log truncation
+  command: DBCC OPENTRAN('__DATABASE_NAME__')
+  expected_output: Active transactions blocking log truncation
+- name: Take transaction log backup
+  command: BACKUP LOG __DATABASE_NAME__ TO DISK = '__SERVER_NAME__/backups/__DATABASE_NAME__/log_backup.bak'
+  expected_output: Transaction log backup completed successfully
+- name: Shrink transaction log if needed
+  command: DBCC SHRINKFILE('__DATABASE_NAME__' + '_log', 10)
+  expected_output: Transaction log shrunk successfully
+✅ These diagnose AND fix the issue!
+
+STEP STRUCTURE REQUIREMENTS:
+1. First 2-3 steps: DIAGNOSE (identify the problem)
+2. Next 2-4 steps: REMEDIATE (fix the problem - backup logs, kill processes, restart services, clear caches, etc.)
+3. Last 1-2 steps: VERIFY (confirm the fix worked)
 
 EXAMPLE FOR MSSQL TRANSACTION LOG ISSUE:
 If issue description says "Transaction log is 95% full in MSSQL database", generate:
@@ -205,10 +286,35 @@ steps:
   command: DBCC SHRINKFILE('__DATABASE_NAME__' + '_log', 10)
   expected_output: Transaction log shrunk successfully
 
-postchecks:
-- description: Verify transaction log space is normal
+CRITICAL - POSTCHECKS MUST VERIFY RESOLUTION:
+The postcheck MUST verify that the EXACT issue from "{issue_description}" is RESOLVED:
+- If issue was "CPU high" → Postcheck MUST check CPU is now normal
+- If issue was "memory" → Postcheck MUST check memory is now normal
+- If issue was "transaction log full" → Postcheck MUST check log space is now normal
+- If issue was "connection pool exhausted" → Postcheck MUST check connection count is now normal
+- The postcheck MUST use the SAME metric as the precheck to compare before/after
+
+WRONG postcheck (doesn't verify resolution):
+- description: Verify server is reachable
+  command: ping -c 2 __SERVER_NAME__
+  ❌ This doesn't verify the issue is fixed!
+
+RIGHT postcheck for transaction log issue:
+- description: Verify transaction log space has returned to normal
   command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '__DATABASE_NAME__'
   expected_output: Log space usage is normal (not LOG_BACKUP or ACTIVE_TRANSACTION)
+  ✅ This verifies the transaction log issue is resolved!
+
+RIGHT postcheck for CPU issue (Windows):
+- description: Verify CPU utilization has returned to normal
+  command: Get-Counter -Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1
+  expected_output: CPU usage below threshold (typically < 70%)
+  ✅ This verifies the CPU issue is resolved!
+
+postchecks:
+- description: Verify [ISSUE FROM DESCRIPTION] has been resolved
+  command: [SAME COMMAND AS PRECHECK TO COMPARE BEFORE/AFTER]
+  expected_output: [METRIC VALUE INDICATING RESOLUTION]
 
 CRITICAL - POSTCHECKS FORMAT:
 Postchecks MUST use "description" field, NOT "name" field.
@@ -247,5 +353,24 @@ CRITICAL RULES:
 9. For transaction log postchecks, verify log_reuse_wait_desc, NOT active sessions (sessions don't verify log space)
 10. Generate COMPLETE commands - do not truncate mid-line
 11. Each step must be UNIQUE - no duplicates
-12. Generate 8-12 complete steps that address the exact issue described
+12. Generate EXACTLY 5-6 complete steps (no more, no less) that address the exact issue described
+13. PRECHECK MUST check the actual metric from the issue description (CPU, memory, disk, etc.) - NOT just connectivity
+14. MAIN STEPS MUST include remediation steps, not just diagnostics - the goal is to FIX the issue
+15. POSTCHECK MUST verify the issue is resolved using the same metric as the precheck
+13. PRECHECK MUST check the actual metric from the issue description (CPU, memory, disk, etc.) - NOT just connectivity
+14. MAIN STEPS MUST include remediation steps, not just diagnostics - the goal is to FIX the issue
+15. POSTCHECK MUST verify the issue is resolved using the same metric as the precheck
+
+CRITICAL - RUNBOOK GOAL:
+The runbook MUST lead to ONE of these outcomes:
+1. RESOLVE: Issue is fixed → Ticket closed automatically
+2. ESCALATE: Issue cannot be fixed automatically → Ticket escalated to L2/L3
+
+To achieve this:
+- Precheck checks actual metric → Detects false positives → Closes ticket if false positive
+- Main steps diagnose AND remediate → Fixes the issue → Resolves ticket if successful
+- Postcheck verifies resolution → Confirms fix worked → Closes ticket if resolved
+- If remediation fails or postcheck shows issue persists → Escalate ticket
+
+NEVER generate runbooks that only do health checks without fixing anything!
 """

@@ -218,21 +218,42 @@ class LlamaCppLLMService:
         env: str,
         risk: str,
         context: str = "",
+        os_type: Optional[str] = None,
     ) -> str:
         """Ask the model to return an agent-executable YAML runbook following our schema.
         Uses centralized prompt templates (TOML) via prompt_store.
+        Selects service-specific prompt based on service_type.
         """
+        from app.services.prompt_store import PromptNotFound
+        
         ctx = context[:800] if context else ""
-        rendered = render_prompt(
-            "runbook_yaml_v1",
-            {
-                "issue_description": issue_description,
-                "service": service_type,
-                "env": env,
-                "risk": risk,
-                "context": ctx,
-            },
-        )
+        prompt_id = f"runbook_yaml_{service_type}"
+        
+        # Determine OS type if not provided
+        if not os_type:
+            issue_lower = issue_description.lower()
+            if any(kw in issue_lower for kw in ['windows', 'powershell', 'get-process', 'get-counter']):
+                os_type = "Windows"
+            elif any(kw in issue_lower for kw in ['linux', 'ubuntu', 'centos', 'systemctl', 'journalctl']):
+                os_type = "Linux"
+            else:
+                os_type = env if env in ["Windows", "Linux"] else "Windows"  # Default to Windows
+        
+        try:
+            rendered = render_prompt(
+                prompt_id,
+                {
+                    "issue_description": issue_description,
+                    "service": service_type,
+                    "env": env,
+                    "risk": risk,
+                    "context": ctx,
+                    "os_type": os_type or "Windows",
+                },
+            )
+        except PromptNotFound:
+            logger.error(f"Service-specific prompt '{prompt_id}' not found for service_type '{service_type}'. Available services: server, database, web, storage, network")
+            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.toml' exists in the prompts directory.")
         system_msg = rendered.get("system", "You are a precise YAML generator.")
         user_msg = rendered.get("user", "")
 
@@ -414,18 +435,28 @@ class PerplexityLLMService:
         risk: str,
         context: str = "",
     ) -> str:
-        """Generate YAML runbook using Perplexity with centralized prompts."""
+        """Generate YAML runbook using Perplexity with centralized prompts.
+        Selects service-specific prompt based on service_type.
+        """
+        from app.services.prompt_store import PromptNotFound
+        
         ctx = context[:800] if context else ""
-        rendered = render_prompt(
-            "runbook_yaml_v1",
-            {
-                "issue_description": issue_description,
-                "service": service_type,
-                "env": env,
-                "risk": risk,
-                "context": ctx,
-            },
-        )
+        prompt_id = f"runbook_yaml_{service_type}"
+        
+        try:
+            rendered = render_prompt(
+                prompt_id,
+                {
+                    "issue_description": issue_description,
+                    "service": service_type,
+                    "env": env,
+                    "risk": risk,
+                    "context": ctx,
+                },
+            )
+        except PromptNotFound:
+            logger.error(f"Service-specific prompt '{prompt_id}' not found for service_type '{service_type}'. Available services: server, database, web, storage, network")
+            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.toml' exists in the prompts directory.")
         system_msg = rendered.get("system", "You are a precise YAML generator.")
         user_msg = rendered.get("user", "")
         

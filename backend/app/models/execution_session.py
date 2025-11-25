@@ -34,7 +34,7 @@ class ExecutionSession(Base):
     issue_description = Column(Text, nullable=True)
     status = Column(
         String(20), default="pending"
-    )  # pending, waiting_approval, in_progress, completed, failed, abandoned, escalated
+    )  # pending, waiting_approval, in_progress, completed, completed_with_errors, failed, abandoned, escalated
     current_step = Column(Integer, default=0)  # Current step number
     waiting_for_approval = Column(Boolean, default=False)  # Whether waiting for human approval
     approval_step_number = Column(Integer, nullable=True)  # Step number waiting for approval

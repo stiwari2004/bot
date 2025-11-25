@@ -1,8 +1,8 @@
 """
-Session management service for execution sessions
+Session management service - CLEAN REWRITE
+Simple service for creating execution sessions
 """
 from typing import Optional
-from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.models.runbook import Runbook
@@ -34,6 +34,33 @@ class SessionService:
     def __init__(self):
         self.parser = RunbookParser()
     
+    def _create_step(
+        self,
+        db: Session,
+        session_id: int,
+        step_number: int,
+        step_type: str,
+        step_data: dict,
+        session_profile_rank: int
+    ) -> int:
+        """Create a single execution step and return updated profile rank"""
+        profile, blast_radius = PROFILE_BY_SEVERITY.get(
+            (step_data.get("severity") or "").lower(), DEFAULT_PROFILE
+        )
+        new_rank = max(session_profile_rank, PROFILE_RANK.get(profile, 0))
+        
+        step = ExecutionStep(
+            session_id=session_id,
+            step_number=step_number,
+            step_type=step_type,
+            command=step_data.get("command", ""),
+            notes=step_data.get("description", ""),
+            requires_approval=step_data.get("requires_approval", False),
+            blast_radius=blast_radius,
+        )
+        db.add(step)
+        return new_rank
+    
     async def create_execution_session(
         self,
         db: Session,
@@ -44,6 +71,7 @@ class SessionService:
         user_id: Optional[int] = None
     ) -> ExecutionSession:
         """Create a new execution session"""
+        # Create session
         session = ExecutionSession(
             runbook_id=runbook_id,
             tenant_id=tenant_id,
@@ -57,89 +85,53 @@ class SessionService:
         db.commit()
         db.refresh(session)
         
-        # Parse runbook and create execution steps
+        # Get runbook
         runbook = db.query(Runbook).filter(Runbook.id == runbook_id).first()
         if not runbook:
             raise ValueError(f"Runbook {runbook_id} not found")
         
-        # Normalize runbook with ticket-specific details if ticket is provided
+        # Parse runbook (normalize if ticket provided)
         if ticket_id:
             ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
             if ticket:
                 from app.services.runbook_normalizer import RunbookNormalizer
                 parsed = RunbookNormalizer.normalize_runbook_for_ticket(runbook, ticket, db)
-                logger.info(f"Normalized runbook {runbook_id} for ticket {ticket_id} with server: {parsed.get('metadata', {}).get('server_name', 'N/A')}")
             else:
                 parsed = self.parser.parse_runbook(runbook.body_md)
         else:
             parsed = self.parser.parse_runbook(runbook.body_md)
         
+        # Validate parsed result
+        if not parsed or not isinstance(parsed, dict):
+            raise ValueError(f"Failed to parse runbook {runbook_id}")
+        
         # Create steps
         step_number = 1
         session_profile_rank = PROFILE_RANK.get("default", 0)
-        session_profile = "default"
         
         # Prechecks
         for precheck in parsed.get("prechecks", []):
-            profile, blast_radius = PROFILE_BY_SEVERITY.get(
-                (precheck.get("severity") or "").lower(), DEFAULT_PROFILE
+            session_profile_rank = self._create_step(
+                db, session.id, step_number, "precheck", precheck, session_profile_rank
             )
-            session_profile_rank = max(session_profile_rank, PROFILE_RANK.get(profile, 0))
-            
-            step = ExecutionStep(
-                session_id=session.id,
-                step_number=step_number,
-                step_type="precheck",
-                command=precheck.get("command", ""),
-                description=precheck.get("description", ""),
-                requires_approval=precheck.get("requires_approval", False),
-                severity=precheck.get("severity", "low"),
-                blast_radius=blast_radius,
-            )
-            db.add(step)
             step_number += 1
         
         # Main steps
         for main_step in parsed.get("main_steps", []):
-            profile, blast_radius = PROFILE_BY_SEVERITY.get(
-                (main_step.get("severity") or "").lower(), DEFAULT_PROFILE
+            session_profile_rank = self._create_step(
+                db, session.id, step_number, "main", main_step, session_profile_rank
             )
-            session_profile_rank = max(session_profile_rank, PROFILE_RANK.get(profile, 0))
-            
-            step = ExecutionStep(
-                session_id=session.id,
-                step_number=step_number,
-                step_type="main",
-                command=main_step.get("command", ""),
-                description=main_step.get("description", ""),
-                requires_approval=main_step.get("requires_approval", False),
-                severity=main_step.get("severity", "low"),
-                blast_radius=blast_radius,
-            )
-            db.add(step)
             step_number += 1
         
         # Postchecks
         for postcheck in parsed.get("postchecks", []):
-            profile, blast_radius = PROFILE_BY_SEVERITY.get(
-                (postcheck.get("severity") or "").lower(), DEFAULT_PROFILE
+            session_profile_rank = self._create_step(
+                db, session.id, step_number, "postcheck", postcheck, session_profile_rank
             )
-            session_profile_rank = max(session_profile_rank, PROFILE_RANK.get(profile, 0))
-            
-            step = ExecutionStep(
-                session_id=session.id,
-                step_number=step_number,
-                step_type="postcheck",
-                command=postcheck.get("command", ""),
-                description=postcheck.get("description", ""),
-                requires_approval=postcheck.get("requires_approval", False),
-                severity=postcheck.get("severity", "low"),
-                blast_radius=blast_radius,
-            )
-            db.add(step)
             step_number += 1
         
-        # Determine session profile based on highest severity step
+        # Determine session profile
+        session_profile = "default"
         for profile_name, rank in PROFILE_RANK.items():
             if rank == session_profile_rank:
                 session_profile = profile_name
@@ -147,11 +139,18 @@ class SessionService:
         
         session.sandbox_profile = session_profile
         session.total_steps = step_number - 1
+        
+        # Verify steps were created
+        if session.total_steps == 0:
+            raise ValueError(f"No steps could be created from runbook {runbook_id}")
+        
+        # Commit and verify
         db.commit()
         db.refresh(session)
         
+        saved_steps = db.query(ExecutionStep).filter(ExecutionStep.session_id == session.id).count()
+        if saved_steps != session.total_steps:
+            raise ValueError(f"Failed to save all steps: expected {session.total_steps}, saved {saved_steps}")
+        
+        logger.info(f"Created session {session.id} with {saved_steps} steps")
         return session
-
-
-
-

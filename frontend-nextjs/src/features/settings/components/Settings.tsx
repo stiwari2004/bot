@@ -10,6 +10,8 @@ import { useSettings } from '../hooks/useSettings';
 import { ExecutionModeSection } from './ExecutionModeSection';
 import { TicketingConnectionsSection } from './TicketingConnectionsSection';
 import { InfrastructureConnectionsSection } from './InfrastructureConnectionsSection';
+import { BenchmarkConfigurationSection } from './BenchmarkConfigurationSection';
+import { InfrastructureThresholdSection } from './InfrastructureThresholdSection';
 import { AddConnectionModal } from './AddConnectionModal';
 import { EditConnectionModal } from './EditConnectionModal';
 import { AddCredentialModal } from './AddCredentialModal';
@@ -107,6 +109,20 @@ export function Settings() {
         saving={saving}
         onModeChange={handleModeChange}
       />
+
+      <div className="mb-6">
+        <BenchmarkConfigurationSection
+          onSuccess={handleSuccess}
+          onError={(msg) => setError(msg)}
+        />
+      </div>
+
+      <div className="mb-6">
+        <InfrastructureThresholdSection
+          onSuccess={handleSuccess}
+          onError={(msg) => setError(msg)}
+        />
+      </div>
 
       <TicketingConnectionsSection
         connections={ticketingConnections}

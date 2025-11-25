@@ -28,7 +28,8 @@ import { RunbookQualityDashboard } from '@/components/RunbookQualityDashboard';
 import { AgentDashboard } from '@/components/AgentDashboard';
 import { Tickets } from '@/features/tickets';
 import { Settings } from '@/features/settings';
-import { AgentWorkspace } from '@/features/agent';
+import { AgentWorkspace, ActiveSessionView } from '@/features/agent';
+import { SessionManager } from '@/components/SessionManager';
 import apiConfig from '@/lib/api-config';
 
 type Stats = {
@@ -51,6 +52,16 @@ export default function Home() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [workspaceSessionId, setWorkspaceSessionId] = useState<number | null>(null);
   
+  // Debug: Log activeTab changes
+  useEffect(() => {
+    console.log('[Home] activeTab changed to:', activeTab);
+  }, [activeTab]);
+  
+  // Debug: Log workspaceSessionId changes
+  useEffect(() => {
+    console.log('[Home] workspaceSessionId changed to:', workspaceSessionId);
+  }, [workspaceSessionId]);
+  
   // Handle OAuth callback and tab switching from URL params (client-side only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -58,8 +69,9 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     
-    // Set tab from URL if present
+    // Only set tab from URL on initial mount (if present)
     if (tab) {
+      console.log('[Home] Setting initial tab from URL:', tab);
       setActiveTab(tab);
     }
     
@@ -148,10 +160,23 @@ export default function Home() {
   };
 
   const workspaceEnabled = process.env.NEXT_PUBLIC_AGENT_WORKSPACE_ENABLED !== 'false';
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  
   const handleSessionLaunched = (sessionId: number) => {
+    console.log('[handleSessionLaunched] Called with sessionId:', sessionId);
+    console.log('[handleSessionLaunched] Current activeTab:', activeTab);
+    console.log('[handleSessionLaunched] workspaceEnabled:', workspaceEnabled);
+    
     setWorkspaceSessionId(sessionId);
-    setActiveTab(workspaceEnabled ? 'agent-workspace' : 'agent');
+    setActiveSessionId(sessionId);
+    
+    // Navigate to agent-workspace to see telemetry
+    const targetTab = workspaceEnabled ? 'agent-workspace' : 'agent';
+    console.log('[handleSessionLaunched] Setting activeTab to:', targetTab);
+    setActiveTab(targetTab);
     setSidebarOpen(false);
+    
+    console.log('[handleSessionLaunched] Navigation complete');
   };
   type NavigationItem = { id: string; name: string; icon: any; color: string };
 
@@ -161,6 +186,7 @@ export default function Home() {
       ? { id: 'agent-workspace', name: 'Agent Workspace', icon: BoltIcon, color: 'text-amber-600' }
       : null,
     { id: 'agent', name: 'Agent Dashboard', icon: CpuChipIcon, color: 'text-red-600' },
+    { id: 'sessions', name: 'Session Manager', icon: Cog6ToothIcon, color: 'text-orange-600' },
     { id: 'executions', name: 'Execution History', icon: DocumentTextIcon, color: 'text-purple-600' },
   ].filter(Boolean) as NavigationItem[];
 
@@ -480,8 +506,26 @@ export default function Home() {
           <div className="px-4 sm:px-6 lg:px-8 pb-8">
             <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
               {activeTab === 'tickets' && <Tickets onSessionLaunched={handleSessionLaunched} />}
+              {activeTab === 'active-session' && (
+                <div className="p-6">
+                  {activeSessionId ? (
+                    <ActiveSessionView sessionId={activeSessionId} />
+                  ) : (
+                    <div className="text-center py-12">
+                      <p className="text-gray-600">No active session. Execute a runbook to view live execution.</p>
+                      <button
+                        onClick={() => setActiveTab('tickets')}
+                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Go to Tickets
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               {activeTab === 'agent-workspace' && <AgentWorkspace initialSessionId={workspaceSessionId} />}
               {activeTab === 'agent' && <AgentDashboard />}
+              {activeTab === 'sessions' && <SessionManager />}
               {activeTab === 'settings' && <Settings />}
               {activeTab === 'runbooks' && <RunbookList key={refreshKey} />}
               {activeTab === 'runbook' && <RunbookGenerator onRunbookGenerated={handleRunbookGenerated} />}

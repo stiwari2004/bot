@@ -1,0 +1,146 @@
+system = "You are a YAML generator for agent-executable troubleshooting runbooks for STORAGE issues. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- ')."
+
+user_template = """
+Generate a complete troubleshooting runbook YAML for the following STORAGE issue.
+
+Issue Description: {issue_description}
+Service: {service}
+Environment: {env}
+Risk Level: {risk}
+
+Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
+{context}
+
+CRITICAL - THIS IS A STORAGE ISSUE:
+- Storage issues include: NAS/SAN problems, network storage failures, NFS/CIFS mount issues, storage array problems, external storage systems
+- Storage issues are about EXTERNAL/NETWORK STORAGE SYSTEMS (NAS, SAN, network shares), NOT local server disk
+- Use storage-specific commands: mount, df, nfsstat, showmount, smbclient
+- Identify storage type from issue description (NFS, CIFS, SAN, NAS)
+
+YAML STRUCTURE:
+
+runbook_id: rb-storage-[issue-keyword]
+version: 1.0.0
+title: Fix [EXACT match to issue description - e.g., "Fix NFS Mount Failure"]
+service: {service}
+env: {env}
+risk: {risk}
+description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT STORAGE ISSUE and its impact. DO NOT mention databases, web applications, or servers unless the issue description specifically mentions them.]
+
+INPUTS SECTION - STORAGE-SPECIFIC:
+For STORAGE issues, you typically need mount_point and storage_server.
+
+inputs:
+- name: mount_point
+  type: string
+  required: true
+  description: Filesystem mount point to check
+- name: storage_server
+  type: string
+  required: true
+  description: Storage server hostname or IP address
+- name: threshold_percent
+  type: string
+  required: false
+  default: "80"
+  description: Disk usage threshold percentage
+
+CRITICAL - MATCH INPUTS TO ISSUE:
+- If issue says "NFS mount failed" → Include mount_point and storage_server
+- If issue says "storage array full" → Include storage_server and threshold_percent
+- NEVER include database_name for pure storage issues
+
+prechecks:
+- description: Check if mount point exists
+  command: test -d {{mount_point}}
+  expected_output: 0
+
+- description: Verify storage server is reachable
+  command: ping -c 2 {{storage_server}}
+  expected_output: 0% packet loss
+
+steps:
+[Generate 8-12 UNIQUE steps that directly address the EXACT STORAGE issue described above. Use storage-specific commands.]
+
+EXAMPLE FOR STORAGE MOUNT ISSUE:
+If issue description says "NFS mount point is not accessible", generate:
+
+description: The NFS mount point is not accessible, preventing applications from accessing shared storage. This requires immediate attention to restore storage connectivity.
+
+inputs:
+- name: mount_point
+  type: string
+  required: true
+  description: Filesystem mount point to check
+- name: storage_server
+  type: string
+  required: true
+  description: Storage server hostname or IP address
+
+prechecks:
+- description: Check if mount point exists
+  command: test -d {{mount_point}}
+  expected_output: 0
+
+- description: Verify storage server is reachable
+  command: ping -c 2 {{storage_server}}
+  expected_output: 0% packet loss
+
+steps:
+- name: Check if filesystem is mounted
+  type: command
+  command: mount | grep {{mount_point}}
+  expected_output: Mount information
+  skip_in_auto_mode: false
+  severity: moderate
+
+- name: Check NFS server exports
+  type: command
+  command: showmount -e {{storage_server}}
+  expected_output: Available NFS exports
+  skip_in_auto_mode: false
+  severity: moderate
+
+- name: Check NFS service status
+  type: command
+  command: systemctl status nfs-client
+  expected_output: active (running)
+  skip_in_auto_mode: false
+  severity: moderate
+
+- name: Remount filesystem
+  type: command
+  command: mount -t nfs {{storage_server}}:/export {{mount_point}}
+  expected_output: Filesystem mounted successfully
+  skip_in_auto_mode: false
+  severity: safe
+
+- name: Verify mount is accessible
+  type: command
+  command: df -h {{mount_point}}
+  expected_output: Filesystem usage information
+  skip_in_auto_mode: false
+  severity: moderate
+
+postchecks:
+- description: Verify mount point is accessible
+  command: test -d {{mount_point}} && echo "Mount point accessible"
+  expected_output: Mount point accessible
+
+CRITICAL RULES FOR STORAGE ISSUES:
+1. Title MUST match the EXACT issue description - if issue says "NFS mount failed", title must say "NFS mount failed"
+2. Description MUST explain the STORAGE issue, not database, web application, or server issues
+3. Use storage-specific commands (mount, df, nfsstat, showmount, smbclient)
+4. NEVER generate database commands (SELECT, DBCC) for pure storage issues
+5. NEVER generate web application commands (curl, nginx) for pure storage issues
+6. NEVER hardcode values - ALWAYS use {{mount_point}}, {{storage_server}}, {{threshold_percent}} placeholders
+7. Inputs should include mount_point and storage_server
+8. Generate 8-12 complete steps that address the exact storage issue described
+9. Each step must be UNIQUE - no duplicates
+10. Match storage type to commands (NFS → nfs commands, CIFS → smb commands)
+"""
+
+
+
+
+

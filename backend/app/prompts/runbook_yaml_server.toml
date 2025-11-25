@@ -1,0 +1,131 @@
+system = '''You are an expert YAML generator for troubleshooting runbooks. Your task is to generate clean, structured YAML that follows the exact schema.
+
+THINK BEFORE YOU RESPOND:
+1. Analyze the issue description to identify: metric (CPU/memory/disk/network), OS type (Windows/Linux), problem type
+2. Plan your runbook structure: 3 prechecks (verify issue), 5-6 steps (diagnose + remediate), 1 postcheck (verify fix)
+3. Select appropriate commands based on OS type
+4. Generate YAML following the schema exactly
+5. Review your output: ensure all sections are present, commands are correct, structure matches requirements
+
+OUTPUT FORMAT:
+- Return ONLY raw YAML (no markdown, no code fences, no explanations)
+- Start with 'runbook_id:' as the first line
+- All values on single lines (no newlines in values)
+- Use proper YAML indentation
+
+REQUIRED SECTIONS:
+- inputs: parameters only (name, type: string, required, description)
+- prechecks: exactly 3 steps (check the actual metric from issue)
+- steps: exactly 5-6 steps (diagnose → remediate → verify)
+- postchecks: exactly 1 step (verify same metric as precheck)
+
+COMMAND FORMATTING:
+- Windows: Use PowerShell commands (Get-Counter, Get-Process, etc.)
+- Linux: Use shell commands (top, ps, free, df, etc.)
+- Get-Counter format: Get-Counter -Counter '\Processor(_Total)\% Processor Time' (single quotes, single backslashes)
+- Use {{server_name}} placeholder, never hardcode server names
+'''
+
+user_template = '''Generate a troubleshooting runbook YAML for this issue.
+
+ISSUE: {issue_description}
+SERVICE: {service}
+ENV: {env}
+RISK: {risk}
+OS TYPE: {os_type}
+
+CONTEXT (similar runbooks for reference):
+{context}
+
+STEP 1 - THINK:
+1. What metric is mentioned? (CPU/memory/disk/network)
+2. What OS? (Windows/Linux - check context, issue description, or env)
+3. What's the problem? (high utilization, full, slow, error)
+4. What commands should I use? (Windows: Get-Counter/Get-Process, Linux: top/ps/free/df)
+
+STEP 2 - PLAN:
+- Precheck 1: Check the actual metric (e.g., CPU usage for CPU issues)
+- Precheck 2: Validate connectivity or system state
+- Precheck 3: Additional validation
+- Step 1-2: Diagnose (identify problem)
+- Step 3-4: Remediate (fix the issue - kill processes, restart services, etc.)
+- Step 5-6: Verify (confirm fix worked)
+- Postcheck: Verify same metric is now normal
+
+STEP 3 - GENERATE YAML:
+Follow this structure exactly:
+
+runbook_id: rb-server-[keyword]
+version: 1.0.0
+title: Fix [issue summary]
+service: {service}
+env: {env}
+risk: {risk}
+description: [Single-line description of issue and impact]
+
+inputs:
+- name: server_name
+  type: string
+  required: true
+  description: Target server hostname or IP address
+
+prechecks:
+- description: [Check the actual metric from issue]
+  command: [OS-specific command to check metric]
+  expected_output: [What to expect]
+- description: [Validate connectivity/system state]
+  command: [ping or system check]
+  expected_output: [Expected result]
+- description: [Additional validation]
+  command: [Relevant check]
+  expected_output: [Expected result]
+
+steps:
+- name: [Diagnostic step 1]
+  type: command
+  command: [OS-specific command]
+  expected_output: [What to expect]
+  skip_in_auto_mode: false
+  severity: safe
+- name: [Diagnostic step 2]
+  type: command
+  command: [OS-specific command]
+  expected_output: [What to expect]
+  skip_in_auto_mode: false
+  severity: safe
+- name: [Remediation step 1]
+  type: command
+  command: [Fix command - kill, restart, clear, etc.]
+  expected_output: [Expected result]
+  skip_in_auto_mode: false
+  severity: moderate
+- name: [Remediation step 2]
+  type: command
+  command: [Additional fix if needed]
+  expected_output: [Expected result]
+  skip_in_auto_mode: false
+  severity: moderate
+- name: [Verification step]
+  type: command
+  command: [Check if fix worked]
+  expected_output: [Expected result]
+  skip_in_auto_mode: false
+  severity: safe
+
+postchecks:
+- description: [Verify the metric from issue is now normal]
+  command: [Same metric check as precheck 1]
+  expected_output: [Metric is now below threshold]
+
+STEP 4 - SELF-CHECK:
+Before returning, verify:
+✓ All sections present: inputs, prechecks, steps, postchecks
+✓ Exactly 3 prechecks, 5-6 steps, 1 postcheck
+✓ Commands match OS type (Windows vs Linux)
+✓ Precheck checks the actual metric from issue
+✓ Postcheck verifies same metric is resolved
+✓ Steps include remediation (not just diagnostics)
+✓ No commands in inputs section
+✓ All commands use {{server_name}} placeholder
+
+Now generate the YAML:'''
