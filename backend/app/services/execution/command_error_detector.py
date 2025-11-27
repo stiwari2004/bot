@@ -93,10 +93,12 @@ class CommandErrorDetector:
         
         error_lower = error_text.lower()
         
-        # PowerShell-specific error patterns
+        # PowerShell-specific error patterns (case-insensitive matching)
         command_error_patterns = [
             "parameter cannot be found",
             "a parameter cannot be found",
+            "cannot bind parameter",  # PowerShell parameter binding errors
+            "cannot convert value",  # Type conversion errors (e.g., "1m" to Int32)
             "missing an argument for parameter",
             "the specified object was not found",
             "cannot find parameter",
@@ -107,8 +109,12 @@ class CommandErrorDetector:
             "syntax error",
             "parse error",
             "unexpected token",
-            "the term.*is not recognized",
+            "the term.*is not recognized",  # Matches: "_Total : The term '_Total' is not recognized"
+            "is not recognized as the name",  # Matches: "is not recognized as the name of a cmdlet"
             "cmdlet.*not found",
+            "parameterbindingexception",  # PowerShell exception type
+            "commandnotfoundexception",  # PowerShell exception type
+            "objectnotfound",  # PowerShell exception type
         ]
         
         # Check if any pattern matches

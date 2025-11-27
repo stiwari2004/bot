@@ -20,6 +20,10 @@ from app.services.runbook.generation.service_classifier import ServiceClassifier
 from app.services.runbook.generation.content_builder import ContentBuilder
 from app.services.runbook.generation.yaml_processor import YamlProcessor
 from app.services.runbook.generation.runbook_indexer import RunbookIndexer
+from app.services.runbook.generation.runbook_quality_validator import RunbookQualityValidator
+from app.services.runbook.generation.runbook_command_validator import RunbookCommandValidator
+from app.services.runbook.generation.runbook_critic_service import RunbookCriticService
+from app.config import runbook_structure
 
 logger = get_logger(__name__)
 
@@ -34,6 +38,9 @@ class RunbookGeneratorService:
         self.content_builder = ContentBuilder()
         self.yaml_processor = YamlProcessor()
         self.runbook_indexer = RunbookIndexer()
+        self.command_validator = RunbookCommandValidator()
+        self.quality_validator = RunbookQualityValidator()
+        self.critic_service = RunbookCriticService()
     
     @property
     def vector_service(self):
@@ -370,6 +377,55 @@ class RunbookGeneratorService:
         # Fix YAML escape sequence issues
         ai_yaml = self.yaml_processor.fix_yaml_escape_sequences(ai_yaml)
         logger.info(f"[PHASE 2 - YAML CLEANUP] After fix_yaml_escape_sequences, length={len(ai_yaml)}")
+        
+        # Sanitize expected_output fields that start with > or < or contain %
+        # This prevents YAML parsing errors when values like ">50%" are interpreted as block scalars
+        try:
+            ai_yaml = self.yaml_processor.sanitize_expected_output_field(ai_yaml)
+            logger.info(f"[PHASE 2 - YAML CLEANUP] After sanitize_expected_output_field, length={len(ai_yaml)}")
+        except Exception as e:
+            logger.warning(f"Expected output sanitization failed, continuing without it: {type(e).__name__}: {e}")
+        
+        # Fix standalone variable names that appear without colons
+        # E.g., "top_cpu_pid" on its own line should be "captures_variable: top_cpu_pid"
+        try:
+            ai_yaml_before_fix = ai_yaml
+            logger.info(f"[PHASE 2 - YAML CLEANUP] BEFORE fix_standalone_variable_names, length={len(ai_yaml)}")
+            
+            # Log lines 50-60 before fix to see what we're working with
+            yaml_lines_before = ai_yaml_before_fix.split('\n')
+            if len(yaml_lines_before) > 50:
+                logger.info(f"[PHASE 2 - YAML CLEANUP] BEFORE fix - Lines 50-60:")
+                for i in range(49, min(60, len(yaml_lines_before))):
+                    logger.info(f"  Line {i+1:3d}: {repr(yaml_lines_before[i])}")
+            
+            ai_yaml = self.yaml_processor.fix_standalone_variable_names(ai_yaml)
+            
+            if ai_yaml != ai_yaml_before_fix:
+                logger.info(f"[PHASE 2 - YAML CLEANUP] After fix_standalone_variable_names, length={len(ai_yaml)} (CHANGED)")
+                # Log a sample of what changed
+                before_lines = ai_yaml_before_fix.split('\n')
+                after_lines = ai_yaml.split('\n')
+                changes_found = False
+                for i, (before, after) in enumerate(zip(before_lines, after_lines)):
+                    if before != after:
+                        changes_found = True
+                        logger.info(f"[YAML FIX] Line {i+1} changed: {repr(before[:100])} -> {repr(after[:100])}")
+                
+                if not changes_found:
+                    logger.warning(f"[YAML FIX] YAML changed but no line differences detected (length changed: {len(ai_yaml_before_fix)} -> {len(ai_yaml)})")
+                
+                # Log lines 50-60 after fix
+                if len(after_lines) > 50:
+                    logger.info(f"[PHASE 2 - YAML CLEANUP] AFTER fix - Lines 50-60:")
+                    for i in range(49, min(60, len(after_lines))):
+                        logger.info(f"  Line {i+1:3d}: {repr(after_lines[i])}")
+            else:
+                logger.info(f"[PHASE 2 - YAML CLEANUP] After fix_standalone_variable_names, length={len(ai_yaml)} (NO CHANGES)")
+        except Exception as e:
+            logger.error(f"Variable name fix failed with exception: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
         # Validate YAML. If invalid, attempt auto-fix
         try:
@@ -380,18 +436,127 @@ class RunbookGeneratorService:
             
             # Try parsing YAML
             logger.info(f"[PHASE 3 - YAML PARSING] Attempting to parse YAML, length={len(ai_yaml)}")
-            # Final check before parsing
-            first_line = ai_yaml.split('\n')[0] if '\n' in ai_yaml else ai_yaml
-            if len(first_line) >= 101:
-                logger.error(f"[PHASE 3 - YAML PARSING] BEFORE PARSE - First line length={len(first_line)}")
-                logger.error(f"[PHASE 3 - YAML PARSING] Character at position 101: {repr(first_line[100])}")
-                logger.error(f"[PHASE 3 - YAML PARSING] First line full: {repr(first_line)}")
+            
+            # CRITICAL: Log the actual YAML content before parsing to diagnose issues
+            yaml_lines = ai_yaml.split('\n')
+            logger.info(f"[PHASE 3 - YAML PARSING] Total lines: {len(yaml_lines)}")
+            logger.info(f"[PHASE 3 - YAML PARSING] First 10 lines:")
+            for i, line in enumerate(yaml_lines[:10], 1):
+                logger.info(f"  Line {i:3d}: {repr(line)}")
+            
+            # Log lines 50-60 (where the error typically occurs)
+            if len(yaml_lines) > 50:
+                logger.info(f"[PHASE 3 - YAML PARSING] Lines 50-60 (error zone):")
+                for i in range(49, min(60, len(yaml_lines))):
+                    logger.info(f"  Line {i+1:3d}: {repr(yaml_lines[i])}")
+            
             try:
                 spec = yaml.safe_load(ai_yaml)
                 logger.info(f"[PHASE 3 - YAML PARSING] Parse SUCCESSFUL!")
             except yaml.YAMLError as e:
                 error_msg = str(e)
                 logger.error(f"YAML parse error: {error_msg}")
+                
+                # Check for specific errors that indicate standalone variable names
+                error_indicators = [
+                    "could not find expected ':'",
+                    "expected ':'",
+                    "mapping values are not allowed here"
+                ]
+                
+                if any(indicator in error_msg for indicator in error_indicators):
+                    logger.warning(f"[YAML PARSE ERROR] Detected variable name error - attempting to fix standalone variable names")
+                    
+                    # DIAGNOSTIC: Log the full YAML around the error line for debugging
+                    import re
+                    line_match = re.search(r'line (\d+)', error_msg)
+                    col_match = re.search(r'column (\d+)', error_msg)
+                    
+                    if line_match:
+                        error_line_num = int(line_match.group(1))
+                        yaml_lines = ai_yaml.split('\n')
+                        
+                        # Log diagnostic info
+                        logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Error at line {error_line_num}")
+                        logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Full error: {error_msg}")
+                        
+                        # Show 10 lines before and after the error
+                        context_start = max(0, error_line_num - 11)
+                        context_end = min(len(yaml_lines), error_line_num + 10)
+                        logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] YAML context (lines {context_start + 1}-{context_end}):")
+                        for ctx_line_num in range(context_start, context_end):
+                            marker = ">>> ERROR HERE" if ctx_line_num == error_line_num - 1 else f"    Line {ctx_line_num + 1:3d}"
+                            line_content = yaml_lines[ctx_line_num]
+                            logger.error(f"{marker}: {repr(line_content)}")
+                        
+                        # Check if the problematic line matches our pattern
+                        if error_line_num <= len(yaml_lines):
+                            problematic_line = yaml_lines[error_line_num - 1]
+                            logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Problematic line: {repr(problematic_line)}")
+                            
+                            # Test if it matches our variable pattern
+                            var_pattern = r'^(\s*)([a-z][a-z0-9_]+)$'
+                            pattern_match = re.match(var_pattern, problematic_line)
+                            if pattern_match:
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] ✓ Line MATCHES variable pattern!")
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Indent: {repr(pattern_match.group(1))}")
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Var name: {pattern_match.group(2)}")
+                            else:
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] ✗ Line does NOT match variable pattern")
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Pattern tested: {var_pattern}")
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Line stripped: {repr(problematic_line.strip())}")
+                            
+                            # Check previous line
+                            if error_line_num > 1:
+                                prev_line = yaml_lines[error_line_num - 2]
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Previous line: {repr(prev_line)}")
+                            
+                            # Check next line
+                            if error_line_num < len(yaml_lines):
+                                next_line = yaml_lines[error_line_num]
+                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Next line: {repr(next_line)}")
+                    
+                    try:
+                        # Extract the problematic line number if available
+                        if line_match:
+                            error_line_num = int(line_match.group(1))
+                            yaml_lines = ai_yaml.split('\n')
+                            if error_line_num <= len(yaml_lines):
+                                problematic_line = yaml_lines[error_line_num - 1]
+                                
+                                # Check if it's a standalone variable name
+                                var_pattern = r'^(\s*)([a-z][a-z0-9_]+)$'
+                                if re.match(var_pattern, problematic_line):
+                                    # Direct fix: replace the problematic line
+                                    indent = re.match(var_pattern, problematic_line).group(1)
+                                    var_name = re.match(var_pattern, problematic_line).group(2)
+                                    yaml_lines[error_line_num - 1] = f"{indent}captures_variable: {var_name}"
+                                    ai_yaml = '\n'.join(yaml_lines)
+                                    logger.info(f"[YAML PARSE ERROR] Directly fixed line {error_line_num}: '{var_name}' -> 'captures_variable: {var_name}'")
+                                else:
+                                    logger.warning(f"[YAML PARSE ERROR] Line {error_line_num} does not match variable pattern, trying general fix anyway")
+                        
+                        # Also re-run the general fix (in case there are multiple issues)
+                        logger.info("[YAML PARSE ERROR] Re-applying fix_standalone_variable_names...")
+                        ai_yaml = self.yaml_processor.fix_standalone_variable_names(ai_yaml)
+                        logger.info("[YAML PARSE ERROR] Re-applied fix_standalone_variable_names, attempting parse again")
+                        # Try parsing again
+                        spec = yaml.safe_load(ai_yaml)
+                        logger.info("[YAML PARSE ERROR] Parse successful after fix!")
+                    except yaml.YAMLError as fix_error:
+                        logger.error(f"[YAML PARSE ERROR] Fix attempt still failed: {fix_error}")
+                        logger.error(f"[YAML PARSE ERROR] This suggests the fix logic needs improvement")
+                        # Log the YAML again after fix attempt
+                        if line_match:
+                            error_line_num = int(line_match.group(1))
+                            yaml_lines_after = ai_yaml.split('\n')
+                            if error_line_num <= len(yaml_lines_after):
+                                logger.error(f"[YAML PARSE ERROR] After fix attempt, line {error_line_num}: {repr(yaml_lines_after[error_line_num - 1])}")
+                    except Exception as fix_error:
+                        logger.error(f"[YAML PARSE ERROR] Fix attempt failed with exception: {type(fix_error).__name__}: {fix_error}")
+                        import traceback
+                        logger.error(f"[YAML PARSE ERROR] Traceback: {traceback.format_exc()}")
+                
                 # Log the exact YAML content that's causing the error
                 # First, log the full YAML for debugging
                 logger.error(f"[YAML PARSE ERROR] Full YAML content (first 5000 chars):\n{ai_yaml[:5000]}")
@@ -400,18 +565,35 @@ class RunbookGeneratorService:
                     line_match = re.search(r'line (\d+)', error_msg)
                     col_match = re.search(r'column (\d+)', error_msg)
                     
-                    if line_match and col_match:
-                        error_line_num = int(line_match.group(1))
-                        error_col_num = int(col_match.group(1))
-                        yaml_lines = ai_yaml.split('\n')
-                        if error_line_num <= len(yaml_lines):
-                            problematic_line = yaml_lines[error_line_num - 1]
-                            logger.error(f"[YAML PARSE ERROR] Problematic line {error_line_num}, column {error_col_num}:")
-                            logger.error(f"[YAML PARSE ERROR] Full line: {repr(problematic_line)}")
-                            logger.error(f"[YAML PARSE ERROR] Line content: {problematic_line}")
-                            if error_col_num <= len(problematic_line):
-                                logger.error(f"[YAML PARSE ERROR] Character at error position: {repr(problematic_line[error_col_num - 1])}")
-                                logger.error(f"[YAML PARSE ERROR] Context around error: {repr(problematic_line[max(0, error_col_num-20):error_col_num+20])}")
+                if line_match and col_match:
+                    error_line_num = int(line_match.group(1))
+                    error_col_num = int(col_match.group(1))
+                    yaml_lines = ai_yaml.split('\n')
+                    if error_line_num <= len(yaml_lines):
+                        problematic_line = yaml_lines[error_line_num - 1]
+                        logger.error(f"[YAML PARSE ERROR] Problematic line {error_line_num}, column {error_col_num}:")
+                        logger.error(f"[YAML PARSE ERROR] Full line: {repr(problematic_line)}")
+                        logger.error(f"[YAML PARSE ERROR] Line content: {problematic_line}")
+                        
+                        # Show context: previous line and next line
+                        if error_line_num > 1:
+                            prev_line = yaml_lines[error_line_num - 2]
+                            logger.error(f"[YAML PARSE ERROR] Previous line {error_line_num - 1}: {repr(prev_line)}")
+                        if error_line_num < len(yaml_lines):
+                            next_line = yaml_lines[error_line_num] if error_line_num < len(yaml_lines) else ""
+                            logger.error(f"[YAML PARSE ERROR] Next line {error_line_num + 1}: {repr(next_line)}")
+                        
+                        # Show 5 lines of context around the error
+                        context_start = max(0, error_line_num - 3)
+                        context_end = min(len(yaml_lines), error_line_num + 2)
+                        logger.error(f"[YAML PARSE ERROR] Context (lines {context_start + 1}-{context_end}):")
+                        for ctx_line_num in range(context_start, context_end):
+                            marker = ">>> " if ctx_line_num == error_line_num - 1 else "    "
+                            logger.error(f"{marker}Line {ctx_line_num + 1}: {repr(yaml_lines[ctx_line_num])}")
+                        
+                        if error_col_num <= len(problematic_line):
+                            logger.error(f"[YAML PARSE ERROR] Character at error position: {repr(problematic_line[error_col_num - 1])}")
+                            logger.error(f"[YAML PARSE ERROR] Context around error: {repr(problematic_line[max(0, error_col_num-20):error_col_num+20])}")
                             
                             # Try to fix this specific line
                             if '\\' in problematic_line and not (problematic_line.strip().startswith("'") or problematic_line.strip().startswith('"')):
@@ -539,11 +721,20 @@ class RunbookGeneratorService:
             # Post-process spec
             spec = self._post_process_spec(spec, issue_description, env, risk)
             
+            # Post-processing: Detect and flag diagnostic-only sequences
+            spec = self._detect_and_flag_diagnostic_only(spec)
+            
             # Validate runbook structure and content (Phase 1: Structure enforcement)
             is_valid, validation_errors = self._validate_generated_runbook(spec, issue_description)
             if not is_valid:
                 # Check for CRITICAL errors that should cause regeneration
                 critical_errors = [e for e in validation_errors if "CRITICAL" in e.upper()]
+                remediation_errors = [e for e in validation_errors if "remediation" in e.lower() or "REMEDIATE" in e.upper()]
+                
+                # Missing remediation is a CRITICAL error
+                if remediation_errors:
+                    critical_errors.extend(remediation_errors)
+                
                 if critical_errors:
                     logger.error(f"CRITICAL validation failures - runbook structure is incorrect:")
                     for error in critical_errors:
@@ -560,21 +751,32 @@ class RunbookGeneratorService:
                     postchecks_count = len(spec.get("postchecks", []))
                     
                     # Reject if structure is severely wrong (e.g., 0 or 1 step when we need 5-6)
-                    if steps_count < 2 or prechecks_count == 0 or postchecks_count == 0:
+                    # OR if missing remediation steps
+                    has_remediation_error = any("remediation" in e.lower() or "REMEDIATE" in e.upper() for e in critical_errors)
+                    
+                    if steps_count < 2 or prechecks_count == 0 or postchecks_count == 0 or has_remediation_error:
+                        error_detail = (
+                            f"LLM generated invalid runbook structure. "
+                            f"Prechecks: {prechecks_count} (required: {runbook_structure.PRECHECKS_COUNT}), "
+                            f"Steps: {steps_count} (required: {runbook_structure.STEPS_MIN}-{runbook_structure.STEPS_MAX}), "
+                            f"Postchecks: {postchecks_count} (required: {runbook_structure.POSTCHECKS_COUNT})."
+                        )
+                        if has_remediation_error:
+                            error_detail += (
+                                f" CRITICAL: Runbook missing required REMEDIATION steps. "
+                                f"Runbooks must include at least 4 remediation actions (kill, restart, stop, clear, fix, etc.) "
+                                f"to actually SOLVE the problem, not just investigate it."
+                            )
+                        error_detail += " Please try again or check LLM configuration."
+                        
                         logger.error(
                             f"Runbook structure is severely incorrect - rejecting. "
                             f"Prechecks: {prechecks_count} (need 3), Steps: {steps_count} (need 5-6), "
-                            f"Postchecks: {postchecks_count} (need 1)"
+                            f"Postchecks: {postchecks_count} (need 1), Has remediation: {not has_remediation_error}"
                         )
                         raise HTTPException(
                             status_code=502,
-                            detail=(
-                                f"LLM generated invalid runbook structure. "
-                                f"Prechecks: {prechecks_count} (required: 3), "
-                                f"Steps: {steps_count} (required: 5-6), "
-                                f"Postchecks: {postchecks_count} (required: 1). "
-                                f"Please try again or check LLM configuration."
-                            )
+                            detail=error_detail
                         )
                     # For less severe issues, log but continue
                     logger.warning(
@@ -585,6 +787,121 @@ class RunbookGeneratorService:
                     logger.warning(f"Runbook validation warnings (non-critical): {validation_errors}")
                     for error in validation_errors:
                         logger.warning(f"  - {error}")
+            
+            # Phase 2: Command grounding via web search (NEW - critical for relevance)
+            logger.info("Validating runbook commands via web search for grounding...")
+            try:
+                os_type = env if env in ["Windows", "Linux"] else None
+                command_validation = await self.command_validator.validate_runbook_commands(
+                    spec, issue_description, os_type
+                )
+                
+                if not command_validation["is_valid"]:
+                    logger.warning(f"Command validation found issues: {command_validation['validation_summary']}")
+                    
+                    # Log detailed issues
+                    if command_validation["invalid_commands"]:
+                        logger.error(f"Found {len(command_validation['invalid_commands'])} invalid command(s):")
+                        for invalid in command_validation["invalid_commands"]:
+                            logger.error(
+                                f"  - {invalid['section']} {invalid['index']}: {invalid['command'][:80]}... "
+                                f"Issue: {invalid['issue']}"
+                            )
+                    
+                    if command_validation["diagnostic_mislabeled"]:
+                        logger.error(f"Found {len(command_validation['diagnostic_mislabeled'])} mislabeled command(s):")
+                        for mislabeled in command_validation["diagnostic_mislabeled"]:
+                            logger.error(
+                                f"  - {mislabeled['section']} {mislabeled['index']}: {mislabeled['command'][:80]}... "
+                                f"Issue: {mislabeled['issue']}"
+                            )
+                    
+                    # CRITICAL: Missing remediation is a hard failure
+                    if command_validation["missing_remediation"]:
+                        error_detail = (
+                            f"CRITICAL: Command validation found only {len(command_validation.get('remediation_commands_found', []))} "
+                            f"actual remediation command(s), need at least 4. "
+                            f"Runbook commands must include actual fix actions (kill, restart, stop, clear, etc.), "
+                            f"not just diagnostic commands. "
+                        )
+                        if command_validation["suggestions"]:
+                            error_detail += " ".join(command_validation["suggestions"])
+                        error_detail += " Please regenerate with proper remediation steps."
+                        
+                        logger.error(error_detail)
+                        raise HTTPException(
+                            status_code=502,
+                            detail=error_detail
+                        )
+                    
+                    # For invalid commands or mislabeled, add warnings to metadata but don't fail
+                    if command_validation["invalid_commands"] or command_validation["diagnostic_mislabeled"]:
+                        if "meta_data" not in spec:
+                            spec["meta_data"] = {}
+                        spec["meta_data"]["command_validation_warnings"] = command_validation["suggestions"]
+                        spec["meta_data"]["invalid_commands"] = command_validation["invalid_commands"]
+                        spec["meta_data"]["diagnostic_mislabeled"] = command_validation["diagnostic_mislabeled"]
+                        logger.warning(
+                            f"Command validation found issues but runbook structure is valid. "
+                            f"Warnings added to metadata. Consider regenerating for better results."
+                        )
+                else:
+                    logger.info(
+                        f"Command validation passed: {command_validation['validation_summary']}. "
+                        f"Found {len(command_validation.get('remediation_commands_found', []))} valid remediation command(s)."
+                    )
+            except HTTPException:
+                raise  # Re-raise HTTP exceptions
+            except Exception as e:
+                logger.warning(f"Command validation failed (non-fatal): {e}. Continuing with runbook generation.")
+                # Don't fail runbook generation if validation service is unavailable
+            
+            # Phase 3: LLM Critique (optional, for logical flow validation)
+            import os
+            enable_critique = os.getenv("ENABLE_LLM_CRITIQUE", "true").lower() == "true"
+            if enable_critique:
+                logger.info("Running LLM critique for logical flow validation...")
+                try:
+                    critique_result = await self.critic_service.critique_runbook(
+                        spec, issue_description, tenant_id
+                    )
+                    
+                    if not critique_result["is_valid"]:
+                        logger.warning(
+                            f"LLM critique found issues (confidence: {critique_result['confidence']:.2f}): "
+                            f"{len(critique_result['issues'])} critical, {len(critique_result['warnings'])} warnings"
+                        )
+                        
+                        if critique_result["issues"]:
+                            logger.error("Critical issues found:")
+                            for issue in critique_result["issues"]:
+                                logger.error(f"  - {issue}")
+                        
+                        if critique_result["regeneration_needed"]:
+                            # If critique says regeneration needed, add to metadata but don't fail
+                            # (we've already passed structural and command validation)
+                            if "meta_data" not in spec:
+                                spec["meta_data"] = {}
+                            spec["meta_data"]["critique_issues"] = critique_result["issues"]
+                            spec["meta_data"]["critique_warnings"] = critique_result["warnings"]
+                            spec["meta_data"]["critique_suggestions"] = critique_result["suggestions"]
+                            logger.warning(
+                                "LLM critique suggests regeneration, but runbook passed structural validation. "
+                                "Consider reviewing before approval."
+                            )
+                        else:
+                            # Just warnings, add to metadata
+                            if "meta_data" not in spec:
+                                spec["meta_data"] = {}
+                            spec["meta_data"]["critique_warnings"] = critique_result["warnings"]
+                            spec["meta_data"]["critique_suggestions"] = critique_result["suggestions"]
+                    else:
+                        logger.info(
+                            f"LLM critique passed (confidence: {critique_result['confidence']:.2f}). "
+                            f"Runbook logic is sound."
+                        )
+                except Exception as e:
+                    logger.warning(f"LLM critique failed (non-fatal): {e}. Continuing with runbook generation.")
             
             # Validate runbook structure (existing validation)
             try:
@@ -777,7 +1094,7 @@ class RunbookGeneratorService:
             logger.debug("Fixed postchecks: converted single dict to list format")
         
         # Fix incomplete commands and ensure expected_output for checks
-        for section_name in ["prechecks", "postchecks"]:
+        for section_name in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_POSTCHECKS]:
             if section_name in spec and isinstance(spec[section_name], list):
                 cleaned_checks = []
                 for check in spec[section_name]:
@@ -844,7 +1161,7 @@ class RunbookGeneratorService:
         if "inputs" in spec and isinstance(spec["inputs"], list):
             input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
             all_commands = []
-            for section in ["prechecks", "steps", "postchecks"]:
+            for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
                 if section in spec and isinstance(spec[section], list):
                     for item in spec[section]:
                         if isinstance(item, dict) and "command" in item:
@@ -864,7 +1181,7 @@ class RunbookGeneratorService:
         if "inputs" in spec and isinstance(spec["inputs"], list):
             input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
             all_commands = []
-            for section in ["prechecks", "steps", "postchecks"]:
+            for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
                 if section in spec and isinstance(spec[section], list):
                     for item in spec[section]:
                         if isinstance(item, dict) and "command" in item:
@@ -904,10 +1221,64 @@ class RunbookGeneratorService:
         
         return spec
     
+    def _detect_and_flag_diagnostic_only(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Post-processing: Detect diagnostic-only step sequences and add remediation if missing.
+        This is a safety net to catch runbooks that passed validation but are still diagnostic-heavy.
+        """
+        steps = spec.get("steps", [])
+        if not isinstance(steps, list) or len(steps) < 3:
+            return spec
+        
+        remediation_keywords = [
+            "stop-process", "restart-service", "kill", "systemctl restart",
+            "clear", "delete", "remove", "fix", "repair", "resolve", "restart", "stop"
+        ]
+        diagnostic_keywords = [
+            "get-process", "get-counter", "get-service", "get-eventlog",
+            "top", "ps", "free", "df", "select-object", "where-object", "sort-object"
+        ]
+        
+        remediation_count = 0
+        diagnostic_only_count = 0
+        
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            
+            cmd = str(step.get("command", "")).lower()
+            name = str(step.get("name", "")).lower()
+            
+            has_remediation = any(kw in cmd or kw in name for kw in remediation_keywords)
+            is_diagnostic = any(kw in cmd or kw in name for kw in diagnostic_keywords)
+            
+            if has_remediation:
+                remediation_count += 1
+            elif is_diagnostic:
+                diagnostic_only_count += 1
+        
+        # If we have less than 2 remediation steps, log a warning
+        # (Validation should catch this, but this is a safety net)
+        if remediation_count < 2:
+            logger.warning(
+                f"Post-processing detected diagnostic-heavy runbook: "
+                f"{remediation_count} remediation steps, {diagnostic_only_count} diagnostic-only steps. "
+                f"Runbook may need manual review."
+            )
+            # Add a metadata flag for review
+            if "meta_data" not in spec:
+                spec["meta_data"] = {}
+            if isinstance(spec["meta_data"], dict):
+                spec["meta_data"]["diagnostic_heavy"] = True
+                spec["meta_data"]["remediation_count"] = remediation_count
+                spec["meta_data"]["diagnostic_count"] = diagnostic_only_count
+        
+        return spec
+    
     def _format_runbook_context(self, search_results: List[SearchResult], issue_description: str) -> str:
         """
         Format retrieved runbooks into structured context that guides LLM generation.
-        Extracts only relevant sections to keep context focused.
+        Filters out diagnostic-only runbooks and extracts only relevant remediation examples.
         
         Args:
             search_results: List of SearchResult objects from vector search
@@ -920,194 +1291,88 @@ class RunbookGeneratorService:
             return "No similar runbooks found."
         
         context_parts = []
+        remediation_keywords = [
+            "stop-process", "restart-service", "kill", "systemctl restart",
+            "clear", "delete", "remove", "fix", "repair", "resolve"
+        ]
+        diagnostic_keywords = [
+            "get-process", "get-counter", "get-service", "top", "ps", "free", "df"
+        ]
         
-        # Limit to top 2-3 most relevant runbooks
-        for i, result in enumerate(search_results[:3], 1):
+        # Filter and prioritize runbooks with remediation steps
+        filtered_results = []
+        for result in search_results[:5]:  # Check top 5
+            text = result.text.lower()
+            commands = text
+            
+            # Count remediation vs diagnostic commands
+            remediation_count = sum(1 for kw in remediation_keywords if kw in commands)
+            diagnostic_count = sum(1 for kw in diagnostic_keywords if kw in commands)
+            
+            # Prefer runbooks with remediation (at least 2 remediation indicators)
+            if remediation_count >= 2:
+                filtered_results.append((result, remediation_count, diagnostic_count))
+            elif remediation_count >= 1:
+                # Include if has at least some remediation
+                filtered_results.append((result, remediation_count, diagnostic_count))
+        
+        # Sort by remediation count (descending)
+        filtered_results.sort(key=lambda x: x[1], reverse=True)
+        
+        # Limit to top 2-3 runbooks with remediation
+        for i, (result, rem_count, diag_count) in enumerate(filtered_results[:3], 1):
             title = result.document_title or "Untitled Runbook"
             score = result.score
-            
-            # Extract only relevant parts from the chunk
             text = result.text
             
-            # Try to extract key information: commands, structure
+            # Extract only remediation commands and step names
             relevant_parts = []
             
-            # Extract commands (most useful for LLM)
             import re
-            # Find command lines
+            # Find remediation commands specifically
             command_pattern = r'(?:command|Command):\s*(.+?)(?:\n|$)'
-            commands = re.findall(command_pattern, text, re.IGNORECASE)
-            if commands:
-                relevant_parts.extend([f"  Command: {cmd.strip()}" for cmd in commands[:5]])  # Limit to 5 commands
+            all_commands = re.findall(command_pattern, text, re.IGNORECASE)
             
-            # Extract step names
+            # Filter to show remediation commands
+            remediation_commands = []
+            for cmd in all_commands[:8]:  # Check up to 8 commands
+                cmd_lower = cmd.lower()
+                if any(kw in cmd_lower for kw in remediation_keywords):
+                    remediation_commands.append(cmd.strip())
+            
+            if remediation_commands:
+                relevant_parts.extend([f"  Remediation Command: {cmd}" for cmd in remediation_commands[:3]])
+            
+            # Extract step names that mention remediation
             step_pattern = r'(?:name|Name|step|Step):\s*(.+?)(?:\n|$)'
             steps = re.findall(step_pattern, text, re.IGNORECASE)
-            if steps:
-                relevant_parts.extend([f"  Step: {step.strip()}" for step in steps[:3]])  # Limit to 3 steps
+            remediation_steps = [
+                step.strip() for step in steps[:5]
+                if any(kw in step.lower() for kw in ["remediate", "fix", "kill", "restart", "stop", "clear", "repair"])
+            ]
+            
+            if remediation_steps:
+                relevant_parts.extend([f"  Remediation Step: {step}" for step in remediation_steps[:2]])
             
             if relevant_parts:
-                context_parts.append(f"Runbook {i}: {title} (similarity: {score:.2f})")
+                context_parts.append(f"Runbook {i}: {title} (similarity: {score:.2f}, remediation steps: {rem_count})")
                 context_parts.extend(relevant_parts)
                 context_parts.append("")
         
         if not context_parts:
-            # Fallback: just show titles
-            for i, result in enumerate(search_results[:3], 1):
+            # Fallback: show titles but warn about diagnostic-only
+            context_parts.append("Note: Similar runbooks found but they may be diagnostic-only. Focus on REMEDIATION steps.")
+            for i, result in enumerate(search_results[:2], 1):
                 context_parts.append(f"Runbook {i}: {result.document_title or 'Untitled'} (similarity: {result.score:.2f})")
         
-        return "\n".join(context_parts) if context_parts else "No similar runbooks found."
+        return "\n".join(context_parts) if context_parts else "No similar runbooks with remediation found."
     
     def _validate_generated_runbook(
         self, 
         spec: Dict[str, Any], 
         issue_description: str
     ) -> tuple[bool, List[str]]:
-        """
-        Validate generated runbook structure and content.
-        
-        Args:
-            spec: Parsed YAML runbook specification
-            issue_description: Original issue description
-            
-        Returns:
-            Tuple of (is_valid, list_of_errors)
-        """
-        errors = []
-        
-        # CRITICAL: Validate inputs section doesn't contain commands
-        inputs = spec.get("inputs", [])
-        if isinstance(inputs, list):
-            for inp in inputs:
-                if isinstance(inp, dict):
-                    # Check if input has a "command" field - this is WRONG
-                    if "command" in inp:
-                        errors.append(
-                            f"CRITICAL: inputs section contains a command '{inp.get('name', 'unknown')}' - "
-                            f"commands belong in prechecks/steps/postchecks, NOT in inputs! "
-                            f"Inputs should only have: name, type, required, description"
-                        )
-                    # Check if input has "type: command" - this is WRONG
-                    if inp.get("type") == "command":
-                        errors.append(
-                            f"CRITICAL: input '{inp.get('name', 'unknown')}' has type='command' - "
-                            f"inputs should have type='string', not 'command'! "
-                            f"Commands belong in prechecks/steps/postchecks sections"
-                        )
-        
-        # Validate structure: prechecks must be exactly 3
-        prechecks = spec.get("prechecks", [])
-        if not isinstance(prechecks, list):
-            errors.append("CRITICAL: prechecks must be a list")
-        elif len(prechecks) != 3:
-            errors.append(
-                f"CRITICAL: prechecks must have EXACTLY 3 steps, found {len(prechecks)}. "
-                f"This is a hard requirement - the runbook will be rejected if not exactly 3."
-            )
-        
-        # Validate structure: steps must be 5-6
-        steps = spec.get("steps", [])
-        if not isinstance(steps, list):
-            errors.append("CRITICAL: steps must be a list")
-        elif len(steps) < 5 or len(steps) > 6:
-            errors.append(
-                f"CRITICAL: steps must have EXACTLY 5-6 steps, found {len(steps)}. "
-                f"This is a hard requirement - the runbook will be rejected if not 5-6 steps."
-            )
-        
-        # Validate structure: postchecks must be exactly 1
-        postchecks = spec.get("postchecks", [])
-        if not isinstance(postchecks, list):
-            errors.append("CRITICAL: postchecks must be a list")
-        elif len(postchecks) != 1:
-            errors.append(
-                f"CRITICAL: postchecks must have EXACTLY 1 step, found {len(postchecks)}. "
-                f"This is a hard requirement - the runbook will be rejected if not exactly 1."
-            )
-        
-        # Validate that precheck checks the actual metric from issue
-        issue_lower = issue_description.lower()
-        metric_keywords = {
-            "cpu": ["cpu", "processor", "processor time"],
-            "memory": ["memory", "ram", "available mbytes", "committed bytes"],
-            "disk": ["disk", "disk space", "free space", "logicaldisk"],
-            "network": ["network", "bytes received", "bytes sent"],
-            "transaction log": ["transaction log", "log_reuse_wait", "log space"],
-            "connection pool": ["connection pool", "connections", "pg_stat_activity"]
-        }
-        
-        detected_metric = None
-        for metric, keywords in metric_keywords.items():
-            if any(keyword in issue_lower for keyword in keywords):
-                detected_metric = metric
-                break
-        
-        if detected_metric:
-            # Check if any precheck command mentions the metric
-            precheck_commands = [str(p.get("command", "")).lower() for p in prechecks if isinstance(p, dict)]
-            metric_found = False
-            for keyword in metric_keywords.get(detected_metric, []):
-                if any(keyword in cmd for cmd in precheck_commands):
-                    metric_found = True
-                    break
-            
-            if not metric_found:
-                errors.append(
-                    f"precheck should check the actual metric '{detected_metric}' mentioned in issue, "
-                    f"but no precheck command mentions it"
-                )
-        
-        # Validate that postcheck verifies resolution of the same metric
-        if detected_metric and postchecks:
-            postcheck_commands = [str(p.get("command", "")).lower() for p in postchecks if isinstance(p, dict)]
-            metric_found = False
-            for keyword in metric_keywords.get(detected_metric, []):
-                if any(keyword in cmd for cmd in postcheck_commands):
-                    metric_found = True
-                    break
-            
-            if not metric_found:
-                errors.append(
-                    f"postcheck should verify resolution of '{detected_metric}', "
-                    f"but postcheck command doesn't mention it"
-                )
-        
-        # Validate that main steps include remediation (not just diagnostics)
-        remediation_keywords = [
-            "restart", "stop", "kill", "start", "clear", "delete", "remove",
-            "backup", "shrink", "terminate", "fix", "repair", "resolve"
-        ]
-        
-        step_commands = [str(s.get("command", "")).lower() for s in steps if isinstance(s, dict)]
-        has_remediation = any(
-            any(keyword in cmd for keyword in remediation_keywords)
-            for cmd in step_commands
-        )
-        
-        if not has_remediation:
-            errors.append(
-                "main steps should include remediation (restart, kill, fix, etc.), "
-                "not just diagnostic commands"
-            )
-        
-        # Validate title matches issue description
-        title = spec.get("title", "").lower()
-        if title and issue_description:
-            # Check if title contains key words from issue
-            issue_words = set(issue_description.lower().split())
-            title_words = set(title.split())
-            # Remove common stop words
-            stop_words = {"fix", "resolve", "troubleshoot", "the", "a", "an", "on", "for", "to", "of"}
-            issue_keywords = issue_words - stop_words
-            title_keywords = title_words - stop_words
-            
-            if issue_keywords and not (issue_keywords & title_keywords):
-                errors.append(
-                    f"title '{spec.get('title')}' doesn't match issue description keywords"
-                )
-        
-        is_valid = len(errors) == 0
-        return is_valid, errors
+        return self.quality_validator.validate(spec, issue_description)
     
     async def approve_and_index_runbook(
         self,

@@ -228,6 +228,7 @@ class LlamaCppLLMService:
         
         ctx = context[:800] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
+        logger.info(f"[PROMPT_LOAD] Loading prompt template: {prompt_id}.toml for service_type={service_type}, os_type={os_type}")
         
         # Determine OS type if not provided
         if not os_type:
@@ -239,18 +240,25 @@ class LlamaCppLLMService:
             else:
                 os_type = env if env in ["Windows", "Linux"] else "Windows"  # Default to Windows
         
+        # Build prompt context - only include os_type for server CI types
+        prompt_context = {
+            "issue_description": issue_description,
+            "service": service_type,
+            "env": env,
+            "risk": risk,
+            "context": ctx,
+        }
+        
+        # Only add os_type for server CI types (not for network, database, web, etc.)
+        if service_type == "server":
+            prompt_context["os_type"] = os_type or "Windows"
+        
         try:
             rendered = render_prompt(
                 prompt_id,
-                {
-                    "issue_description": issue_description,
-                    "service": service_type,
-                    "env": env,
-                    "risk": risk,
-                    "context": ctx,
-                    "os_type": os_type or "Windows",
-                },
+                prompt_context,
             )
+            logger.info(f"[PROMPT_LOAD] Successfully loaded prompt template: {prompt_id}.toml (system prompt length: {len(rendered.get('system', ''))}, user prompt length: {len(rendered.get('user', ''))})")
         except PromptNotFound:
             logger.error(f"Service-specific prompt '{prompt_id}' not found for service_type '{service_type}'. Available services: server, database, web, storage, network")
             raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.toml' exists in the prompts directory.")
@@ -434,25 +442,37 @@ class PerplexityLLMService:
         env: str,
         risk: str,
         context: str = "",
+        os_type: Optional[str] = None,
     ) -> str:
         """Generate YAML runbook using Perplexity with centralized prompts.
         Selects service-specific prompt based on service_type.
+        
+        Args:
+            os_type: Optional OS type (Windows/Linux). Only relevant for server CI types.
+                    For other CI types (network, database, web, etc.), this is ignored.
         """
         from app.services.prompt_store import PromptNotFound
         
         ctx = context[:800] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
         
+        # Build prompt context - only include os_type for server CI types
+        prompt_context = {
+            "issue_description": issue_description,
+            "service": service_type,
+            "env": env,
+            "risk": risk,
+            "context": ctx,
+        }
+        
+        # Only add os_type for server CI types (not for network, database, web, etc.)
+        if service_type == "server" and os_type:
+            prompt_context["os_type"] = os_type
+        
         try:
             rendered = render_prompt(
                 prompt_id,
-                {
-                    "issue_description": issue_description,
-                    "service": service_type,
-                    "env": env,
-                    "risk": risk,
-                    "context": ctx,
-                },
+                prompt_context,
             )
         except PromptNotFound:
             logger.error(f"Service-specific prompt '{prompt_id}' not found for service_type '{service_type}'. Available services: server, database, web, storage, network")
@@ -546,23 +566,18 @@ class PerplexityLLMService:
 
 
 def get_llm_service() -> LlamaCppLLMService:
-    """Get or create the global LLM service instance."""
+    """Get or create the global LLM service instance.
+    
+    Always uses llama.cpp for runbook generation.
+    Perplexity is only used for command validation/verification (via RunbookCommandValidator).
+    """
     global llm_service
     
     if llm_service is None:
-        # Check if Perplexity API key is set
-        perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
-        if perplexity_api_key:
-            try:
-                llm_service = PerplexityLLMService(api_key=perplexity_api_key)
-                logger.info("Using Perplexity LLM service")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Perplexity: {e}, falling back to llama.cpp")
-                llm_service = LlamaCppLLMService()
-        else:
-            # Use llama.cpp as default for this POC
-            llm_service = LlamaCppLLMService()
-            logger.info("Using llama.cpp LLM service")
+        # Always use llama.cpp for main runbook generation
+        # Perplexity is only used for web search validation (via RunbookCommandValidator)
+        llm_service = LlamaCppLLMService()
+        logger.info("Using llama.cpp LLM service for runbook generation")
     
     return llm_service
 

@@ -31,7 +31,7 @@ class TicketingToolConnection(Base):
     last_sync_at = Column(DateTime(timezone=True), nullable=True)
     last_sync_status = Column(String(20), nullable=True)  # success, failed, pending
     last_error = Column(Text, nullable=True)
-    sync_interval_minutes = Column(Integer, default=5)  # For polling
+    sync_interval_minutes = Column(Integer, default=1)  # For polling (1 minute for near real-time)
     
     # Additional configuration
     meta_data = Column(Text, nullable=True)  # JSON string with tool-specific config

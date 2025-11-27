@@ -24,3 +24,6 @@ CREATE INDEX IF NOT EXISTS idx_tickets_precheck_status ON tickets(precheck_statu
 
 
 
+
+
+

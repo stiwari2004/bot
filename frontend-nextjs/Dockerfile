@@ -13,18 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY package*.json ./
 
 # Install all dependencies (including devDependencies needed for build)
-RUN npm ci && \
-    npm install lightningcss@latest && \
-    npm install @tailwindcss/oxide-linux-arm64-gnu@latest || true
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build the application (disable lightningcss native issues if any)
+# Rebuild native modules for the correct platform (lightningcss needs this)
+RUN npm rebuild || true
+
+# Build the application
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_DISABLE_LIGHTNINGCSS=1
-ENV NEXT_DISABLE_TURBOPACK=1
-ENV TAILWIND_DISABLE_OXIDE=1
 ENV NEXT_DISABLE_TURBOPACK=1
 ENV IN_DOCKER=1
 RUN npm run build

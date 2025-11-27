@@ -248,77 +248,32 @@ async def approve_step(
 ):
     """Approve or reject a step"""
     try:
-        # Get the session to determine which step needs approval
-        session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
-        if not session:
-            raise HTTPException(status_code=404, detail="Execution session not found")
-        
-        # Determine step_number: use from request, or from session's approval_step_number, or current_step
-        step_number = request.step_number
-        if step_number is None:
-            # Use is not None checks to handle step 0 correctly (0 is falsy but valid)
-            if session.approval_step_number is not None:
-                step_number = session.approval_step_number
-            elif session.current_step is not None:
-                step_number = session.current_step
-            else:
-                raise HTTPException(status_code=400, detail="step_number is required. Either provide it in the request body or ensure the session has an approval_step_number or current_step.")
-        
-        # Use demo user for POC
+        # Get tenant_id and user_id
+        tenant_id = 1
         user_id = 1
-        
-        # Try to get current user if available
         try:
             from app.services.auth import get_current_user
             current_user = await get_current_user()
+            tenant_id = current_user.tenant_id
             user_id = current_user.id
         except:
-            pass  # Use default for demo
+            pass  # Use defaults for demo
         
-        if user_id is not None:
-            user_exists = db.query(User).filter(User.id == user_id).first()
-            if not user_exists:
-                logger.warning(
-                    "Fallback approver user_id=%s not found; proceeding without user reference.",
-                    user_id,
-                )
-                user_id = None
-
-        engine = ExecutionEngine()
-        session = await engine.approve_step(
-            db=db,
+        # Delegate to controller
+        from app.controllers.execution_controller import ExecutionController
+        controller = ExecutionController(db, tenant_id=tenant_id)
+        result = await controller.approve_step(
             session_id=session_id,
-            step_number=step_number,
+            step_number=request.step_number,
             user_id=user_id,
-            approve=request.approve
+            approve=request.approve,
+            notes=request.notes
         )
-        
-        db.refresh(session)
-        
-        # Get current step details
-        current_step = None
-        if session.current_step:
-            current_step = db.query(ExecutionStep).filter(
-                ExecutionStep.session_id == session_id,
-                ExecutionStep.step_number == session.current_step
-            ).first()
-        
-        return {
-            "session_id": session.id,
-            "status": session.status,
-            "waiting_for_approval": session.waiting_for_approval,
-            "approval_step_number": session.approval_step_number,
-            "current_step": session.current_step,
-            "step_details": {
-                "step_number": current_step.step_number if current_step else None,
-                "command": current_step.command if current_step else None,
-                "output": current_step.output if current_step else None,
-                "success": current_step.success if current_step else None
-            } if current_step else None
-        }
-        
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error approving step: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to approve step: {str(e)}")

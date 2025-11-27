@@ -1,11 +1,11 @@
 """
 Runbook API endpoints
 """
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.models.user import User
 from app.schemas.runbook import RunbookResponse, RunbookUpdate
 from app.services.auth import get_current_user
@@ -101,7 +101,27 @@ async def generate_agent_runbook_demo(
                 pass  # If detection fails, use original env value
     
     controller = RunbookController(db, tenant_id=1)  # Demo tenant
-    return await controller.generate_agent_runbook(issue_description, service, env, risk, ticket_id)
+    runbook = await controller.generate_agent_runbook(issue_description, service, env, risk, ticket_id)
+    
+    # Associate with ticket AFTER controller returns (separate transaction to avoid rollback)
+    # The controller may have already tried, but we do it here to ensure it's in a clean transaction
+    if ticket_id:
+        from app.core.logging import get_logger
+        logger = get_logger(__name__)
+        try:
+            # Ensure we're in a clean state - commit any pending changes first
+            db.commit()
+            # Now associate
+            controller._associate_with_ticket(runbook.id, ticket_id)
+            # Commit the association
+            db.commit()
+            logger.info(f"✅ Association committed in endpoint: runbook {runbook.id} with ticket {ticket_id}")
+        except Exception as e:
+            logger.warning(f"Association failed in endpoint (non-critical): {e}")
+            db.rollback()
+            # Don't fail the request - association can happen later during approval
+    
+    return runbook
 
 
 @router.post("/demo/debug-yaml")
@@ -309,11 +329,12 @@ async def delete_runbook_demo(
 async def approve_runbook_demo(
     runbook_id: int,
     force_approval: bool = False,
+    ticket_id: Optional[int] = Query(None, description="Optional ticket ID to associate runbook with"),
     db: Session = Depends(get_db)
 ):
     """Approve and publish a draft runbook for demo tenant with duplicate detection"""
     controller = RunbookController(db, tenant_id=1)  # Demo tenant
-    return await controller.approve_runbook(runbook_id, force_approval)
+    return await controller.approve_runbook(runbook_id, force_approval, ticket_id)
 
 
 @router.post("/demo/{runbook_id}/reindex")
@@ -324,6 +345,61 @@ async def reindex_runbook_demo(
     """Manually reindex an already approved runbook (for fixing missing indexes)"""
     controller = RunbookController(db, tenant_id=1)  # Demo tenant
     return await controller.reindex_runbook(runbook_id)
+
+
+@router.post("/demo/{runbook_id}/associate-ticket")
+async def associate_runbook_with_ticket_demo(
+    runbook_id: int,
+    ticket_id: int = Query(..., description="Ticket ID to associate with"),
+    db: Session = Depends(get_db)
+):
+    """Manually associate a runbook with a ticket (for fixing missing associations)"""
+    controller = RunbookController(db, tenant_id=1)  # Demo tenant
+    success = controller._associate_with_ticket(runbook_id, ticket_id)
+    if success:
+        return {
+            "message": f"Runbook {runbook_id} successfully associated with ticket {ticket_id}",
+            "runbook_id": runbook_id,
+            "ticket_id": ticket_id,
+            "success": True
+        }
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to associate runbook {runbook_id} with ticket {ticket_id}. Check logs for details."
+        )
+
+
+@router.get("/demo/{runbook_id}/debug")
+async def debug_runbook_meta_data(
+    runbook_id: int,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to inspect runbook meta_data and ticket associations"""
+    from app.models.runbook import Runbook
+    import json
+    
+    runbook = db.query(Runbook).filter(
+        Runbook.id == runbook_id,
+        Runbook.tenant_id == 1
+    ).first()
+    
+    if not runbook:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Runbook {runbook_id} not found")
+    
+    meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else (runbook.meta_data or {})
+    
+    return {
+        "runbook_id": runbook.id,
+        "runbook_title": runbook.title,
+        "status": runbook.status,
+        "is_active": runbook.is_active,
+        "meta_data": meta_data,
+        "meta_data_type": type(runbook.meta_data).__name__,
+        "ticket_id_in_meta": meta_data.get("ticket_id"),
+        "meta_data_raw": runbook.meta_data
+    }
 
 
 # Authenticated endpoints

@@ -151,6 +151,18 @@ CORRECTION_RULES: List[Dict[str, Any]] = [
         "os_type": "windows",
     },
     {
+        "name": "Get-Counter SampleInterval invalid format",
+        "command_pattern": r"Get-Counter.*-SampleInterval\s+(\d+)[msh]",
+        "error_pattern": r"Cannot convert value.*to type.*Int32|Cannot bind parameter.*SampleInterval",
+        "fix": lambda command, os_type: re.sub(
+            r"-SampleInterval\s+(\d+)([msh])",
+            lambda m: f"-SampleInterval {m.group(1)}",  # Remove unit suffix, keep number
+            command
+        ) if os_type == "windows" else command,
+        "description": "Get-Counter -SampleInterval must be integer (seconds), not '1m' or '1h'",
+        "os_type": "windows",
+    },
+    {
         "name": "Ping command missing target (Linux)",
         "command_pattern": r"ping\s+-[nc]\s+\d+\s*$",
         "error_pattern": r"|",  # Match any error (ping without target always fails)

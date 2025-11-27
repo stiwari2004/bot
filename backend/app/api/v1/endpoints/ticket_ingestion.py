@@ -108,3 +108,36 @@ async def execute_ticket_runbook(
     controller = TicketController(db, tenant_id=1)  # Demo tenant
     return await controller.execute_ticket_runbook(ticket_id, runbook_id)
 
+
+@router.get("/demo/tickets/{ticket_id}/debug")
+async def debug_ticket_meta_data(
+    ticket_id: int,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to inspect ticket meta_data and matched runbooks"""
+    from app.models.ticket import Ticket
+    from app.models.runbook import Runbook
+    
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id,
+        Ticket.tenant_id == 1
+    ).first()
+    
+    if not ticket:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+    
+    # Get all runbooks to check associations
+    all_runbooks = db.query(Runbook).filter(Runbook.tenant_id == 1).all()
+    
+    return {
+        "ticket_id": ticket.id,
+        "ticket_title": ticket.title,
+        "meta_data": ticket.meta_data,
+        "meta_data_type": type(ticket.meta_data).__name__,
+        "matched_runbooks_in_meta": ticket.meta_data.get("matched_runbooks", []) if ticket.meta_data else [],
+        "total_runbooks": len(all_runbooks),
+        "approved_runbooks": [{"id": rb.id, "title": rb.title, "status": rb.status, "is_active": rb.is_active} 
+                              for rb in all_runbooks if rb.status == "approved"]
+    }
+

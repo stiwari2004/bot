@@ -168,11 +168,27 @@ class ResolutionVerificationService:
                 # Update external ticket
                 ticket.resolution_verified_at = datetime.now(timezone.utc)
                 db.commit()
-                await self.ticketing_integration_service.resolve_ticket(
-                    db=db,
-                    ticket=ticket,
-                    resolution_notes=reasoning
-                )
+                
+                # Refresh ticket to get latest status
+                db.refresh(ticket)
+                
+                # Update external ticketing system
+                if ticket.external_id:
+                    logger.info(f"Updating external ticket {ticket.external_id} to resolved status in {ticket.source}")
+                    try:
+                        external_update_success = await self.ticketing_integration_service.resolve_ticket(
+                            db=db,
+                            ticket=ticket,
+                            resolution_notes=reasoning
+                        )
+                        if external_update_success:
+                            logger.info(f"✅ Successfully updated external ticket {ticket.external_id} to resolved status")
+                        else:
+                            logger.warning(f"⚠️ Failed to update external ticket {ticket.external_id} - ticket may still appear open in external system")
+                    except Exception as e:
+                        logger.error(f"❌ Error updating external ticket {ticket.external_id}: {e}", exc_info=True)
+                else:
+                    logger.warning(f"Ticket {ticket_id} has no external_id, skipping external update")
             else:
                 # Keep as in_progress for manual review if uncertain
                 if confidence < 0.7:

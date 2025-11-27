@@ -230,6 +230,9 @@ class PrecheckAnalysisService:
             cpu_value = self._extract_percentage_value(output, ["cpu", "processor"])
             if cpu_value is not None:
                 metrics["cpu"] = cpu_value
+                logger.info(f"✅ Extracted CPU value: {cpu_value}% from output (length: {len(output)} chars)")
+            else:
+                logger.warning(f"❌ Failed to extract CPU value from output. Output preview: {output[:200]}")
         
         # Memory metrics
         if any(keyword in command or keyword in description for keyword in ["memory", "ram", "mem"]):
@@ -262,25 +265,62 @@ class PrecheckAnalysisService:
         Returns:
             Percentage value (0-100) or None
         """
-        # Try various patterns
+        # Try various patterns, prioritizing more specific ones first
         patterns = [
-            r'(\d+\.?\d*)\s*%',  # "95.5%" or "95 %"
-            r'(\d+\.?\d*)\s*percent',  # "95.5 percent"
-            r':\s*(\d+\.?\d*)',  # ": 95.5"
-            r'=\s*(\d+\.?\d*)',  # "= 95.5"
+            # Get-Counter specific format: "processor time : 4.49" (avoid matching timestamps)
+            (r'(?:processor|processor\s+time|cpu|memory|disk|network).*?:\s*(\d+\.?\d*)', True),  # Match after metric name
+            # Percentage format: "95.5%" or "95 %"
+            (r'(\d+\.?\d*)\s*%', True),
+            # Percent word: "95.5 percent"
+            (r'(\d+\.?\d*)\s*percent', True),
+            # Generic colon format (but exclude timestamps): ": 95.5" (not part of date/time)
+            (r'(?<!:\d{2})\s*:\s*(\d+\.?\d*)(?!\s*[AP]M)', False),  # Exclude time patterns like "5:57:53 PM"
+            # Equals format: "= 95.5"
+            (r'=\s*(\d+\.?\d*)', True),
         ]
         
-        for pattern in patterns:
+        for pattern, use_last in patterns:
             matches = re.findall(pattern, output, re.IGNORECASE)
             if matches:
                 try:
-                    value = float(matches[-1])  # Take last match
+                    # For Get-Counter format, use the last match (most recent reading)
+                    # For other formats, use last match
+                    value_str = matches[-1] if use_last else matches[-1]
+                    value = float(value_str)
+                    
+                    # Get-Counter returns values that are already percentages (0-100)
+                    # But sometimes they might be in 0-1 format, so check
                     if 0 <= value <= 100:
                         return value
-                    elif value > 100:
-                        # Might be in 0-1 format, convert
-                        return value / 100.0 * 100 if value <= 1 else None
-                except (ValueError, IndexError):
+                    elif 0 < value <= 1:
+                        # Convert 0-1 format to percentage
+                        return value * 100
+                    elif value > 100 and value <= 10000:
+                        # Might be in 0-10000 format (some counters), normalize to 0-100
+                        return value / 100.0
+                    else:
+                        # Value out of expected range, skip
+                        logger.debug(f"Extracted value {value} is out of expected range (0-100), skipping")
+                        continue
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"Error parsing value from matches {matches}: {e}")
+                    continue
+        
+        # If no pattern matched, try to find any number that looks like a percentage
+        # This is a fallback for unusual formats
+        all_numbers = re.findall(r'\b(\d+\.?\d*)\b', output)
+        if all_numbers:
+            # Filter out numbers that are clearly not percentages (dates, times, etc.)
+            for num_str in reversed(all_numbers):  # Start from end (most recent)
+                try:
+                    num = float(num_str)
+                    # Exclude numbers that are clearly timestamps or dates
+                    if num > 1000 and num < 2100:  # Likely a year
+                        continue
+                    if num > 0 and num <= 100:
+                        logger.debug(f"Fallback: extracted value {num} from output")
+                        return num
+                except ValueError:
                     continue
         
         return None

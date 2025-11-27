@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.ticketing_tool_connection import TicketingToolConnection
 from app.core.logging import get_logger
 from app.services.ticketing_connectors.zoho_oauth import ZohoOAuthService
@@ -76,7 +77,7 @@ async def create_ticketing_connection(
             meta_data.update({
                 "client_id": connection.client_id,
                 "client_secret": connection.client_secret,
-                "redirect_uri": connection.redirect_uri or "http://localhost:8000/oauth/callback"
+                "redirect_uri": connection.redirect_uri or settings.OAUTH_CALLBACK_URL
             })
         elif connection.tool_name == "manageengine":
             # ManageEngine uses OAuth 2.0 only - no API key support
@@ -439,7 +440,7 @@ async def authorize_oauth_connection(
         if connection.tool_name == "zoho":
             meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
             client_id = meta_data.get("client_id")
-            redirect_uri = meta_data.get("redirect_uri", "http://localhost:8000/oauth/callback")
+            redirect_uri = meta_data.get("redirect_uri", settings.OAUTH_CALLBACK_URL)
             zoho_domain = meta_data.get("zoho_domain", "com")  # Default to .com, but support .in for Indian accounts
             
             if not client_id:
@@ -470,7 +471,7 @@ async def authorize_oauth_connection(
         elif connection.tool_name == "manageengine":
             meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
             client_id = meta_data.get("client_id")
-            redirect_uri = meta_data.get("redirect_uri", "http://localhost:8000/oauth/callback")
+            redirect_uri = meta_data.get("redirect_uri", settings.OAUTH_CALLBACK_URL)
             # ManageEngine often uses .in domain (India), default to .in for ManageEngine
             zoho_domain = meta_data.get("zoho_domain", "in")  # Default to .in for ManageEngine (Indian accounts)
             
@@ -529,17 +530,17 @@ async def oauth_callback(
     try:
         if error:
             logger.error(f"OAuth error: {error}")
-            return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_error={error}")
+            return RedirectResponse(url=f"{settings.FRONTEND_BASE_URL}/?tab=settings&oauth_error={error}")
         
         # Extract connection_id from state
         if ":" not in state:
-            return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=invalid_state")
+            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=invalid_state")
         
         connection_id_str, _ = state.split(":", 1)
         try:
             connection_id = int(connection_id_str)
         except ValueError:
-            return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=invalid_state")
+            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=invalid_state")
         
         tenant_id = 1
         connection = db.query(TicketingToolConnection).filter(
@@ -548,18 +549,18 @@ async def oauth_callback(
         ).first()
         
         if not connection:
-            return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=connection_not_found")
+            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=connection_not_found")
         
         # Support both Zoho and ManageEngine (both use same OAuth flow)
         if connection.tool_name not in ("zoho", "manageengine"):
-            return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=invalid_tool")
+            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=invalid_tool")
         
         meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
         stored_state = meta_data.get("oauth_state")
         
         # Verify state
         if stored_state != state:
-            return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=state_mismatch")
+            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=state_mismatch")
         
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
@@ -573,7 +574,7 @@ async def oauth_callback(
         if not client_id or not client_secret:
             logger.error(f"OAuth callback: Missing credentials for connection {connection_id}. client_id={bool(client_id)}, client_secret={bool(client_secret)}")
             logger.error(f"OAuth callback: meta_data keys: {list(meta_data.keys())}")
-            return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=missing_credentials")
+            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=missing_credentials")
         
         # Log client ID (first 10 chars only for security) and redirect URI for debugging
         logger.info(f"OAuth callback: Exchange token for connection {connection_id}, tool={connection.tool_name}, domain={zoho_domain}, client_id={client_id[:10]}..., redirect_uri={redirect_uri}")
@@ -616,7 +617,7 @@ async def oauth_callback(
             except Exception as commit_error:
                 logger.error(f"Failed to commit OAuth tokens to database: {commit_error}", exc_info=True)
                 db.rollback()
-                return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_error=database_error")
+                return RedirectResponse(url=f"settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=database_error")
             
             # Verify tokens were saved
             db.refresh(connection)
@@ -637,7 +638,7 @@ async def oauth_callback(
                     f"This will cause issues when access_token expires. Token data keys: {list(token_data.keys())}"
                 )
             
-            return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_success=true&connection_id={connection_id}")
+            return RedirectResponse(url=f"settings.FRONTEND_BASE_URL/?tab=settings&oauth_success=true&connection_id={connection_id}")
             
         except Exception as e:
             logger.error(f"Failed to exchange OAuth code: {e}", exc_info=True)
@@ -648,11 +649,11 @@ async def oauth_callback(
             except Exception as commit_error:
                 logger.error(f"Failed to save error to database: {commit_error}")
                 db.rollback()
-            return RedirectResponse(url=f"http://localhost:3000/?tab=settings&oauth_error=token_exchange_failed")
+            return RedirectResponse(url=f"settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=token_exchange_failed")
         
     except Exception as e:
         logger.error(f"Error handling OAuth callback: {e}")
-        return RedirectResponse(url="http://localhost:3000/?tab=settings&oauth_error=internal_error")
+        return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=internal_error")
 
 
 @router.get("/ticketing-tools")

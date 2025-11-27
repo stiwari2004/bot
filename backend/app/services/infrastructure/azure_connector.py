@@ -178,7 +178,7 @@ class AzureBastionConnector(InfrastructureConnector):
                 # Attempt self-healing cleanup with retries
                 cleanup_result = None
                 max_cleanup_retries = 3
-                cleanup_retry_delays = [5, 15, 30]  # Increasing delays: 5s, 15s, 30s
+                cleanup_retry_delays = [1, 2, 3]  # Reduced delays: 1s, 2s, 3s (faster conflict resolution)
                 
                 for retry_attempt in range(max_cleanup_retries):
                     if retry_attempt > 0:
@@ -208,9 +208,8 @@ class AzureBastionConnector(InfrastructureConnector):
                             logger.warning(f"Cleanup attempt {retry_attempt + 1} failed: {cleanup_error}")
                 
                 if cleanup_result and cleanup_result.get("cleanup_success"):
-                    logger.info(f"Self-healing cleanup successful for VM {vm_name}, retrying original command...")
-                    # Wait a moment for cleanup to settle
-                    await asyncio.sleep(2)
+                    logger.info(f"Self-healing cleanup successful for VM {vm_name}, retrying original command immediately...")
+                    # No delay needed - cleanup is complete, proceed immediately
                     
                     # Retry original command once after cleanup
                     # Reuse the same executor from outer try block
@@ -418,11 +417,72 @@ class AzureBastionConnector(InfrastructureConnector):
             f"stdout_preview={stdout[:300] if stdout else 'EMPTY'}..."
         )
         
+        # CRITICAL: Check for command errors in BOTH stdout and stderr even if exit_code is 0
+        # PowerShell errors can appear in either stdout or stderr, and can return exit_code=0
+        is_command_error = False
+        error_text = ""
+        
+        # Check stderr first
+        if stderr:
+            stderr_lower = stderr.lower()
+            command_error_indicators = [
+                "cannot bind parameter",
+                "cannot convert value",
+                "parameter cannot be found",
+                "a parameter cannot be found",
+                "missing an argument for parameter",
+                "is not a property",
+                "property.*cannot be found",
+                "parameterbindingexception",
+                "cmdlet.*not found",
+                "the term.*is not recognized",
+                "is not recognized as the name",  # Matches: "is not recognized as the name of a cmdlet"
+                "commandnotfoundexception",
+                "objectnotfound",
+            ]
+            is_command_error = any(indicator in stderr_lower for indicator in command_error_indicators)
+            if is_command_error:
+                error_text = stderr
+        
+        # Also check stdout for PowerShell errors (some errors go to stdout)
+        if not is_command_error and stdout:
+            stdout_lower = stdout.lower()
+            command_error_indicators = [
+                "cannot bind parameter",
+                "cannot convert value",
+                "parameter cannot be found",
+                "a parameter cannot be found",
+                "missing an argument for parameter",
+                "is not a property",
+                "property.*cannot be found",
+                "parameterbindingexception",
+                "cmdlet.*not found",
+                "the term.*is not recognized",
+                "is not recognized as the name",  # Matches: "is not recognized as the name of a cmdlet"
+                "commandnotfoundexception",
+                "objectnotfound",
+            ]
+            is_command_error = any(indicator in stdout_lower for indicator in command_error_indicators)
+            if is_command_error:
+                error_text = stdout
+                # Move error from stdout to stderr for proper error handling
+                stderr = stdout
+                stdout = ""
+        
+        # If there's a command error, mark as failure even if exit_code is 0
+        success = exit_code == 0 and not is_command_error
+        
+        if is_command_error and exit_code == 0:
+            logger.warning(
+                f"VM {vm_name}: Command error detected in {'stdout' if not stderr else 'stderr'} despite exit_code=0. "
+                f"Marking as failure. Error: {error_text[:200]}"
+            )
+        
         return {
-            "success": exit_code == 0,
+            "success": success,
             "output": stdout,
             "error": stderr,
-            "exit_code": exit_code,
+            "exit_code": exit_code if not is_command_error else 1,  # Set exit_code to 1 for command errors
             "connection_error": False,
         }
     
@@ -460,7 +520,7 @@ class AzureBastionConnector(InfrastructureConnector):
         # Kill RunCommandExtension process
         Get-Process RunCommandExtension -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         
-        Start-Sleep -Seconds 2
+        # No sleep needed - processes are killed immediately
         Write-Output "Cleanup commands executed successfully"
         """
         

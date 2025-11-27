@@ -119,40 +119,27 @@ class StepExecutionService:
                 except Exception as e:
                     logger.warning(f"Failed to publish step.started event: {e}")
             
-            # Pre-execution validation
-            validation_result = None
+            # Pre-execution validation - ONLY rule-based (fast, safe), NO Perplexity (can produce wrong corrections)
+            # We'll let the command execute first, then correct if it fails
             original_command = step.command
             
             try:
-                validation_result = await self.command_validator.validate_command(
-                    command=step.command or "",
-                    step_type=step.step_type or "main",
-                    connector_type=connector_type,
-                    connection_config=connection_config
+                # Only use rule-based validation (fast, safe patterns like SampleInterval fix)
+                # Skip Perplexity validation to avoid wrong corrections before execution
+                from app.services.execution.command_rules import validate_command_with_rules
+                rule_result = validate_command_with_rules(
+                    step.command or "",
+                    connector_type,
+                    connection_config
                 )
                 
-                if not validation_result.get("is_valid") and validation_result.get("corrected_command"):
-                    # Command is invalid, correct it before execution
-                    corrected_command = validation_result["corrected_command"]
-                    logger.warning(
-                        f"Pre-execution validation failed for step {step.step_number}: "
-                        f"{validation_result.get('issues', [])}"
-                    )
+                # Only apply rule-based corrections (known safe patterns)
+                if not rule_result.get("is_valid") and rule_result.get("corrected_command"):
+                    corrected_command = rule_result["corrected_command"]
                     logger.info(
-                        f"Correcting command: {original_command[:100] if original_command else 'N/A'} → "
-                        f"{corrected_command[:100]}"
+                        f"Step {step.step_number}: Rule-based pre-validation found safe correction: "
+                        f"{original_command[:100] if original_command else 'N/A'} → {corrected_command[:100]}"
                     )
-                    
-                    # Update runbook in database
-                    try:
-                        await self.runbook_updater.update_runbook_step(
-                            runbook_id=session.runbook_id,
-                            step_number=step.step_number,
-                            corrected_command=corrected_command,
-                            db=db
-                        )
-                    except Exception as update_error:
-                        logger.warning(f"Failed to update runbook in database: {update_error}, using in-memory correction")
                     
                     # Update step.command for execution
                     step.command = corrected_command
@@ -168,8 +155,8 @@ class StepExecutionService:
                                     "step_number": step.step_number,
                                     "original_command": original_command,
                                     "corrected_command": corrected_command,
-                                    "issues": validation_result.get("issues", []),
-                                    "validation_method": validation_result.get("validation_method", "unknown"),
+                                    "validation_method": "rule",
+                                    "issues": rule_result.get("issues", []),
                                 },
                                 step_number=step.step_number,
                             )
@@ -180,8 +167,8 @@ class StepExecutionService:
                 logger.warning(f"Pre-execution validation failed: {validation_error}, proceeding with original command")
                 # Fail-safe: continue with original command if validation fails
             
-            # Determine timeout (use validation result if available)
-            timeout = self._determine_timeout_from_validation(validation_result, step.command or "") if validation_result else self._get_command_timeout(step.command or "")
+            # Determine timeout (use rule result if available, otherwise default)
+            timeout = self._determine_timeout_from_validation(rule_result if 'rule_result' in locals() else None, step.command or "") if 'rule_result' in locals() and rule_result else self._get_command_timeout(step.command or "")
             
             # Execute command
             logger.info(f"Executing command: {step.command[:100] if step.command else 'N/A'}...")
@@ -331,13 +318,11 @@ class StepExecutionService:
                 except Exception as e:
                     logger.error(f"Failed to publish step telemetry events: {e}", exc_info=True)
             
-            # CRITICAL: For Azure connector, add delay to allow RunCommandExtension to clean up
-            # This prevents "409 Conflict" errors when starting the next command
+            # Note: Sequential execution is already ensured by the flow (next step only starts after previous completes)
+            # No delay needed - commands execute immediately after previous completes
             if connector_type == "azure_bastion":
-                cleanup_delay = 3  # 3 seconds for Azure to clean up RunCommandExtension processes
-                logger.info(f"Waiting {cleanup_delay}s for Azure RunCommandExtension cleanup before next step...")
-                await asyncio.sleep(cleanup_delay)
-                logger.info(f"Cleanup delay complete, ready for next step")
+                # Minimal delay only if we detect a conflict (handled in azure_connector)
+                logger.debug(f"Step {step.step_number} completed, proceeding to next step immediately")
             
             # Handle step result
             if not result["success"]:
@@ -374,8 +359,25 @@ class StepExecutionService:
                         
                         if correction_result.get("corrected_command"):
                             corrected_command = correction_result["corrected_command"]
+                            
+                            # GUARDRAIL: Validate correction before applying
+                            if not self._validate_correction_safety(original_command, corrected_command, error_text):
+                                logger.warning(
+                                    f"Step {step.step_number}: REJECTED unsafe correction. "
+                                    f"Original: {original_command[:200] if original_command else 'N/A'}\n"
+                                    f"Corrected: {corrected_command[:200]}\n"
+                                    f"Error: {error_text[:200] if error_text else 'N/A'}"
+                                )
+                                # Don't apply correction - mark step as failed
+                                step.completed = True
+                                step.success = False
+                                step.error = f"Command failed and correction was rejected as unsafe. Original error: {error_text[:500] if error_text else 'Unknown error'}"
+                                step.completed_at = datetime.now(timezone.utc)
+                                db.commit()
+                                return  # Exit without retry
+                            
                             logger.info(
-                                f"Self-healing correction found: {step.command[:100] if step.command else 'N/A'} → "
+                                f"Self-healing correction validated: {step.command[:100] if step.command else 'N/A'} → "
                                 f"{corrected_command[:100]}"
                             )
                             
@@ -408,14 +410,7 @@ class StepExecutionService:
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             })
                             
-                            # Perform Azure cleanup if needed (if connector is azure_bastion)
-                            # This is a precautionary cleanup before reattempting corrected commands
-                            if connector_type == "azure_bastion":
-                                logger.info(f"Performing precautionary Azure cleanup before reattempting step {step.step_number}")
-                                # Add a small delay to allow any pending operations to complete
-                                await asyncio.sleep(2)
-                                logger.info(f"Cleanup delay complete, ready for reattempt")
-                            
+                            # Note: Cleanup is only done after postcheck completes, not before each step or retry
                             # Publish correction event
                             if self.event_service:
                                 try:
@@ -437,11 +432,11 @@ class StepExecutionService:
                                 except Exception as e:
                                     logger.warning(f"Failed to publish correction event: {e}")
                             
-                            # Reattempt with corrected command
-                            logger.info(f"Reattempting step {step.step_number} with corrected command...")
+                            # Reattempt with corrected command (this will verify it works)
+                            logger.info(f"Reattempting step {step.step_number} with corrected command to verify it works...")
                             db.commit()
                             db.refresh(step)
-                            return await self.execute_step(db, session, step)  # Recursive retry
+                            return await self.execute_step(db, session, step)  # Recursive retry - will verify correction works
                         else:
                             logger.warning(f"Self-healing could not correct command for step {step.step_number}")
                     except Exception as correction_error:
@@ -659,9 +654,26 @@ class StepExecutionService:
                                         # Handle different scenarios
                                         if analysis_status == "failed":
                                             # Precheck execution failed - mark for manual review
+                                            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+                                            from sqlalchemy.orm.attributes import flag_modified
+                                            import json
+                                            
+                                            # Explicitly preserve existing meta_data
+                                            if ticket.meta_data:
+                                                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
+                                            else:
+                                                preserved_meta = {}
+                                            
                                             ticket.status = "in_progress"
                                             ticket.escalation_reason = f"Precheck execution failed: {reasoning}"
+                                            
+                                            # Preserve meta_data explicitly
+                                            ticket.meta_data = preserved_meta
+                                            flag_modified(ticket, "meta_data")
+                                            
                                             db.commit()
+                                            db.refresh(ticket)  # Refresh to ensure meta_data is preserved
+                                            
                                             await ticketing_service.mark_for_manual_review(
                                                 db=db,
                                                 ticket=ticket,
@@ -675,9 +687,26 @@ class StepExecutionService:
                                         
                                         elif analysis_status == "ambiguous":
                                             # Ambiguous output - escalate
+                                            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+                                            from sqlalchemy.orm.attributes import flag_modified
+                                            import json
+                                            
+                                            # Explicitly preserve existing meta_data
+                                            if ticket.meta_data:
+                                                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
+                                            else:
+                                                preserved_meta = {}
+                                            
                                             ticket.status = "escalated"
                                             ticket.escalation_reason = f"Ambiguous precheck output: {reasoning}"
+                                            
+                                            # Preserve meta_data explicitly
+                                            ticket.meta_data = preserved_meta
+                                            flag_modified(ticket, "meta_data")
+                                            
                                             db.commit()
+                                            db.refresh(ticket)  # Refresh to ensure meta_data is preserved
+                                            
                                             await ticketing_service.escalate_ticket(
                                                 db=db,
                                                 ticket=ticket,
@@ -690,21 +719,47 @@ class StepExecutionService:
                                             return
                                         
                                         elif is_false_positive and confidence >= 0.7:
-                                            # False positive detected - close ticket
-                                            ticket.status = "closed"
+                                            # False positive detected - resolve ticket
+                                            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+                                            from sqlalchemy.orm.attributes import flag_modified
+                                            import json
+                                            
+                                            # Explicitly preserve existing meta_data
+                                            if ticket.meta_data:
+                                                # Create a new dict to ensure SQLAlchemy detects changes
+                                                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
+                                            else:
+                                                preserved_meta = {}
+                                            
+                                            # Update status fields
+                                            ticket.status = "resolved"  # Use "resolved" instead of "closed" for external systems
                                             ticket.classification = "false_positive"
                                             ticket.classification_confidence = "high" if confidence >= 0.8 else "medium"
                                             ticket.resolved_at = datetime.now(timezone.utc)
+                                            
+                                            # Preserve meta_data explicitly
+                                            ticket.meta_data = preserved_meta
+                                            flag_modified(ticket, "meta_data")
+                                            
                                             db.commit()
-                                            await ticketing_service.close_ticket(
+                                            db.refresh(ticket)  # Refresh to ensure meta_data is still there
+                                            
+                                            # Update external ticket system (use resolve_ticket instead of close_ticket)
+                                            external_update_success = await ticketing_service.resolve_ticket(
                                                 db=db,
                                                 ticket=ticket,
-                                                reason=f"False positive detected: {reasoning}"
+                                                resolution_notes=f"False positive detected: {reasoning}"
                                             )
+                                            
+                                            if external_update_success:
+                                                logger.info(f"✅ Successfully updated external ticket {ticket.external_id} to resolved status")
+                                            else:
+                                                logger.warning(f"⚠️ Failed to update external ticket {ticket.external_id} - ticket may still appear open in external system")
+                                            
                                             session.status = "completed"
                                             session.completed_at = datetime.now(timezone.utc)
                                             db.commit()
-                                            logger.info(f"False positive detected, closing ticket: {reasoning}")
+                                            logger.info(f"False positive detected, resolving ticket: {reasoning}")
                                             return
                                         else:
                                             # True positive - proceed
@@ -753,10 +808,17 @@ class StepExecutionService:
                                     ticket.precheck_status = analysis_status
                                     
                                     # Handle different scenarios
+                                    # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+                                    from sqlalchemy.orm.attributes import flag_modified
+                                    if ticket.meta_data:
+                                        flag_modified(ticket, "meta_data")
+                                    
                                     if analysis_status == "failed":
                                         ticket.status = "in_progress"
                                         ticket.escalation_reason = f"Precheck execution failed: {reasoning}"
                                         db.commit()
+                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
+                                        
                                         await ticketing_service.mark_for_manual_review(
                                             db=db,
                                             ticket=ticket,
@@ -772,6 +834,8 @@ class StepExecutionService:
                                         ticket.status = "escalated"
                                         ticket.escalation_reason = f"Ambiguous precheck output: {reasoning}"
                                         db.commit()
+                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
+                                        
                                         await ticketing_service.escalate_ticket(
                                             db=db,
                                             ticket=ticket,
@@ -789,6 +853,8 @@ class StepExecutionService:
                                         ticket.classification_confidence = "high" if confidence >= 0.8 else "medium"
                                         ticket.resolved_at = datetime.now(timezone.utc)
                                         db.commit()
+                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
+                                        
                                         await ticketing_service.close_ticket(
                                             db=db,
                                             ticket=ticket,
@@ -803,6 +869,7 @@ class StepExecutionService:
                                         ticket.status = "in_progress"
                                         ticket.classification = "true_positive" if not is_false_positive else "uncertain"
                                         db.commit()
+                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
                                         logger.info(f"Precheck analysis complete (no main steps): {reasoning}")
                     
                     # All steps completed - check for failures
@@ -896,6 +963,15 @@ class StepExecutionService:
             duration = (completed - started).total_seconds() / 60
             session.total_duration_minutes = int(duration)
         
+        # CRITICAL: Commit session status before calling verify_resolution
+        # Otherwise verify_resolution will see the old status
+        db.commit()
+        db.refresh(session)
+        
+        # Perform Azure cleanup after all steps (including postcheck) complete
+        # This is the only place cleanup should happen - not before each step
+        await self._perform_final_cleanup(db, session)
+        
         # Publish session completion event
         if self.event_service:
             try:
@@ -924,7 +1000,8 @@ class StepExecutionService:
             except Exception as e:
                 logger.warning(f"Failed to publish session.completed event: {e}")
         
-        # Verify resolution
+        # Verify resolution (this also updates ticket status and external system if resolved)
+        # NOTE: Session status must be committed before this call (done above)
         if session.ticket_id:
             issue_resolved = session.status == "completed"  # Only fully resolved if no errors
             verification_result = await self.resolution_verification_service.verify_resolution(
@@ -932,9 +1009,13 @@ class StepExecutionService:
             )
             logger.info(f"Resolution verification: resolved={verification_result['resolved']}")
             
-            self.ticket_status_service.update_ticket_on_execution_complete(
-                db, session.ticket_id, session.status, issue_resolved=issue_resolved
-            )
+            # If verification didn't update the ticket (e.g., uncertain resolution), update it now
+            # Note: verify_resolution already calls update_ticket_on_execution_complete and external update if resolved=True
+            if not verification_result.get('resolved'):
+                # Ticket not resolved - update status but don't update external system yet
+                self.ticket_status_service.update_ticket_on_execution_complete(
+                    db, session.ticket_id, session.status, issue_resolved=issue_resolved
+                )
         
         db.commit()
     
@@ -943,6 +1024,79 @@ class StepExecutionService:
         # This is called when diagnostic steps failed but we continued
         # Final status will be "completed_with_errors"
         await self._finalize_session(db, session)
+    
+    async def _perform_final_cleanup(self, db: Session, session: ExecutionSession):
+        """
+        Perform final cleanup after all steps (including postcheck) complete.
+        This is the only place cleanup should happen - not before each step.
+        """
+        try:
+            # Get connection config to determine connector type
+            connection_config = await self.connection_service.get_connection_config(db, session, None)
+            connector_type = connection_config.get("connector_type", "") if connection_config else ""
+            
+            # Only cleanup for Azure Bastion connector
+            if connector_type == "azure_bastion":
+                logger.info(f"Performing final Azure cleanup after all steps complete for session {session.id}")
+                try:
+                    from app.services.infrastructure.azure_connector import AzureBastionConnector
+                    from azure.identity import ClientSecretCredential, DefaultAzureCredential
+                    from azure.mgmt.compute import ComputeManagementClient
+                    
+                    connector = AzureBastionConnector()
+                    
+                    # Get VM details from connection config
+                    resource_id = connection_config.get("resource_id") or connection_config.get("target_resource_id")
+                    if not resource_id:
+                        logger.warning(f"Cannot perform final cleanup - missing resource_id in connection config")
+                        return
+                    
+                    # Parse resource ID
+                    parts = resource_id.split("/")
+                    if len(parts) < 9:
+                        logger.warning(f"Cannot perform final cleanup - invalid resource_id format")
+                        return
+                    
+                    subscription_id = parts[parts.index("subscriptions") + 1]
+                    resource_group = parts[parts.index("resourceGroups") + 1]
+                    vm_name = parts[parts.index("virtualMachines") + 1]
+                    
+                    # Get credentials
+                    azure_creds = connection_config.get("azure_credentials") or {}
+                    tenant_id = azure_creds.get("tenant_id") or connection_config.get("tenant_id")
+                    client_id = azure_creds.get("client_id") or connection_config.get("client_id")
+                    client_secret = azure_creds.get("client_secret") or connection_config.get("client_secret")
+                    
+                    # Create credential and compute client
+                    if tenant_id and client_id and client_secret:
+                        credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+                    else:
+                        credential = DefaultAzureCredential()
+                    
+                    compute_client = ComputeManagementClient(credential, subscription_id)
+                    
+                    # Determine shell
+                    os_type = connection_config.get("os_type", "")
+                    shell = "PowerShell" if (os_type and "windows" in os_type.lower()) else "bash"
+                    
+                    # Perform cleanup
+                    cleanup_result = await connector._attempt_azure_cleanup(
+                        vm_name=vm_name,
+                        resource_group=resource_group,
+                        compute_client=compute_client,
+                        credential=credential,
+                        subscription_id=subscription_id,
+                        shell=shell
+                    )
+                    if cleanup_result.get("cleanup_success"):
+                        logger.info(f"Final cleanup successful for session {session.id}")
+                    else:
+                        logger.warning(f"Final cleanup failed for session {session.id}: {cleanup_result.get('error', 'Unknown')}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Final cleanup error for session {session.id}: {cleanup_error}")
+        except Exception as e:
+            # Don't fail session finalization if cleanup fails
+            logger.warning(f"Error performing final cleanup for session {session.id}: {e}")
     
     async def _check_all_prechecks_complete(self, db: Session, session: ExecutionSession) -> bool:
         """
@@ -958,11 +1112,131 @@ class StepExecutionService:
         precheck_steps = db.query(ExecutionStep).filter(
             ExecutionStep.session_id == session.id,
             ExecutionStep.step_type == "precheck"
-        ).all()
+        ).order_by(ExecutionStep.step_number).all()
         
         if not precheck_steps:
+            logger.debug(f"No precheck steps found for session {session.id}")
             return False  # No prechecks defined
         
         # Check if all prechecks are completed
+        step_statuses = [(s.step_number, s.completed, s.success) for s in precheck_steps]
         all_complete = all(step.completed for step in precheck_steps)
+        
+        logger.info(
+            f"Precheck completion check for session {session.id}: "
+            f"total={len(precheck_steps)}, all_complete={all_complete}, "
+            f"step_statuses={step_statuses}"
+        )
+        
         return all_complete
+    
+    def _validate_correction_safety(self, original_command: str, corrected_command: str, error_text: str) -> bool:
+        """
+        Validate that a correction is safe to apply.
+        
+        Rejects corrections that:
+        1. Break valid PowerShell syntax
+        2. Change valid counter paths to invalid ones
+        3. Remove required parameters
+        4. Are clearly wrong based on error context
+        
+        Args:
+            original_command: Original command that failed
+            corrected_command: Proposed correction
+            error_text: Error message from original command
+            
+        Returns:
+            True if correction is safe, False if it should be rejected
+        """
+        import re
+        
+        # Guardrail 1: Reject corrections that break valid PowerShell counter paths
+        # Original: Get-Counter -Counter '\Processor(_Total)\% Processor Time'
+        # Bad correction: Get-Counter -Counter \\Processor(_Total)\\PercentProcessorTime
+        # The original is correct, correction is wrong
+        valid_counter_patterns = [
+            r"\\Processor\(_Total\)\\% Processor Time",
+            r"\\Memory\\Available MBytes",
+            r"\\PhysicalDisk\(_Total\)",
+            r"\\LogicalDisk\([^)]+\)",
+        ]
+        
+        original_has_valid_counter = any(
+            re.search(pattern, original_command, re.IGNORECASE) 
+            for pattern in valid_counter_patterns
+        )
+        
+        if original_has_valid_counter:
+            # Check if correction breaks the counter path
+            corrected_has_valid_counter = any(
+                re.search(pattern, corrected_command, re.IGNORECASE)
+                for pattern in valid_counter_patterns
+            )
+            
+            # If original has valid counter but correction doesn't, reject
+            if not corrected_has_valid_counter:
+                logger.warning(
+                    f"REJECTED: Correction breaks valid counter path. "
+                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
+                )
+                return False
+            
+            # Check for suspicious changes to counter paths
+            if "PercentProcessorTime" in corrected_command and "% Processor Time" in original_command:
+                logger.warning(
+                    f"REJECTED: Correction changes valid '% Processor Time' to 'PercentProcessorTime'. "
+                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
+                )
+                return False
+            
+            # Check for double backslashes (wrong escaping)
+            if "\\\\Processor" in corrected_command and "\\Processor" in original_command:
+                logger.warning(
+                    f"REJECTED: Correction adds wrong escaping (double backslashes). "
+                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
+                )
+                return False
+        
+        # Guardrail 2: Reject corrections that remove required parameters
+        # If original has -MaxSamples and correction removes it, reject
+        if "-MaxSamples" in original_command and "-MaxSamples" not in corrected_command:
+            logger.warning(
+                f"REJECTED: Correction removes required -MaxSamples parameter. "
+                f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
+            )
+            return False
+        
+        # Guardrail 3: Reject corrections that change -SampleInterval to -MaxSamplingRate incorrectly
+        # -SampleInterval is valid, -MaxSamplingRate is different parameter
+        if "-SampleInterval" in original_command and "-MaxSamplingRate" in corrected_command:
+            # Only reject if the error wasn't about SampleInterval being wrong
+            if "SampleInterval" not in error_text:
+                logger.warning(
+                    f"REJECTED: Correction changes -SampleInterval to -MaxSamplingRate without error context. "
+                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
+                )
+                return False
+        
+        # Guardrail 4: Reject corrections that are clearly wrong based on error
+        # If error says "is not recognized as the name", the correction shouldn't change valid syntax
+        if "is not recognized as the name" in error_text.lower():
+            # This usually means a typo or wrong command, not a syntax issue
+            # If correction changes valid syntax, reject it
+            if original_has_valid_counter and not any(
+                re.search(pattern, corrected_command, re.IGNORECASE)
+                for pattern in valid_counter_patterns
+            ):
+                logger.warning(
+                    f"REJECTED: Correction changes valid syntax when error suggests typo/name issue. "
+                    f"Error: {error_text[:200]}, Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
+                )
+                return False
+        
+        # Guardrail 5: Reject corrections that are identical to original (no-op)
+        if original_command.strip() == corrected_command.strip():
+            logger.warning(f"REJECTED: Correction is identical to original command")
+            return False
+        
+        # Correction passed all guardrails
+        logger.debug(f"Correction passed safety validation: {original_command[:100]} → {corrected_command[:100]}")
+        return True

@@ -382,7 +382,12 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                 <button
                   onClick={async () => {
                     try {
-                      const response = await fetch(apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve`), {
+                      // Include ticket_id in approve request if available
+                      const approveUrl = ticket?.id 
+                        ? apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve?ticket_id=${ticket.id}`)
+                        : apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve`);
+                      
+                      const response = await fetch(approveUrl, {
                         method: 'POST',
                       });
                       if (!response.ok) {

@@ -136,6 +136,8 @@ class TicketingIntegrationService:
             logger.warning(f"Ticket {ticket.id} has no external_id, skipping external update")
             return False
         
+        logger.info(f"Attempting to update external ticket {ticket.external_id} (internal ticket {ticket.id}) to status '{status}'")
+        
         # Find ticketing tool connection for this ticket
         # We'll match by source or find active connections
         connection = db.query(TicketingToolConnection).filter(
@@ -146,6 +148,8 @@ class TicketingIntegrationService:
         if not connection:
             logger.warning(f"No active ticketing connection found for tenant {ticket.tenant_id}")
             return False
+        
+        logger.info(f"Found active ticketing connection: {connection.tool_name} for tenant {ticket.tenant_id}")
         
         try:
             # Update based on tool type
@@ -214,13 +218,14 @@ class TicketingIntegrationService:
             
             # Status mapping for ManageEngine
             status_map = {
-                "closed": "Closed",
+                "closed": "Resolved",  # Map "closed" to "Resolved" for ManageEngine
                 "resolved": "Resolved",
                 "escalated": "In Progress",  # ManageEngine doesn't have "escalated", use In Progress
                 "in_progress": "In Progress"
             }
             
             me_status = status_map.get(status, "In Progress")
+            logger.info(f"Updating ManageEngine ticket {external_id} to status '{me_status}' (mapped from '{status}')")
             
             # Build API URL
             api_base_url = connection.api_base_url or ""
@@ -233,10 +238,14 @@ class TicketingIntegrationService:
             headers = {
                 "Authorization": f"Zoho-oauthtoken {access_token}",
                 "Accept": "application/vnd.manageengine.sdp.v3+json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/x-www-form-urlencoded"
             }
             
-            # Build request body
+            # Build request data - ManageEngine API v3 requires input_data as form-encoded body parameter
+            # According to Postman docs: input_data must be sent as form-encoded body, NOT query parameter
+            import json
+            
+            # ManageEngine API v3 doesn't allow updating status and comments in the same request
             request_data = {
                 "request": {
                     "status": {
@@ -245,25 +254,66 @@ class TicketingIntegrationService:
                 }
             }
             
-            # Add comment if provided
-            if comment:
-                request_data["request"]["comments"] = [{
-                    "content": comment,
-                    "is_public": True
-                }]
+            # ManageEngine API v3 requires input_data as form-encoded body parameter (like POST requests)
+            # NOT as query parameter for PUT requests
+            form_data = {
+                "input_data": json.dumps(request_data)
+            }
+            
+            logger.debug(f"ManageEngine update request: URL={api_url}, form_data={form_data}, headers={dict(headers)}")
             
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.patch(
+                # Update status only (ManageEngine API v3 doesn't allow status + comments in same request)
+                # Use form-encoded body with input_data parameter (NOT query params, NOT raw JSON)
+                response = await client.put(
                     api_url,
                     headers=headers,
-                    json=request_data
+                    data=form_data  # Use data= for form-encoded body, NOT params= for query params
                 )
                 
                 if response.status_code in [200, 204]:
-                    logger.info(f"Successfully updated ManageEngine ticket {external_id} to {me_status}")
+                    # ManageEngine returns 200 with JSON body containing response_status
+                    # Example: {"response_status": {"status_code": 2000, "status": "success"}}
+                    try:
+                        response_json = response.json()
+                        response_status = response_json.get("response_status", {})
+                        status_code = response_status.get("status_code")
+                        status_text = response_status.get("status")
+                        
+                        # Check if the request object in response shows the updated status
+                        request_obj = response_json.get("request", {})
+                        actual_status = request_obj.get("status", {})
+                        actual_status_name = actual_status.get("name") if isinstance(actual_status, dict) else None
+                        
+                        if status_code == 2000 and status_text == "success":
+                            logger.info(
+                                f"✅ Successfully updated ManageEngine ticket {external_id} to status '{me_status}'. "
+                                f"API confirmed status: '{actual_status_name}' (response_status: {status_code})"
+                            )
+                            # Verify the status was actually updated
+                            if actual_status_name and actual_status_name != me_status:
+                                logger.warning(
+                                    f"⚠️ Status mismatch: Requested '{me_status}' but API returned '{actual_status_name}'. "
+                                    f"This might indicate a status mapping issue or the ticket was already in a different state."
+                                )
+                        else:
+                            logger.warning(
+                                f"⚠️ ManageEngine returned 200 but response_status indicates issue: "
+                                f"status_code={status_code}, status={status_text}"
+                            )
+                    except Exception as e:
+                        # If JSON parsing fails, still consider it success if HTTP status is 200
+                        logger.info(f"✅ Successfully updated ManageEngine ticket {external_id} status to {me_status} (HTTP 200, JSON parse failed: {e})")
+                    
+                    # Note: Comment will be added in a future update if needed
+                    if comment:
+                        logger.debug(f"Comment provided but not added (requires separate API call): {comment[:50]}...")
                     return True
                 else:
-                    logger.error(f"Failed to update ManageEngine ticket: {response.status_code} - {response.text}")
+                    error_text = response.text[:500] if hasattr(response, 'text') else str(response.content)[:500]
+                    logger.error(f"❌ Failed to update ManageEngine ticket status: {response.status_code} - {error_text}")
+                    logger.error(f"Request URL: {api_url}")
+                    logger.error(f"Request form_data: {form_data}")
                     return False
                     
         except Exception as e:

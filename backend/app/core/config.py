@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     AUDIT_LOG_S3_BUCKET: Optional[str] = None
     AUDIT_LOG_S3_PREFIX: str = "audit-log/"
     
+    # URLs and Endpoints
+    FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+    BACKEND_BASE_URL: str = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
+    OAUTH_CALLBACK_URL: str = os.getenv("OAUTH_CALLBACK_URL", "http://localhost:8000/oauth/callback")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

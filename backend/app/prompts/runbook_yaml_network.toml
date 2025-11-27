@@ -1,4 +1,4 @@
-system = "You are a YAML generator for agent-executable troubleshooting runbooks for NETWORK issues. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- ')."
+system = "You are a technical engineer proficient in solving IT infrastructure issue with expert level understanding of YAML generation for agent-executable troubleshooting runbooks for NETWORK issues. Return ONLY valid YAML. No markdown, no code fences. Remember: In YAML, list items MUST start with a dash and space ('- ')."
 
 user_template = """
 Generate a complete troubleshooting runbook YAML for the following NETWORK issue.

@@ -69,9 +69,35 @@ class RunbookController(BaseController):
                 risk=risk
             )
             
-            # Associate runbook with ticket if ticket_id provided
+            # Store ticket_id in runbook meta_data for later association during approval
+            # Do this AFTER runbook generation is complete and committed
             if ticket_id:
-                self._associate_with_ticket(runbook.id, ticket_id)
+                import json
+                try:
+                    # Refresh to get the latest state
+                    self.db.refresh(runbook)
+                    runbook_obj = self.runbook_repo.get_by_id_and_tenant(runbook.id, self.tenant_id)
+                    if runbook_obj:
+                        meta_data = json.loads(runbook_obj.meta_data) if runbook_obj.meta_data else {}
+                        meta_data["ticket_id"] = ticket_id
+                        runbook_obj.meta_data = json.dumps(meta_data)
+                        self.db.commit()
+                        logger.info(f"Stored ticket_id {ticket_id} in runbook {runbook.id} meta_data")
+                    
+                    # Associate with ticket AFTER everything is committed
+                    # Use a separate try/except so association failure doesn't break the response
+                    try:
+                        self._associate_with_ticket(runbook.id, ticket_id)
+                        # Commit the association separately to ensure it's saved
+                        self.db.commit()
+                        logger.info(f"Committed association of runbook {runbook.id} with ticket {ticket_id}")
+                    except Exception as assoc_err:
+                        logger.warning(f"Association failed but runbook was created: {assoc_err}")
+                        self.db.rollback()
+                        # Don't fail the request - association can happen later during approval
+                except Exception as e:
+                    logger.warning(f"Failed to store ticket_id in meta_data: {e}")
+                    # Don't fail the request - this is not critical
             
             return runbook
             
@@ -86,38 +112,71 @@ class RunbookController(BaseController):
     def _associate_with_ticket(self, runbook_id: int, ticket_id: int):
         """Associate a runbook with a ticket"""
         try:
+            from sqlalchemy.orm.attributes import flag_modified
+            
+            # Use a fresh query to avoid stale session issues
             ticket = self.db.query(Ticket).filter(
                 Ticket.id == ticket_id,
                 Ticket.tenant_id == self.tenant_id
             ).first()
             
-            if ticket:
-                # Initialize meta_data if needed
-                if not ticket.meta_data:
-                    ticket.meta_data = {}
-                
-                # Add runbook to matched_runbooks
-                if "matched_runbooks" not in ticket.meta_data:
-                    ticket.meta_data["matched_runbooks"] = []
-                
-                # Check if runbook already in list
-                existing_ids = [rb.get("id") for rb in ticket.meta_data["matched_runbooks"] if isinstance(rb, dict)]
-                if runbook_id not in existing_ids:
-                    runbook = self.runbook_repo.get(runbook_id)
-                    if runbook:
-                        ticket.meta_data["matched_runbooks"].append({
-                            "id": runbook.id,
-                            "title": runbook.title,
-                            "confidence_score": 1.0,  # Perfect match since it was generated for this ticket
-                            "reasoning": "Runbook generated for this ticket"
-                        })
-                        # Trigger SQLAlchemy to detect changes
-                        ticket.meta_data = dict(ticket.meta_data)
-                        self.db.commit()
-                        logger.info(f"Associated runbook {runbook_id} with ticket {ticket_id}")
+            if not ticket:
+                logger.warning(f"Ticket {ticket_id} not found for association with runbook {runbook_id}")
+                return False
+            
+            # Initialize meta_data if needed (JSON column handles dict automatically)
+            if not ticket.meta_data:
+                ticket.meta_data = {}
+            
+            # Add runbook to matched_runbooks
+            if "matched_runbooks" not in ticket.meta_data:
+                ticket.meta_data["matched_runbooks"] = []
+            
+            # Check if runbook already in list
+            existing_ids = [rb.get("id") for rb in ticket.meta_data["matched_runbooks"] if isinstance(rb, dict)]
+            if runbook_id not in existing_ids:
+                runbook = self.runbook_repo.get(runbook_id)
+                if runbook:
+                    # Create a new dict to ensure SQLAlchemy detects the change
+                    new_meta_data = dict(ticket.meta_data)
+                    new_meta_data["matched_runbooks"] = list(new_meta_data.get("matched_runbooks", []))
+                    new_meta_data["matched_runbooks"].append({
+                        "id": runbook.id,
+                        "title": runbook.title,
+                        "confidence_score": 1.0,  # Perfect match since it was generated for this ticket
+                        "reasoning": "Runbook generated for this ticket"
+                    })
+                    
+                    # Assign the new dict and flag it as modified
+                    ticket.meta_data = new_meta_data
+                    flag_modified(ticket, "meta_data")  # CRITICAL: Tell SQLAlchemy the JSON column changed
+                    
+                    # Commit immediately to ensure it's saved
+                    self.db.commit()
+                    self.db.refresh(ticket)  # Refresh to verify the change
+                    
+                    # Verify the change was saved
+                    matched_count = len(ticket.meta_data.get("matched_runbooks", []))
+                    logger.info(f"✅ Successfully associated runbook {runbook_id} ({runbook.title}) with ticket {ticket_id}")
+                    logger.info(f"✅ Ticket {ticket_id} now has {matched_count} matched runbook(s) in database")
+                    
+                    # Double-check by querying again
+                    verify_ticket = self.db.query(Ticket).filter(Ticket.id == ticket_id).first()
+                    if verify_ticket and verify_ticket.meta_data:
+                        verify_count = len(verify_ticket.meta_data.get("matched_runbooks", []))
+                        logger.info(f"✅ Verification: Ticket {ticket_id} has {verify_count} matched runbook(s) after refresh")
+                    
+                    return True
+                else:
+                    logger.warning(f"Runbook {runbook_id} not found for association with ticket {ticket_id}")
+                    return False
+            else:
+                logger.info(f"Runbook {runbook_id} already associated with ticket {ticket_id}")
+                return True
         except Exception as e:
-            logger.warning(f"Failed to associate runbook {runbook_id} with ticket {ticket_id}: {e}")
-            # Don't fail the request if association fails
+            logger.error(f"❌ Failed to associate runbook {runbook_id} with ticket {ticket_id}: {type(e).__name__}: {e}", exc_info=True)
+            self.db.rollback()
+            return False
     
     def list_runbooks(
         self,
@@ -252,12 +311,14 @@ class RunbookController(BaseController):
     async def approve_runbook(
         self,
         runbook_id: int,
-        force_approval: bool = False
+        force_approval: bool = False,
+        ticket_id: Optional[int] = None
     ) -> RunbookResponse:
         """Approve and publish a draft runbook with duplicate detection"""
         try:
             from app.services.duplicate_detector import DuplicateDetectorService
             from app.services.config_service import ConfigService
+            import json
             
             # Check for duplicates before approval
             if not force_approval:
@@ -280,12 +341,33 @@ class RunbookController(BaseController):
                         }
                     )
             
-            runbook = await self.generator.approve_and_index_runbook(
+            # Get runbook to check for ticket_id in meta_data
+            runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+            if not runbook:
+                raise self.not_found("Runbook", runbook_id)
+            
+            # Check if ticket_id is in meta_data (from generation) or passed as parameter
+            ticket_id_to_associate = ticket_id
+            if not ticket_id_to_associate and runbook.meta_data:
+                try:
+                    meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else runbook.meta_data
+                    ticket_id_to_associate = meta_data.get("ticket_id")
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            
+            # Approve the runbook
+            approved_runbook = await self.generator.approve_and_index_runbook(
                 runbook_id=runbook_id,
                 tenant_id=self.tenant_id,
                 db=self.db
             )
-            return runbook
+            
+            # Associate with ticket if ticket_id found
+            if ticket_id_to_associate:
+                logger.info(f"Associating approved runbook {runbook_id} with ticket {ticket_id_to_associate}")
+                self._associate_with_ticket(runbook_id, ticket_id_to_associate)
+            
+            return approved_runbook
         except HTTPException:
             raise
         except Exception as e:

@@ -110,7 +110,7 @@ class RunbookMatchingService:
         ticket_meta_data: Dict[str, Any],
         tenant_id: int
     ) -> List[Dict[str, Any]]:
-        """Get matched runbooks from ticket meta_data, verifying they're still active"""
+        """Get matched runbooks from ticket meta_data, verifying they exist (include archived if they were matched)"""
         matched_runbooks = []
         
         if not ticket_meta_data or not isinstance(ticket_meta_data, dict):
@@ -124,18 +124,23 @@ class RunbookMatchingService:
             if isinstance(stored_rb, dict):
                 rb_id = stored_rb.get("id") or stored_rb.get("runbook_id")
                 if rb_id:
+                    # Include archived runbooks if they were previously matched (they're still valid)
+                    # Only filter by status="approved" to ensure they're valid runbooks
                     runbook = db.query(Runbook).filter(
                         Runbook.id == int(rb_id),
                         Runbook.tenant_id == tenant_id,
-                        Runbook.is_active == "active"
+                        Runbook.status == "approved"  # Only require approved, not active (archived is OK)
                     ).first()
                     if runbook:
                         matched_runbooks.append({
                             "id": int(rb_id),
                             "title": stored_rb.get("title") or runbook.title,
                             "confidence_score": stored_rb.get("confidence_score", 1.0),
-                            "reasoning": stored_rb.get("reasoning", "Previously matched runbook")
+                            "reasoning": stored_rb.get("reasoning", "Previously matched runbook"),
+                            "is_active": runbook.is_active  # Include status so frontend can show it
                         })
+                    else:
+                        logger.warning(f"Runbook {rb_id} from ticket meta_data not found or not approved")
         
         return matched_runbooks
 

@@ -17,17 +17,31 @@ class TicketStatusService:
     def update_ticket_on_execution_start(self, db: Session, ticket_id: int) -> Optional[Ticket]:
         """Update ticket status to 'in_progress' when execution starts"""
         try:
+            from sqlalchemy.orm.attributes import flag_modified
+            import json
+            
             ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
             if not ticket:
                 logger.warning(f"Ticket {ticket_id} not found for status update")
                 return None
             
             if ticket.status != "closed":  # Don't update if already closed
+                # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+                if ticket.meta_data:
+                    preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
+                else:
+                    preserved_meta = {}
+                
                 ticket.status = "in_progress"
                 ticket.updated_at = datetime.now()
+                
+                # Preserve meta_data explicitly
+                ticket.meta_data = preserved_meta
+                flag_modified(ticket, "meta_data")
+                
                 db.commit()
                 db.refresh(ticket)
-                logger.info(f"Ticket {ticket_id} status updated to 'in_progress'")
+                logger.info(f"Ticket {ticket_id} status updated to 'in_progress' (meta_data preserved)")
             
             return ticket
         except Exception as e:
@@ -52,10 +66,19 @@ class TicketStatusService:
             issue_resolved: Whether the issue was actually resolved (optional)
         """
         try:
+            from sqlalchemy.orm.attributes import flag_modified
+            import json
+            
             ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
             if not ticket:
                 logger.warning(f"Ticket {ticket_id} not found for status update")
                 return None
+            
+            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+            if ticket.meta_data:
+                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
+            else:
+                preserved_meta = {}
             
             # Determine ticket status based on execution result
             if execution_status == "completed":
@@ -78,10 +101,15 @@ class TicketStatusService:
                 ticket.status = "escalated"  # Escalate if abandoned
             
             ticket.updated_at = datetime.now()
+            
+            # Preserve meta_data explicitly
+            ticket.meta_data = preserved_meta
+            flag_modified(ticket, "meta_data")
+            
             db.commit()
             db.refresh(ticket)
             
-            logger.info(f"Ticket {ticket_id} status updated to '{ticket.status}' (execution: {execution_status})")
+            logger.info(f"Ticket {ticket_id} status updated to '{ticket.status}' (execution: {execution_status}, meta_data preserved)")
             return ticket
             
         except Exception as e:
@@ -92,18 +120,32 @@ class TicketStatusService:
     def update_ticket_on_false_positive(self, db: Session, ticket_id: int) -> Optional[Ticket]:
         """Update ticket status to 'closed' when false positive detected"""
         try:
+            from sqlalchemy.orm.attributes import flag_modified
+            import json
+            
             ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
             if not ticket:
                 logger.warning(f"Ticket {ticket_id} not found for status update")
                 return None
             
+            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
+            if ticket.meta_data:
+                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
+            else:
+                preserved_meta = {}
+            
             ticket.status = "closed"
             ticket.resolved_at = datetime.now()
             ticket.updated_at = datetime.now()
+            
+            # Preserve meta_data explicitly
+            ticket.meta_data = preserved_meta
+            flag_modified(ticket, "meta_data")
+            
             db.commit()
             db.refresh(ticket)
             
-            logger.info(f"Ticket {ticket_id} status updated to 'closed' (false positive)")
+            logger.info(f"Ticket {ticket_id} status updated to 'closed' (false positive, meta_data preserved)")
             return ticket
             
         except Exception as e:

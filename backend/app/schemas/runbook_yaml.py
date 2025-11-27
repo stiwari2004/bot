@@ -40,6 +40,10 @@ class RunbookStep(BaseModel):
     timeout: Optional[int] = None
     on_fail: Optional[str] = None
     severity: Optional[CommandSeverity] = None
+    purpose: Literal["precheck", "diagnose", "remediate", "postcheck", "verify"] = "diagnose"
+    requires_metric: Optional[str] = None
+    captures_variable: Optional[str] = None
+    depends_on: Optional[List[str]] = None
 
 
 class RunbookYAML(BaseModel):

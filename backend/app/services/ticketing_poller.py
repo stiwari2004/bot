@@ -126,7 +126,8 @@ class TicketingPoller:
         if not connection.last_sync_at:
             return True
         
-        interval_minutes = connection.sync_interval_minutes or 5
+        # Default to 1 minute for near real-time updates (was 5 minutes)
+        interval_minutes = connection.sync_interval_minutes or 1
         
         # Ensure last_sync_at is timezone-aware
         last_sync = connection.last_sync_at
@@ -204,11 +205,30 @@ class TicketingPoller:
                     
                     if existing:
                         # Update existing ticket
+                        # CRITICAL: Preserve existing meta_data (including matched_runbooks) when syncing from external system
+                        from sqlalchemy.orm.attributes import flag_modified
+                        # Note: json is already imported at the top of the file
+                        
+                        # Preserve existing meta_data
+                        if existing.meta_data:
+                            preserved_meta = dict(existing.meta_data) if isinstance(existing.meta_data, dict) else json.loads(existing.meta_data) if isinstance(existing.meta_data, str) else {}
+                        else:
+                            preserved_meta = {}
+                        
+                        # Merge external metadata (from ticketing system) into preserved metadata
+                        external_meta = ticket_data.get("metadata", {})
+                        if external_meta:
+                            # Merge external metadata, but don't overwrite critical fields like matched_runbooks
+                            for key, value in external_meta.items():
+                                if key not in ["matched_runbooks"]:  # Preserve matched_runbooks
+                                    preserved_meta[key] = value
+                        
                         existing.title = ticket_data["title"]
                         existing.description = ticket_data["description"]
                         existing.severity = ticket_data["severity"]
                         existing.status = ticket_data["status"]
-                        existing.meta_data = ticket_data.get("metadata", {})
+                        existing.meta_data = preserved_meta
+                        flag_modified(existing, "meta_data")
                         updated_count += 1
                     else:
                         # Create new ticket

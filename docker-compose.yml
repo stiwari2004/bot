@@ -43,6 +43,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true
+      - PERPLEXITY_API_KEY=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
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,6 +63,7 @@ services:
       - WORKER_ID=worker-local
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ENVIRONMENT=dev
+      - PERPLEXITY_API_KEY=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
     depends_on:
       backend:
         condition: service_started
