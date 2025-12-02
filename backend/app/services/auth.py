@@ -6,7 +6,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -14,24 +14,24 @@ from app.core.database import get_db
 from app.models.user import User
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# NOTE: Use pbkdf2_sha256 only to avoid bcrypt backend issues in some environments.
+# This is sufficient for dev/test and sandbox usage.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+# HTTP Bearer for optional auth (doesn't raise error if no token)
+http_bearer = HTTPBearer(auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    # Truncate password to 72 bytes for bcrypt compatibility
-    truncated_password = plain_password[:72]
-    return pwd_context.verify(truncated_password, hashed_password)
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password"""
-    # Truncate password to 72 bytes for bcrypt compatibility
-    truncated_password = password[:72]
-    return pwd_context.hash(truncated_password)
+    return pwd_context.hash(password)
 
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
@@ -77,3 +77,23 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         raise credentials_exception
     return user
 
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Get current authenticated user, or None if not authenticated (for demo/optional auth endpoints)"""
+    if not credentials or not credentials.credentials:
+        return None
+    
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            return None
+    except (JWTError, Exception):
+        return None
+    
+    user = db.query(User).filter(User.email == email).first()
+    return user

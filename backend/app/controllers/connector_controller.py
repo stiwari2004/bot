@@ -160,7 +160,8 @@ class ConnectorController(BaseController):
     def create_infrastructure_connection(self, connection: InfrastructureConnectionCreate) -> Dict[str, Any]:
         """Create a new infrastructure connection"""
         try:
-            infra_conn = InfrastructureConnection(
+            # Create connection using repository
+            infra_conn = self.infrastructure_repo.create_connection(
                 tenant_id=self.tenant_id,
                 credential_id=connection.credential_id,
                 name=connection.name,
@@ -172,10 +173,6 @@ class ConnectorController(BaseController):
                 meta_data=json.dumps(connection.meta_data) if connection.meta_data else None,
                 is_active=True
             )
-            
-            self.db.add(infra_conn)
-            self.db.commit()
-            self.db.refresh(infra_conn)
             
             return {
                 "id": infra_conn.id,
@@ -232,18 +229,26 @@ class ConnectorController(BaseController):
             if not infra_conn:
                 raise self.not_found("Infrastructure connection", connection_id)
             
-            infra_conn.name = connection.name
-            infra_conn.connection_type = connection.connection_type
-            infra_conn.credential_id = connection.credential_id
-            infra_conn.target_host = connection.target_host
-            infra_conn.target_port = connection.target_port
-            infra_conn.target_service = connection.target_service
-            infra_conn.environment = connection.environment
+            # Update connection using repository
+            update_data = {
+                "name": connection.name,
+                "connection_type": connection.connection_type,
+                "credential_id": connection.credential_id,
+                "target_host": connection.target_host,
+                "target_port": connection.target_port,
+                "target_service": connection.target_service,
+                "environment": connection.environment
+            }
             if connection.meta_data is not None:
-                infra_conn.meta_data = json.dumps(connection.meta_data)
+                update_data["meta_data"] = json.dumps(connection.meta_data)
             
-            self.db.commit()
-            self.db.refresh(infra_conn)
+            infra_conn = self.infrastructure_repo.update_connection(
+                connection_id=connection_id,
+                tenant_id=self.tenant_id,
+                **update_data
+            )
+            if not infra_conn:
+                raise self.not_found("Infrastructure connection", connection_id)
             
             return {
                 "id": infra_conn.id,
@@ -264,8 +269,12 @@ class ConnectorController(BaseController):
             if not infra_conn:
                 raise self.not_found("Infrastructure connection", connection_id)
             
-            infra_conn.is_active = False
-            self.db.commit()
+            # Deactivate connection using repository
+            self.infrastructure_repo.update_connection(
+                connection_id=connection_id,
+                tenant_id=self.tenant_id,
+                is_active=False
+            )
             
             return {
                 "message": "Infrastructure connection deleted successfully"
@@ -327,13 +336,34 @@ class ConnectorController(BaseController):
                     "type": "datadog",
                     "name": "Datadog",
                     "status": "implemented",
-                    "description": "Cloud monitoring and alerting platform"
+                    "description": "Cloud monitoring and alerting platform",
+                    "webhook_supported": True,
+                    "api_supported": True
+                },
+                {
+                    "type": "azure_monitor",
+                    "name": "Azure Monitor",
+                    "status": "implemented",
+                    "description": "Microsoft Azure monitoring and alerting service",
+                    "webhook_supported": True,
+                    "api_supported": False
                 },
                 {
                     "type": "prometheus",
-                    "name": "Prometheus",
-                    "status": "webhook_supported",
-                    "description": "Open-source monitoring and alerting toolkit"
+                    "name": "Prometheus Alertmanager",
+                    "status": "implemented",
+                    "description": "Open-source monitoring and alerting toolkit",
+                    "webhook_supported": True,
+                    "api_supported": False
+                },
+                {
+                    "type": "splunk",
+                    "name": "Splunk",
+                    "status": "implemented",
+                    "description": "Log aggregation, SIEM, and operational intelligence platform",
+                    "webhook_supported": True,
+                    "api_supported": True,
+                    "hec_supported": True
                 },
                 {
                     "type": "zabbix",

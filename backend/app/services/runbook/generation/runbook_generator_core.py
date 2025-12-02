@@ -23,6 +23,10 @@ from app.services.runbook.generation.runbook_indexer import RunbookIndexer
 from app.services.runbook.generation.runbook_quality_validator import RunbookQualityValidator
 from app.services.runbook.generation.runbook_command_validator import RunbookCommandValidator
 from app.services.runbook.generation.runbook_critic_service import RunbookCriticService
+from app.services.runbook.generation.yaml_extractor import YamlExtractor
+from app.services.runbook.generation.yaml_parser import YamlParser
+from app.services.runbook.generation.spec_post_processor import SpecPostProcessor
+from app.services.runbook.generation.citation_manager import CitationManager
 from app.config import runbook_structure
 
 logger = get_logger(__name__)
@@ -41,6 +45,11 @@ class RunbookGeneratorService:
         self.command_validator = RunbookCommandValidator()
         self.quality_validator = RunbookQualityValidator()
         self.critic_service = RunbookCriticService()
+        # New extraction modules
+        self.yaml_extractor = YamlExtractor()
+        self.yaml_parser = YamlParser()
+        self.spec_post_processor = SpecPostProcessor()
+        self.citation_manager = CitationManager()
     
     @property
     def vector_service(self):
@@ -197,161 +206,15 @@ class RunbookGeneratorService:
                 if char == '\n':
                     logger.error(f"[PHASE 1 - YAML GENERATION] FOUND NEWLINE at position {i} in first 200 chars!")
                     logger.error(f"[PHASE 1 - YAML GENERATION] Context: {repr(ai_yaml[max(0, i-30):i+30])}")
-        logger.debug(f"LLM returned YAML length={len(ai_yaml) if ai_yaml else 0}, first 500 chars: {ai_yaml[:500] if ai_yaml else 'None'}")
-
-        # CRITICAL: Strip ALL non-YAML content before processing
-        # The LLM sometimes includes markdown headers, explanatory text, etc.
-        import re
         
-        # Strip code fences if present
-        if ai_yaml and ai_yaml.strip().startswith("```"):
-            lines = ai_yaml.strip().split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            ai_yaml = "\n".join(lines)
-            logger.debug(f"After stripping fences: length={len(ai_yaml)}, first 200: {ai_yaml[:200]}")
-        
-        # CRITICAL: FIRST extract YAML starting from "runbook_id:", THEN clean it
-        # This ensures we don't try to clean markdown that's before the actual YAML
-        if ai_yaml and "runbook_id:" in ai_yaml:
-            runbook_id_idx = ai_yaml.find("runbook_id:")
-            if runbook_id_idx > 0:
-                logger.warning(f"[YAML EXTRACTION] Found 'runbook_id:' at position {runbook_id_idx}, extracting YAML from there")
-                logger.warning(f"[YAML EXTRACTION] Content before runbook_id: {repr(ai_yaml[:min(runbook_id_idx, 200)])}")
-                # Find the start of the line containing "runbook_id:"
-                start_idx = runbook_id_idx
-                while start_idx > 0 and ai_yaml[start_idx - 1] not in ['\n', '\r']:
-                    start_idx -= 1
-                # Also check if there's a newline before this - if so, start from that newline
-                if start_idx > 0 and ai_yaml[start_idx - 1] in ['\n', '\r']:
-                    start_idx = start_idx - 1
-                ai_yaml = ai_yaml[start_idx:].lstrip()  # Remove leading whitespace
-                logger.info(f"[YAML EXTRACTION] Extracted YAML starting from position {start_idx}, length={len(ai_yaml)}")
-        
-        # NOW clean the extracted YAML - remove any remaining markdown
-        lines = ai_yaml.split('\n')
-        cleaned_lines = []
-        for line in lines:
-            stripped = line.strip()
-            
-            # Skip markdown headers
-            if stripped.startswith('#'):
-                continue
-            # Skip markdown list items (starts with * followed by space)
-            if stripped.startswith('* '):
-                continue
-            # Skip lines with tabs that contain markdown syntax
-            if '\t' in line and (stripped.startswith('*') or stripped.startswith('- Use:') or 'Use:' in stripped):
-                continue
-            # Skip lines with common markdown/explanatory patterns
-            stripped_lower = stripped.lower()
-            if any(pattern in stripped_lower for pattern in [
-                'use: get-process',
-                'use: get-counter',
-                'never use:',
-                'examples allowed:',
-                'examples:'
-            ]):
-                continue
-            # Skip lines that are just plain text without YAML structure
-            if stripped and ':' not in stripped and not stripped.startswith('-') and not re.match(r'^\s*-\s+[a-z_][a-z0-9_]*:', line):
-                # Skip if it doesn't look like YAML at all
-                if not re.match(r'^[a-z_][a-z0-9_]*:', stripped):
-                    continue
-            
-            cleaned_lines.append(line)
-        
-        ai_yaml = '\n'.join(cleaned_lines)
-        
-        # Remove markdown formatting (bold, italic, code blocks, list markers)
-        # Remove markdown code blocks: `code` (but preserve content)
-        ai_yaml = re.sub(r'`([^`]+)`', r'\1', ai_yaml)
-        # Remove markdown list markers at start of lines: * item, - item (but keep YAML list items)
-        # Only remove if it's not part of a YAML structure (not followed by a key:)
-        lines = ai_yaml.split('\n')
-        cleaned_lines = []
-        for line in lines:
-            # Skip lines that are clearly markdown (start with * or - but not YAML list items)
-            stripped = line.strip()
-            if stripped.startswith('* ') and ':' not in line[:20]:  # Markdown list, not YAML
-                cleaned_lines.append(line.replace('* ', '', 1).lstrip())
-            elif stripped.startswith('- ') and not re.match(r'^\s*-\s+[a-z_][a-z0-9_]*:', line):  # Markdown, not YAML list item
-                # Check if it looks like a YAML list item (has key: value structure)
-                if ':' not in line or not re.search(r'[a-z_][a-z0-9_]*:\s', line):
-                    cleaned_lines.append(line.replace('- ', '', 1).lstrip())
-                else:
-                    cleaned_lines.append(line)  # Keep YAML list items
-            elif re.match(r'^\s*\d+\.\s+', stripped):  # Numbered list
-                cleaned_lines.append(re.sub(r'^\s*\d+\.\s+', '', line))
-            elif stripped.startswith('#'):  # Markdown header
-                continue  # Skip header lines
-            else:
-                cleaned_lines.append(line)
-        ai_yaml = '\n'.join(cleaned_lines)
-        
-        # Remove markdown bold/italic: **text**, *text* (but be careful not to break YAML)
-        ai_yaml = re.sub(r'\*\*([^*]+)\*\*', r'\1', ai_yaml)
-        # Only remove single asterisks if they're not part of YAML syntax
-        ai_yaml = re.sub(r'(?<![a-z0-9_])\*([^*\n:]+)\*(?![*a-z0-9_])', r'\1', ai_yaml)
-        
-        # YAML extraction already done above - just verify runbook_id exists
-        if ai_yaml and "runbook_id:" not in ai_yaml:
-            logger.error(f"[YAML EXTRACTION] ERROR: 'runbook_id:' not found in LLM output after extraction!")
-            logger.error(f"[YAML EXTRACTION] First 500 chars: {repr(ai_yaml[:500]) if ai_yaml else 'None'}")
-        
-        # Final cleanup: Remove any remaining non-YAML lines at the start
-        lines = ai_yaml.split('\n')
-        yaml_start_idx = 0
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            # Skip empty lines and comments
-            if not stripped or stripped.startswith('#'):
-                continue
-            # If we find a line that looks like YAML (has a colon and looks like a key-value pair)
-            if ':' in stripped and re.match(r'^[a-z_][a-z0-9_]*:', stripped.split(':')[0]):
-                yaml_start_idx = i
-                break
-        if yaml_start_idx > 0:
-            logger.warning(f"Removing {yaml_start_idx} non-YAML lines from start")
-            ai_yaml = '\n'.join(lines[yaml_start_idx:])
+        # Extract and clean YAML using YamlExtractor
+        ai_yaml = self.yaml_extractor.extract_yaml(ai_yaml)
         
         # Sanitize LLM output using YAML processor
         ai_yaml = self.yaml_processor.sanitize_description_field(ai_yaml)
         
-        # CRITICAL: Fix newlines in YAML values that break parsing
-        # Scan all lines and fix any value containing a literal newline character
-        lines = ai_yaml.split('\n')
-        fixed_lines = []
-        for line in lines:
-            # Match any key-value pair with potential newline in value
-            match = re.match(r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*):\s+(.+)$', line)
-            if match:
-                indent = match.group(1)
-                key = match.group(2)
-                value = match.group(3)
-                
-                # Check if value contains a literal newline character (illegal in unquoted YAML)
-                if '\n' in value or '\r' in value:
-                    # Replace newlines with spaces or use block scalar
-                    # For short values, replace newline with space
-                    # For longer values, use block scalar
-                    value_clean = value.replace('\r', '').replace('\n', ' ').strip()
-                    if len(value_clean) > 100:  # Long value - use block scalar
-                        value_parts = value.replace('\r', '').split('\n')
-                        fixed_lines.append(f"{indent}{key}: |")
-                        for part in value_parts:
-                            if part.strip():
-                                fixed_lines.append(f"{indent}  {part.strip()}")
-                    else:  # Short value - quote with escaped newline
-                        escaped = value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
-                        fixed_lines.append(f"{indent}{key}: \"{escaped}\"")
-                else:
-                    fixed_lines.append(line)
-            else:
-                fixed_lines.append(line)
-        ai_yaml = '\n'.join(fixed_lines)
+        # Fix newlines in YAML values that break parsing
+        ai_yaml = self.yaml_extractor.fix_newlines_in_yaml(ai_yaml)
         
         logger.debug(f"[DEBUG] YAML before parse (first 3000 chars): {ai_yaml[:3000] if ai_yaml else 'None'}")
 
@@ -434,7 +297,7 @@ class RunbookGeneratorService:
             
             # YAML should already be fixed by yaml_processor.sanitize_command_strings
             
-            # Try parsing YAML
+            # Try parsing YAML using YamlParser
             logger.info(f"[PHASE 3 - YAML PARSING] Attempting to parse YAML, length={len(ai_yaml)}")
             
             # CRITICAL: Log the actual YAML content before parsing to diagnose issues
@@ -450,276 +313,30 @@ class RunbookGeneratorService:
                 for i in range(49, min(60, len(yaml_lines))):
                     logger.info(f"  Line {i+1:3d}: {repr(yaml_lines[i])}")
             
+            # Parse YAML using YamlParser (handles errors and recovery internally)
             try:
-                spec = yaml.safe_load(ai_yaml)
+                spec = self.yaml_parser.parse_yaml(ai_yaml)
                 logger.info(f"[PHASE 3 - YAML PARSING] Parse SUCCESSFUL!")
-            except yaml.YAMLError as e:
-                error_msg = str(e)
-                logger.error(f"YAML parse error: {error_msg}")
-                
-                # Check for specific errors that indicate standalone variable names
-                error_indicators = [
-                    "could not find expected ':'",
-                    "expected ':'",
-                    "mapping values are not allowed here"
-                ]
-                
-                if any(indicator in error_msg for indicator in error_indicators):
-                    logger.warning(f"[YAML PARSE ERROR] Detected variable name error - attempting to fix standalone variable names")
-                    
-                    # DIAGNOSTIC: Log the full YAML around the error line for debugging
-                    import re
-                    line_match = re.search(r'line (\d+)', error_msg)
-                    col_match = re.search(r'column (\d+)', error_msg)
-                    
-                    if line_match:
-                        error_line_num = int(line_match.group(1))
-                        yaml_lines = ai_yaml.split('\n')
-                        
-                        # Log diagnostic info
-                        logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Error at line {error_line_num}")
-                        logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Full error: {error_msg}")
-                        
-                        # Show 10 lines before and after the error
-                        context_start = max(0, error_line_num - 11)
-                        context_end = min(len(yaml_lines), error_line_num + 10)
-                        logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] YAML context (lines {context_start + 1}-{context_end}):")
-                        for ctx_line_num in range(context_start, context_end):
-                            marker = ">>> ERROR HERE" if ctx_line_num == error_line_num - 1 else f"    Line {ctx_line_num + 1:3d}"
-                            line_content = yaml_lines[ctx_line_num]
-                            logger.error(f"{marker}: {repr(line_content)}")
-                        
-                        # Check if the problematic line matches our pattern
-                        if error_line_num <= len(yaml_lines):
-                            problematic_line = yaml_lines[error_line_num - 1]
-                            logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Problematic line: {repr(problematic_line)}")
-                            
-                            # Test if it matches our variable pattern
-                            var_pattern = r'^(\s*)([a-z][a-z0-9_]+)$'
-                            pattern_match = re.match(var_pattern, problematic_line)
-                            if pattern_match:
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] ✓ Line MATCHES variable pattern!")
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Indent: {repr(pattern_match.group(1))}")
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Var name: {pattern_match.group(2)}")
-                            else:
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] ✗ Line does NOT match variable pattern")
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Pattern tested: {var_pattern}")
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC]   Line stripped: {repr(problematic_line.strip())}")
-                            
-                            # Check previous line
-                            if error_line_num > 1:
-                                prev_line = yaml_lines[error_line_num - 2]
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Previous line: {repr(prev_line)}")
-                            
-                            # Check next line
-                            if error_line_num < len(yaml_lines):
-                                next_line = yaml_lines[error_line_num]
-                                logger.error(f"[YAML PARSE ERROR DIAGNOSTIC] Next line: {repr(next_line)}")
-                    
-                    try:
-                        # Extract the problematic line number if available
-                        if line_match:
-                            error_line_num = int(line_match.group(1))
-                            yaml_lines = ai_yaml.split('\n')
-                            if error_line_num <= len(yaml_lines):
-                                problematic_line = yaml_lines[error_line_num - 1]
-                                
-                                # Check if it's a standalone variable name
-                                var_pattern = r'^(\s*)([a-z][a-z0-9_]+)$'
-                                if re.match(var_pattern, problematic_line):
-                                    # Direct fix: replace the problematic line
-                                    indent = re.match(var_pattern, problematic_line).group(1)
-                                    var_name = re.match(var_pattern, problematic_line).group(2)
-                                    yaml_lines[error_line_num - 1] = f"{indent}captures_variable: {var_name}"
-                                    ai_yaml = '\n'.join(yaml_lines)
-                                    logger.info(f"[YAML PARSE ERROR] Directly fixed line {error_line_num}: '{var_name}' -> 'captures_variable: {var_name}'")
-                                else:
-                                    logger.warning(f"[YAML PARSE ERROR] Line {error_line_num} does not match variable pattern, trying general fix anyway")
-                        
-                        # Also re-run the general fix (in case there are multiple issues)
-                        logger.info("[YAML PARSE ERROR] Re-applying fix_standalone_variable_names...")
-                        ai_yaml = self.yaml_processor.fix_standalone_variable_names(ai_yaml)
-                        logger.info("[YAML PARSE ERROR] Re-applied fix_standalone_variable_names, attempting parse again")
-                        # Try parsing again
-                        spec = yaml.safe_load(ai_yaml)
-                        logger.info("[YAML PARSE ERROR] Parse successful after fix!")
-                    except yaml.YAMLError as fix_error:
-                        logger.error(f"[YAML PARSE ERROR] Fix attempt still failed: {fix_error}")
-                        logger.error(f"[YAML PARSE ERROR] This suggests the fix logic needs improvement")
-                        # Log the YAML again after fix attempt
-                        if line_match:
-                            error_line_num = int(line_match.group(1))
-                            yaml_lines_after = ai_yaml.split('\n')
-                            if error_line_num <= len(yaml_lines_after):
-                                logger.error(f"[YAML PARSE ERROR] After fix attempt, line {error_line_num}: {repr(yaml_lines_after[error_line_num - 1])}")
-                    except Exception as fix_error:
-                        logger.error(f"[YAML PARSE ERROR] Fix attempt failed with exception: {type(fix_error).__name__}: {fix_error}")
-                        import traceback
-                        logger.error(f"[YAML PARSE ERROR] Traceback: {traceback.format_exc()}")
-                
-                # Log the exact YAML content that's causing the error
-                # First, log the full YAML for debugging
-                logger.error(f"[YAML PARSE ERROR] Full YAML content (first 5000 chars):\n{ai_yaml[:5000]}")
-                if 'line' in error_msg and 'column' in error_msg:
-                    import re
-                    line_match = re.search(r'line (\d+)', error_msg)
-                    col_match = re.search(r'column (\d+)', error_msg)
-                    
-                if line_match and col_match:
-                    error_line_num = int(line_match.group(1))
-                    error_col_num = int(col_match.group(1))
-                    yaml_lines = ai_yaml.split('\n')
-                    if error_line_num <= len(yaml_lines):
-                        problematic_line = yaml_lines[error_line_num - 1]
-                        logger.error(f"[YAML PARSE ERROR] Problematic line {error_line_num}, column {error_col_num}:")
-                        logger.error(f"[YAML PARSE ERROR] Full line: {repr(problematic_line)}")
-                        logger.error(f"[YAML PARSE ERROR] Line content: {problematic_line}")
-                        
-                        # Show context: previous line and next line
-                        if error_line_num > 1:
-                            prev_line = yaml_lines[error_line_num - 2]
-                            logger.error(f"[YAML PARSE ERROR] Previous line {error_line_num - 1}: {repr(prev_line)}")
-                        if error_line_num < len(yaml_lines):
-                            next_line = yaml_lines[error_line_num] if error_line_num < len(yaml_lines) else ""
-                            logger.error(f"[YAML PARSE ERROR] Next line {error_line_num + 1}: {repr(next_line)}")
-                        
-                        # Show 5 lines of context around the error
-                        context_start = max(0, error_line_num - 3)
-                        context_end = min(len(yaml_lines), error_line_num + 2)
-                        logger.error(f"[YAML PARSE ERROR] Context (lines {context_start + 1}-{context_end}):")
-                        for ctx_line_num in range(context_start, context_end):
-                            marker = ">>> " if ctx_line_num == error_line_num - 1 else "    "
-                            logger.error(f"{marker}Line {ctx_line_num + 1}: {repr(yaml_lines[ctx_line_num])}")
-                        
-                        if error_col_num <= len(problematic_line):
-                            logger.error(f"[YAML PARSE ERROR] Character at error position: {repr(problematic_line[error_col_num - 1])}")
-                            logger.error(f"[YAML PARSE ERROR] Context around error: {repr(problematic_line[max(0, error_col_num-20):error_col_num+20])}")
-                            
-                            # Try to fix this specific line
-                            if '\\' in problematic_line and not (problematic_line.strip().startswith("'") or problematic_line.strip().startswith('"')):
-                                logger.warning(f"[YAML PARSE ERROR] Line {error_line_num} contains backslash but is not quoted - attempting fix")
-                                # This should have been caught by fix_unescaped_backslashes_before_parse
-                                # Log it for debugging
-                                logger.error(f"[YAML PARSE ERROR] This line should have been fixed by pre-parse fix!")
-                    if line_match and col_match:
-                        line_num = int(line_match.group(1))
-                        col_num = int(col_match.group(1))
-                        lines_list = ai_yaml.split('\n')
-                        if line_num <= len(lines_list):
-                            problem_line = lines_list[line_num - 1]
-                            logger.error(f"PROBLEMATIC LINE {line_num}: {repr(problem_line)}")
-                            logger.error(f"Character at column {col_num}: {repr(problem_line[col_num-1:col_num+5] if col_num <= len(problem_line) else 'N/A')}")
-                            # Show first 200 chars of first line if it's line 1
-                            if line_num == 1:
-                                logger.error(f"First line full content (first 200 chars): {repr(problem_line[:200])}")
-                logger.error(f"YAML content causing error (first 1000 chars): {repr(ai_yaml[:1000])}")
-                logger.debug(f"First parse attempt failed: {e}, trying with document marker")
-                if not ai_yaml.strip().startswith('---'):
-                    yaml_with_marker = '---\n' + ai_yaml.lstrip()
-                else:
-                    yaml_with_marker = ai_yaml
-                spec = yaml.safe_load(yaml_with_marker)
+            except ValueError as e:
+                # YamlParser raises ValueError for unrecoverable errors
+                logger.error(f"YAML parsing failed after all recovery attempts: {e}")
+                raise
+            except Exception as e:
+                # Fallback error handling for unexpected errors
+                logger.error(f"Unexpected error during YAML parsing: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise ValueError(f"YAML parsing failed: {e}") from e
             
-            # Handle None or empty results
-            if spec is None:
-                logger.error(f"YAML parsed to None. YAML content (first 2000 chars): {ai_yaml[:2000]}")
-                raise ValueError("YAML parsed to None - check YAML syntax")
+            # Legacy error handling block removed - now handled by YamlParser
+            # Keeping this comment block for reference during transition
+            if False:  # Disabled - using YamlParser now
+                pass
+            # Original error handling code was here (lines 319-583)
+            # Now handled by YamlParser.parse_yaml()
             
-            # Handle non-dict results - try multiple recovery strategies
-            if not isinstance(spec, dict):
-                logger.error(f"YAML did not parse to dict: type={type(spec)}, value={str(spec)[:500]}")
-                logger.error(f"YAML content that failed to parse (first 2000 chars): {ai_yaml[:2000]}")
-                
-                # Strategy 1: If it's a list, try to extract the first dict element
-                if isinstance(spec, list) and len(spec) > 0 and isinstance(spec[0], dict):
-                    logger.warning("YAML parsed to list, using first element as dict")
-                    spec = spec[0]
-                # Strategy 2: If it's a string, try to find YAML in it
-                elif isinstance(spec, str):
-                    logger.warning("YAML parsed to string, attempting to extract YAML dict from string")
-                    # Try to find and parse YAML from the string
-                    if "runbook_id:" in spec:
-                        yaml_start = spec.find("runbook_id:")
-                        # Try to extract a reasonable chunk
-                        yaml_chunk = spec[yaml_start:yaml_start+5000]  # Get 5000 chars
-                        try:
-                            spec = yaml.safe_load(yaml_chunk)
-                            if isinstance(spec, dict):
-                                logger.info("Successfully extracted dict from string")
-                            else:
-                                raise ValueError(f"YAML parsed to string instead of dict. Content: {spec[:200]}")
-                        except Exception as e:
-                            logger.error(f"Failed to extract YAML from string: {e}")
-                            raise ValueError(f"YAML parsed to string instead of dict. Content: {spec[:200]}")
-                    else:
-                        raise ValueError(f"YAML parsed to string instead of dict. Content: {spec[:200]}")
-                # Strategy 3: Try loading all documents if it's a multi-document YAML
-                elif isinstance(spec, list) and len(spec) == 0:
-                    logger.warning("YAML parsed to empty list, trying to load all documents")
-                    try:
-                        all_docs = list(yaml.safe_load_all(ai_yaml))
-                        if all_docs and len(all_docs) > 0 and isinstance(all_docs[0], dict):
-                            spec = all_docs[0]
-                            logger.info("Successfully extracted dict from multi-document YAML")
-                        else:
-                            raise ValueError(f"invalid spec shape - not a dict (got {type(spec).__name__})")
-                    except Exception as e:
-                        logger.error(f"Failed to load multi-document YAML: {e}")
-                        raise ValueError(f"invalid spec shape - not a dict (got {type(spec).__name__})")
-                else:
-                    raise ValueError(f"invalid spec shape - not a dict (got {type(spec).__name__})")
-            if "steps" not in spec:
-                logger.error(f"[MISSING STEPS] YAML dict missing 'steps' key")
-                logger.error(f"[MISSING STEPS] Keys found in spec: {list(spec.keys())}")
-                logger.error(f"[MISSING STEPS] Full spec content (first 2000 chars): {str(spec)[:2000]}")
-                logger.error(f"[MISSING STEPS] Raw YAML that failed (first 2000 chars): {repr(ai_yaml[:2000])}")
-                logger.error(f"[MISSING STEPS] Raw YAML that failed (first 2000 chars, readable): {ai_yaml[:2000]}")
-                
-                # Check if "steps" appears in the raw YAML but wasn't parsed
-                if "steps:" in ai_yaml or "steps" in ai_yaml.lower():
-                    logger.error(f"[MISSING STEPS] 'steps' keyword found in raw YAML but not in parsed spec!")
-                    # Find where steps: appears
-                    steps_idx = ai_yaml.lower().find("steps:")
-                    if steps_idx >= 0:
-                        logger.error(f"[MISSING STEPS] Found 'steps:' at position {steps_idx} in raw YAML")
-                        logger.error(f"[MISSING STEPS] Context around steps: {repr(ai_yaml[max(0, steps_idx-100):steps_idx+500])}")
-                
-                # Try to recover - check if steps might be in inputs (common LLM mistake)
-                steps_from_inputs = []
-                if "inputs" in spec and isinstance(spec["inputs"], list):
-                    for inp in spec["inputs"]:
-                        if isinstance(inp, dict) and (inp.get("type") == "command" or "command" in inp):
-                            logger.warning(f"[MISSING STEPS] Found command in inputs, converting to step: {inp.get('name', 'unknown')}")
-                            step = {
-                                "name": inp.get("name", "Unknown step"),
-                                "type": "command",
-                                "command": inp.get("command", ""),
-                                "expected_output": inp.get("expected_output", "Command executed successfully"),
-                                "skip_in_auto_mode": False,
-                                "severity": inp.get("severity", "safe")
-                            }
-                            steps_from_inputs.append(step)
-                
-                # Try to recover - check if steps is named differently or if we can infer it
-                possible_step_keys = [k for k in spec.keys() if 'step' in k.lower() or 'action' in k.lower() or 'command' in k.lower()]
-                if possible_step_keys:
-                    logger.warning(f"[MISSING STEPS] Found possible step keys: {possible_step_keys}, attempting to rename")
-                    spec['steps'] = spec[possible_step_keys[0]]
-                elif steps_from_inputs:
-                    logger.warning(f"[MISSING STEPS] Recovered {len(steps_from_inputs)} steps from inputs section")
-                    spec['steps'] = steps_from_inputs
-                    # Clean up inputs to remove the commands
-                    spec['inputs'] = [inp for inp in spec.get('inputs', []) 
-                                     if isinstance(inp, dict) and inp.get("type") != "command" and "command" not in inp]
-                else:
-                    # If no steps at all, this is a critical error
-                    logger.error("[MISSING STEPS] No steps found in YAML - LLM generated incomplete runbook")
-                    logger.error(f"[MISSING STEPS] Available keys: {list(spec.keys())}")
-                    logger.error(f"[MISSING STEPS] Full spec dump: {yaml.safe_dump(spec, default_flow_style=False)}")
-                    raise ValueError("invalid spec shape - missing steps. LLM generated incomplete YAML without steps section. Check backend logs for details.")
-            
-            # Post-process spec
-            spec = self._post_process_spec(spec, issue_description, env, risk)
+            # Post-process spec using SpecPostProcessor
+            spec = self.spec_post_processor.post_process(spec, issue_description, env, risk)
             
             # Post-processing: Detect and flag diagnostic-only sequences
             spec = self._detect_and_flag_diagnostic_only(spec)
@@ -943,7 +560,7 @@ class RunbookGeneratorService:
                     raise ValueError("missing steps after autofix")
 
                 # Apply same post-processing as normal path
-                spec = self._post_process_spec(spec, issue_description, env, risk)
+                spec = self.spec_post_processor.post_process(spec, issue_description, env, risk)
 
                 try:
                     from app.schemas.runbook_yaml import RunbookValidator
@@ -990,24 +607,9 @@ class RunbookGeneratorService:
         db.commit()
         db.refresh(runbook)
 
-        # Store citations for this runbook (from search results)
+        # Store citations for this runbook using CitationManager
         if search_results:
-            from app.models.runbook_citation import RunbookCitation
-            for result in search_results:
-                if hasattr(result, 'document_id'):
-                    citation = RunbookCitation(
-                        runbook_id=runbook.id,
-                        document_id=result.document_id,
-                        chunk_id=getattr(result, 'chunk_id', None),
-                        relevance_score=result.score
-                    )
-                    db.add(citation)
-            try:
-                db.commit()
-                logger.info(f"Stored {len(search_results)} citations for runbook {runbook.id}")
-            except Exception as e:
-                logger.warning(f"Failed to store citations: {e}")
-                db.rollback()
+            self.citation_manager.store_citations(db, runbook, search_results)
 
         # Create response with error handling
         try:
@@ -1030,196 +632,7 @@ class RunbookGeneratorService:
             logger.error(f"[DEBUG] RunbookResponse creation traceback: {traceback.format_exc()}")
             raise
     
-    def _post_process_spec(self, spec: Dict[str, Any], issue_description: str, env: str, risk: str) -> Dict[str, Any]:
-        """Post-process YAML spec to fix common LLM formatting issues"""
-        # CRITICAL: Fix inputs section if it contains commands (LLM sometimes puts commands here)
-        if "inputs" in spec and isinstance(spec["inputs"], list):
-            valid_inputs = []
-            commands_to_move = []
-            
-            for inp in spec["inputs"]:
-                if isinstance(inp, dict):
-                    # Check if this input is actually a command (has type: command or has a command field)
-                    if inp.get("type") == "command" or "command" in inp:
-                        logger.warning(
-                            f"CRITICAL: Found command in inputs section: '{inp.get('name', 'unknown')}'. "
-                            f"Moving to steps section."
-                        )
-                        # Convert to a step
-                        step = {
-                            "name": inp.get("name", "Unknown step"),
-                            "type": "command",
-                            "command": inp.get("command", ""),
-                            "expected_output": inp.get("expected_output", "Command executed successfully"),
-                            "skip_in_auto_mode": False,
-                            "severity": inp.get("severity", "safe")
-                        }
-                        commands_to_move.append(step)
-                    else:
-                        # Valid input parameter
-                        valid_inputs.append(inp)
-            
-            # Update inputs to only contain valid parameters
-            spec["inputs"] = valid_inputs
-            
-            # Move commands from inputs to steps
-            if commands_to_move:
-                if "steps" not in spec:
-                    spec["steps"] = []
-                if not isinstance(spec["steps"], list):
-                    spec["steps"] = []
-                # Prepend the moved commands to steps (they should be at the beginning)
-                spec["steps"] = commands_to_move + spec["steps"]
-                logger.warning(
-                    f"Moved {len(commands_to_move)} command(s) from inputs to steps section. "
-                    f"Total steps now: {len(spec['steps'])}"
-                )
-        
-        # Fix inputs if it's a dict instead of list
-        if "inputs" in spec and isinstance(spec["inputs"], dict):
-            fixed_inputs = []
-            for name, value in spec["inputs"].items():
-                fixed_inputs.append({
-                    "name": name,
-                    "type": "string",
-                    "required": True,
-                    "description": f"Parameter: {name}"
-                })
-            spec["inputs"] = fixed_inputs
-            logger.debug(f"Fixed inputs: converted dict to list format with {len(fixed_inputs)} items")
-        
-        # Fix postchecks if it's a single dict instead of a list
-        if "postchecks" in spec and isinstance(spec["postchecks"], dict):
-            spec["postchecks"] = [spec["postchecks"]]
-            logger.debug("Fixed postchecks: converted single dict to list format")
-        
-        # Fix incomplete commands and ensure expected_output for checks
-        for section_name in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_POSTCHECKS]:
-            if section_name in spec and isinstance(spec[section_name], list):
-                cleaned_checks = []
-                for check in spec[section_name]:
-                    if isinstance(check, dict):
-                        command = check.get("command")
-                        if not command or not command.strip():
-                            logger.warning(f"Removing {section_name} item with missing command: {check.get('description', 'N/A')}")
-                            continue
-                        if not check.get("expected_output"):
-                            check["expected_output"] = "Command executed successfully"
-                            logger.warning(f"Added default expected_output to {section_name} item: {check.get('description', 'N/A')}")
-                        cleaned_checks.append(check)
-                spec[section_name] = cleaned_checks
-        
-        # Fix incomplete steps
-        if "steps" in spec and isinstance(spec["steps"], list):
-            cleaned_steps = []
-            for step in spec["steps"]:
-                if isinstance(step, dict):
-                    step_type = step.get("type", "command")
-                    command_value = step.get("command")
-                    
-                    if step_type == "command":
-                        if not command_value or (isinstance(command_value, str) and not command_value.strip()):
-                            logger.warning(f"Removing step with missing/empty command: {step.get('name', 'N/A')}")
-                            continue
-                    
-                    if step_type == "command" and command_value and not step.get("expected_output"):
-                        step["expected_output"] = "Command executed successfully"
-                        logger.warning(f"Added default expected_output to step: {step.get('name', 'N/A')}")
-                    
-                    cleaned_steps.append(step)
-                else:
-                    logger.warning(f"Skipping invalid step entry: {step}")
-                    continue
-            
-            if not cleaned_steps:
-                raise ValueError("All steps were removed due to missing commands")
-            spec["steps"] = cleaned_steps
-        
-        # Ensure required fields with defaults
-        if "env" not in spec:
-            spec["env"] = env
-        if "risk" not in spec:
-            spec["risk"] = risk
-        
-        # Fix description field if it's copying from inputs
-        if "description" in spec:
-            description = str(spec["description"]).strip()
-            input_description_texts = [
-                "Database name (input parameter for execution)",
-                "Name of the database to troubleshoot",
-                "Target server hostname or IP address",
-                "Database name (required for database issues)",
-                "Parameter: server_name",
-                "Parameter: database_name"
-            ]
-            if any(text in description for text in input_description_texts) or len(description) < 50:
-                logger.warning(f"Fixing description field: was '{description[:100]}'")
-                spec["description"] = f"The {issue_description.lower()}. This issue requires immediate attention to prevent service disruption and data loss."
-                logger.info(f"Fixed description to: {spec['description'][:100]}...")
-        
-        # Ensure server_name is in inputs if commands use it
-        if "inputs" in spec and isinstance(spec["inputs"], list):
-            input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
-            all_commands = []
-            for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
-                if section in spec and isinstance(spec[section], list):
-                    for item in spec[section]:
-                        if isinstance(item, dict) and "command" in item:
-                            all_commands.append(str(item["command"]))
-            
-            uses_server_name = any("{{server_name}}" in cmd or "__SERVER_NAME__" in cmd for cmd in all_commands)
-            if uses_server_name and "server_name" not in input_names:
-                logger.warning(f"Adding missing server_name input (commands use {{server_name}})")
-                spec["inputs"].insert(0, {
-                    "name": "server_name",
-                    "type": "string",
-                    "required": True,
-                    "description": "Target server hostname or IP address"
-                })
-        
-        # Ensure database_name is in inputs if commands use it
-        if "inputs" in spec and isinstance(spec["inputs"], list):
-            input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict)]
-            all_commands = []
-            for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
-                if section in spec and isinstance(spec[section], list):
-                    for item in spec[section]:
-                        if isinstance(item, dict) and "command" in item:
-                            all_commands.append(str(item["command"]))
-            
-            uses_database_name = any("{{database_name}}" in cmd or "__DATABASE_NAME__" in cmd for cmd in all_commands)
-            if uses_database_name and "database_name" not in input_names:
-                logger.warning(f"Adding missing database_name input (commands use {{database_name}})")
-                spec["inputs"].append({
-                    "name": "database_name",
-                    "type": "string",
-                    "required": True,
-                    "description": "Database name (input parameter for execution)"
-                })
-        
-        # Ensure all inputs have proper description fields
-        if "inputs" in spec and isinstance(spec["inputs"], list):
-            default_descriptions = {
-                "server_name": "Target server hostname or IP address",
-                "database_name": "Database name (input parameter for execution)"
-            }
-            for inp in spec["inputs"]:
-                if isinstance(inp, dict):
-                    name = inp.get("name")
-                    if name and not inp.get("description") and name in default_descriptions:
-                        logger.warning(f"Adding missing description for input '{name}'")
-                        inp["description"] = default_descriptions[name]
-        
-        # Ensure runbook_id is properly formatted
-        if "runbook_id" not in spec or not spec["runbook_id"]:
-            title_slug = re.sub(r'[^a-z0-9]+', '-', spec.get("title", "runbook").lower()).strip('-')
-            spec["runbook_id"] = f"rb-{spec.get('service', 'unknown')}-{title_slug[:30]}"
-            logger.warning(f"Generated missing runbook_id: {spec['runbook_id']}")
-        elif not spec["runbook_id"].startswith("rb-"):
-            spec["runbook_id"] = f"rb-{spec['runbook_id'].lstrip('rb-')}"
-            logger.warning(f"Fixed runbook_id format: {spec['runbook_id']}")
-        
-        return spec
+    # _post_process_spec method removed - now handled by SpecPostProcessor
     
     def _detect_and_flag_diagnostic_only(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """

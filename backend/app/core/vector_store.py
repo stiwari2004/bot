@@ -9,20 +9,72 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import json
 import asyncio
+import re
 
 from app.core.config import settings
 
 
 # Module-level singleton for the embedding model to avoid reloading
 _shared_embedding_model = None
+_embedding_model_loading = False
+_embedding_model_lock = asyncio.Lock()
 
 
-def get_shared_embedding_model():
-    """Get or create the shared SentenceTransformer model"""
-    global _shared_embedding_model
-    if _shared_embedding_model is None:
-        from sentence_transformers import SentenceTransformer
-        _shared_embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL)
+async def get_shared_embedding_model():
+    """Get or create the shared SentenceTransformer model (async, non-blocking)"""
+    global _shared_embedding_model, _embedding_model_loading
+    
+    # If model is already loaded, return it immediately
+    if _shared_embedding_model is not None:
+        return _shared_embedding_model
+    
+    # If model is currently being loaded, wait for it
+    if _embedding_model_loading:
+        # Wait for loading to complete (with timeout)
+        import time
+        start_time = time.time()
+        while _embedding_model_loading and (time.time() - start_time) < 300:  # 5 minute timeout
+            await asyncio.sleep(0.1)
+        if _shared_embedding_model is not None:
+            return _shared_embedding_model
+    
+    # Load model in background thread to avoid blocking
+    async with _embedding_model_lock:
+        # Double-check after acquiring lock
+        if _shared_embedding_model is not None:
+            return _shared_embedding_model
+        
+        if _embedding_model_loading:
+            # Another coroutine started loading, wait for it
+            import time
+            start_time = time.time()
+            while _embedding_model_loading and (time.time() - start_time) < 300:
+                await asyncio.sleep(0.1)
+            if _shared_embedding_model is not None:
+                return _shared_embedding_model
+        
+        # Start loading model in background thread
+        _embedding_model_loading = True
+        try:
+            from sentence_transformers import SentenceTransformer
+            from app.core.logging import get_logger
+            logger = get_logger(__name__)
+            
+            logger.info(f"Loading embedding model {settings.EMBEDDING_MODEL} in background thread...")
+            # Load model in thread pool to avoid blocking
+            _shared_embedding_model = await asyncio.to_thread(
+                SentenceTransformer,
+                settings.EMBEDDING_MODEL
+            )
+            logger.info(f"✅ Embedding model {settings.EMBEDDING_MODEL} loaded successfully")
+        except Exception as e:
+            from app.core.logging import get_logger
+            logger = get_logger(__name__)
+            logger.error(f"Failed to load embedding model: {e}", exc_info=True)
+            raise
+        finally:
+            _embedding_model_loading = False
+    
     return _shared_embedding_model
 
 
@@ -83,16 +135,34 @@ class PgVectorStore(VectorStore):
     def __init__(self):
         self.embedding_dim = settings.EMBEDDING_DIMENSION
     
-    def _get_model(self):
-        """Get the shared embedding model"""
-        return get_shared_embedding_model()
+    async def _get_model(self):
+        """Get the shared embedding model (async)"""
+        return await get_shared_embedding_model()
     
     async def _generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for text (async wrapper for blocking operation)"""
-        model = self._get_model()
+        model = await self._get_model()
         # Run blocking encode operation in thread pool
         embedding = await asyncio.to_thread(model.encode, [text])
-        return embedding[0].tolist()
+        embedding_list = embedding[0].tolist()
+        
+        # Validate embedding dimension matches expected
+        actual_dim = len(embedding_list)
+        expected_dim = self.embedding_dim
+        if actual_dim != expected_dim:
+            from app.core.logging import get_logger
+            logger = get_logger(__name__)
+            logger.error(
+                f"Embedding dimension mismatch! Model '{settings.EMBEDDING_MODEL}' produces {actual_dim} dimensions, "
+                f"but database expects {expected_dim}. Update EMBEDDING_DIMENSION in config or use correct model."
+            )
+            raise ValueError(
+                f"Embedding dimension mismatch: model produces {actual_dim} dimensions, "
+                f"but database expects {expected_dim}. "
+                f"Model: {settings.EMBEDDING_MODEL}, Expected: {expected_dim}, Got: {actual_dim}"
+            )
+        
+        return embedding_list
     
     def _vector_to_pg_format(self, vector: List[float]) -> str:
         """Convert vector to PostgreSQL vector format"""
@@ -177,10 +247,15 @@ class PgVectorStore(VectorStore):
         # Format vector for PostgreSQL
         query_vector_str = self._vector_to_pg_format(query_embedding)
         
-        # Build SQL query with proper vector casting
-        # Note: We use f-string here because pgvector requires ::vector cast
-        # in the SQL. SQLAlchemy text() doesn't support custom types well.
-        sql = f"""
+        # Security: Validate vector format to prevent SQL injection
+        # Vector should be in format: [num1,num2,num3,...] with only numbers, brackets, commas, spaces
+        if not re.match(r'^\[[\d\s,\.\-eE]+\]$', query_vector_str):
+            raise ValueError(f"Invalid vector format: {query_vector_str[:50]}")
+        
+        # Build SQL query using parameterized approach
+        # For pgvector, we need to cast to vector type, but we validate the input first
+        # Use bindparam for the vector to ensure proper escaping
+        sql = text("""
         SELECT 
             c.id as chunk_id,
             c.document_id,
@@ -188,26 +263,31 @@ class PgVectorStore(VectorStore):
             c.meta_data,
             d.title as document_title,
             d.source_type as document_source,
-            1 - (e.embedding <=> '{query_vector_str}'::vector) as score
+            1 - (e.embedding <=> :query_vector::vector) as score
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
         JOIN embeddings e ON c.id = e.chunk_id
         WHERE d.tenant_id = :tenant_id
-        """
+        """)
         
-        params = {"tenant_id": tenant_id}
+        params = {
+            "tenant_id": tenant_id,
+            "query_vector": query_vector_str  # Validated above
+        }
         
         if source_types:
+            # Build dynamic IN clause safely
             placeholders = ','.join([f':source_type_{i}' for i in range(len(source_types))])
-            sql += f" AND d.source_type IN ({placeholders})"
+            sql = text(str(sql) + f" AND d.source_type IN ({placeholders})")
             for i, source_type in enumerate(source_types):
                 params[f"source_type_{i}"] = source_type
         
-        sql += f" ORDER BY e.embedding <=> '{query_vector_str}'::vector LIMIT :top_k"
+        # Add ORDER BY and LIMIT safely
+        sql = text(str(sql) + " ORDER BY e.embedding <=> :query_vector::vector LIMIT :top_k")
         params["top_k"] = top_k
         
-        # Execute query
-        result = db.execute(text(sql), params)
+        # Execute query with validated parameters
+        result = db.execute(sql, params)
         rows = result.fetchall()
         
         # Convert to SearchResult objects
@@ -288,10 +368,12 @@ class PgVectorStore(VectorStore):
         # Format vector for PostgreSQL
         query_vector_str = self._vector_to_pg_format(query_embedding)
         
-        # Build SQL with vector inline (needed for pgvector operators)
-        # Note: We use f-string here because pgvector requires ::vector cast
-        # in the SQL. SQLAlchemy text() doesn't support custom types well.
-        vector_sql = f"""
+        # Security: Validate vector format to prevent SQL injection
+        if not re.match(r'^\[[\d\s,\.\-eE]+\]$', query_vector_str):
+            raise ValueError(f"Invalid vector format: {query_vector_str[:50]}")
+        
+        # Build SQL using parameterized approach with validated vector
+        vector_sql = text("""
         SELECT 
             c.id as chunk_id,
             c.document_id,
@@ -299,23 +381,27 @@ class PgVectorStore(VectorStore):
             c.meta_data,
             d.title as document_title,
             d.source_type as document_source,
-            1 - (e.embedding <=> '{query_vector_str}'::vector) as vector_score
+            1 - (e.embedding <=> :query_vector::vector) as vector_score
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
         JOIN embeddings e ON c.id = e.chunk_id
         WHERE d.tenant_id = :tenant_id
-        """
+        """)
         
-        params = {"tenant_id": tenant_id}
+        params = {
+            "tenant_id": tenant_id,
+            "query_vector": query_vector_str  # Validated above
+        }
         
         if source_types:
+            # Build dynamic IN clause safely
             placeholders = ','.join([f':source_type_{i}' for i in range(len(source_types))])
-            vector_sql += f" AND d.source_type IN ({placeholders})"
+            vector_sql = text(str(vector_sql) + f" AND d.source_type IN ({placeholders})")
             for i, source_type in enumerate(source_types):
                 params[f"source_type_{i}"] = source_type
         
         # Get 2x results for better recall
-        vector_sql += f" ORDER BY e.embedding <=> '{query_vector_str}'::vector LIMIT :top_k_expanded"
+        vector_sql = text(str(vector_sql) + " ORDER BY e.embedding <=> :query_vector::vector LIMIT :top_k_expanded")
         params["top_k_expanded"] = top_k * 20  # Get 20x more for better coverage
         
         # Step 2: Keyword search using PostgreSQL full-text search

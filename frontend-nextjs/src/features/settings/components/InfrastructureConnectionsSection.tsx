@@ -1,8 +1,10 @@
 'use client';
 
-import { PlusIcon, WrenchScrewdriverIcon } from '@heroicons/react/24/outline';
+import { useState } from 'react';
+import { PlusIcon, WrenchScrewdriverIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline';
 import type { InfrastructureConnection, Credential } from '../types';
 import { useInfrastructureConnections } from '../hooks/useInfrastructureConnections';
+import { apiConfig } from '@/lib/api-config';
 
 interface InfrastructureConnectionsSectionProps {
   connections: InfrastructureConnection[];
@@ -27,12 +29,51 @@ export function InfrastructureConnectionsSection({
   onEditConnection,
   onShowTestCommand,
 }: InfrastructureConnectionsSectionProps) {
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+
   const {
     handleTestConnection,
     handleDiscoverResources,
     handleTestCommand,
     handleDeleteConnection,
   } = useInfrastructureConnections(onRefresh, onSuccess, onError);
+
+  const handleImport = async () => {
+    if (!importFile) return;
+
+    try {
+      setImporting(true);
+      const formData = new FormData();
+      formData.append('file', importFile);
+
+      const response = await fetch(apiConfig.endpoints.connectors.infrastructureConnectionsImport(), {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Import failed');
+      }
+
+      const result = await response.json();
+      setImportResult(result);
+      setImportFile(null);
+      
+      if (result.imported && result.imported.length > 0) {
+        onSuccess(`Successfully imported ${result.imported.length} connections`);
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Error importing connections:', error);
+      onError(error instanceof Error ? error.message : 'Failed to import connections');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
@@ -47,6 +88,13 @@ export function InfrastructureConnectionsSection({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <ArrowUpTrayIcon className="h-5 w-5" />
+              Import from Excel
+            </button>
             <button
               onClick={onShowAddCredential}
               className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
@@ -154,6 +202,96 @@ export function InfrastructureConnectionsSection({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Import Modal */}
+        {showImport && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
+              <h2 className="text-xl font-bold mb-4">Import Infrastructure Connections from Excel</h2>
+              
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-2">
+                  Upload an Excel file (.xlsx) with the following columns:
+                </p>
+                <div className="bg-gray-50 p-3 rounded text-sm">
+                  <p className="font-semibold mb-1">Required columns:</p>
+                  <ul className="list-disc list-inside text-gray-700 mb-2">
+                    <li>name (or hostname, device_name, connection_name)</li>
+                    <li>target_host (or host, ip, ip_address, management_ip)</li>
+                    <li>connection_type (ssh, network_device, database, api, etc.)</li>
+                  </ul>
+                  <p className="font-semibold mb-1">Optional columns:</p>
+                  <ul className="list-disc list-inside text-gray-700 mb-2">
+                    <li>target_port, environment, username, password</li>
+                    <li>For network devices: vendor, model, device_type, location, network_segment, site, serial_number, firmware_version, snmp_community, snmp_version</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              {importResult && (
+                <div className="mb-4 p-4 bg-gray-50 rounded">
+                  <p className="font-semibold mb-2">{importResult.message}</p>
+                  {importResult.imported && importResult.imported.length > 0 && (
+                    <div className="mb-2">
+                      <p className="text-sm text-green-700 font-medium">Imported ({importResult.imported.length}):</p>
+                      <ul className="text-xs text-gray-600 mt-1">
+                        {importResult.imported.slice(0, 5).map((item: any) => (
+                          <li key={item.id}>• {item.name} ({item.host}) - {item.type}</li>
+                        ))}
+                        {importResult.imported.length > 5 && (
+                          <li>... and {importResult.imported.length - 5} more</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {importResult.errors && importResult.errors.length > 0 && (
+                    <div>
+                      <p className="text-sm text-red-700 font-medium">Errors ({importResult.errors.length}):</p>
+                      <ul className="text-xs text-gray-600 mt-1">
+                        {importResult.errors.slice(0, 5).map((error: any, idx: number) => (
+                          <li key={idx}>• Row {error.row}: {error.error}</li>
+                        ))}
+                        {importResult.errors.length > 5 && (
+                          <li>... and {importResult.errors.length - 5} more errors</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowImport(false);
+                    setImportFile(null);
+                    setImportResult(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  disabled={importing}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleImport}
+                  disabled={!importFile || importing}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {importing ? 'Importing...' : 'Import'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

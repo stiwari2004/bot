@@ -8,6 +8,8 @@ from datetime import datetime
 
 from app.controllers.base_controller import BaseController
 from app.repositories.ticket_repository import TicketRepository
+from app.repositories.runbook_repository import RunbookRepository
+from app.repositories.execution_repository import ExecutionRepository
 from app.models.ticket import Ticket
 from app.services.ticket_analysis_service import TicketAnalysisService
 from app.services.ticket_status_service import get_ticket_status_service
@@ -15,6 +17,7 @@ from app.services.ticket.ticket_normalizer import TicketNormalizer
 from app.services.ticket.runbook_matching_service import RunbookMatchingService
 from app.services.execution import ExecutionEngine
 from app.services.config_service import ConfigService
+from app.services.decision import RecommendationEngine
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -27,11 +30,14 @@ class TicketController(BaseController):
         self.db = db
         self.tenant_id = tenant_id
         self.ticket_repo = TicketRepository(db)
+        self.runbook_repo = RunbookRepository(db)
+        self.execution_repo = ExecutionRepository(db)
         self.normalizer = TicketNormalizer()
         self.matching_service = RunbookMatchingService()
         self.analysis_service = TicketAnalysisService()
         self.ticket_status_service = get_ticket_status_service()
         self.execution_engine = ExecutionEngine()
+        self.recommendation_engine = RecommendationEngine()
     
     async def receive_webhook(
         self,
@@ -43,8 +49,8 @@ class TicketController(BaseController):
             # Normalize ticket data
             ticket_data = self.normalizer.normalize(payload, source)
             
-            # Create ticket
-            ticket = Ticket(
+            # Create ticket using repository
+            ticket = self.ticket_repo.create_ticket(
                 tenant_id=self.tenant_id,
                 source=source,
                 external_id=ticket_data.get("external_id"),
@@ -59,12 +65,19 @@ class TicketController(BaseController):
                 received_at=datetime.utcnow()
             )
             
-            self.db.add(ticket)
-            self.db.commit()
-            self.db.refresh(ticket)
-            
             # Analyze ticket
             analysis_result = await self._analyze_ticket(ticket)
+            
+            # Generate recommendation
+            try:
+                recommendation = await self.recommendation_engine.recommend_runbook(ticket, self.db)
+                self.ticket_repo.update_ticket_metadata(
+                    ticket_id=ticket.id,
+                    tenant_id=self.tenant_id,
+                    meta_data={"recommendation": recommendation.to_dict()}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to generate recommendation for ticket {ticket.id}: {e}")
             
             return {
                 "ticket_id": ticket.id,
@@ -83,7 +96,8 @@ class TicketController(BaseController):
     ) -> Dict[str, Any]:
         """Create a demo ticket for testing"""
         try:
-            ticket = Ticket(
+            # Create ticket using repository
+            ticket = self.ticket_repo.create_ticket(
                 tenant_id=self.tenant_id,
                 source=ticket_data.get("source", "custom"),
                 external_id=ticket_data.get("external_id"),
@@ -98,20 +112,25 @@ class TicketController(BaseController):
                 received_at=datetime.utcnow()
             )
             
-            self.db.add(ticket)
-            self.db.commit()
-            self.db.refresh(ticket)
-            
             # Analyze ticket
             analysis_result = await self._analyze_ticket(ticket)
+            
+            # Generate recommendation
+            try:
+                recommendation = await self.recommendation_engine.recommend_runbook(ticket, self.db)
+                self.ticket_repo.update_ticket_metadata(
+                    ticket_id=ticket.id,
+                    tenant_id=self.tenant_id,
+                    meta_data={"recommendation": recommendation.to_dict()}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to generate recommendation for ticket {ticket.id}: {e}")
             
             # Find and store matching runbooks
             await self._find_and_store_matched_runbooks(ticket, analysis_result)
             
             # Auto-execute if conditions are met
             await self._auto_execute_if_eligible(ticket)
-            
-            self.db.commit()
             
             return {
                 "ticket_id": ticket.id,
@@ -133,18 +152,21 @@ class TicketController(BaseController):
             "source": ticket.source
         })
         
-        # Update ticket with analysis
-        ticket.classification = analysis_result["classification"]
+        # Update ticket with analysis using repository
         confidence = analysis_result["confidence"]
-        if confidence >= 0.8:
-            ticket.classification_confidence = "high"
-        elif confidence >= 0.5:
-            ticket.classification_confidence = "medium"
-        else:
-            ticket.classification_confidence = "low"
+        classification_confidence = "high" if confidence >= 0.8 else ("medium" if confidence >= 0.5 else "low")
         
-        ticket.analyzed_at = datetime.utcnow()
-        ticket.status = "analyzing"
+        self.ticket_repo.update_ticket(
+            ticket_id=ticket.id,
+            tenant_id=self.tenant_id,
+            classification=analysis_result["classification"],
+            classification_confidence=classification_confidence,
+            analyzed_at=datetime.utcnow(),
+            status="analyzing"
+        )
+        
+        # Refresh ticket object to get updated values
+        ticket = self.ticket_repo.get_by_id_and_tenant(ticket.id, self.tenant_id)
         
         # Close ticket if false positive
         if analysis_result["classification"] == "false_positive" and confidence >= 0.8:
@@ -158,9 +180,6 @@ class TicketController(BaseController):
         analysis_result: Dict[str, Any]
     ):
         """Find matching runbooks and store them in ticket meta_data"""
-        if not ticket.meta_data:
-            ticket.meta_data = {}
-        
         # Only search if not false positive
         if analysis_result["classification"] != "false_positive":
             matched_runbooks = await self.matching_service.find_matching_runbooks(
@@ -172,7 +191,11 @@ class TicketController(BaseController):
             )
             
             if matched_runbooks:
-                ticket.meta_data["matched_runbooks"] = matched_runbooks
+                self.ticket_repo.update_ticket_metadata(
+                    ticket_id=ticket.id,
+                    tenant_id=self.tenant_id,
+                    meta_data={"matched_runbooks": matched_runbooks}
+                )
                 logger.info(f"Found {len(matched_runbooks)} matching runbooks for ticket {ticket.id}")
     
     async def _auto_execute_if_eligible(self, ticket: Ticket):
@@ -197,12 +220,10 @@ class TicketController(BaseController):
         # 3. Runbook is approved
         if execution_mode == 'auto' and match_confidence >= 0.8 and runbook_id:
             try:
-                from app.models.runbook import Runbook
-                runbook = self.db.query(Runbook).filter(
-                    Runbook.id == runbook_id,
-                    Runbook.tenant_id == self.tenant_id,
-                    Runbook.status == "approved"
-                ).first()
+                runbook = self.runbook_repo.get_approved_by_id_and_tenant(
+                    runbook_id=runbook_id,
+                    tenant_id=self.tenant_id
+                )
                 
                 if runbook:
                     session = await self.execution_engine.create_execution_session(
@@ -297,11 +318,26 @@ class TicketController(BaseController):
                     if rb["id"] not in existing_ids:
                         matched_runbooks.append(rb)
             
-            # Get execution sessions
-            from app.models.execution_session import ExecutionSession
-            execution_sessions = self.db.query(ExecutionSession).filter(
-                ExecutionSession.ticket_id == ticket_id
-            ).order_by(ExecutionSession.created_at.desc()).all()
+            # Get execution sessions using repository
+            execution_sessions = self.execution_repo.get_by_ticket_id(ticket_id)
+            
+            # Get or generate recommendation
+            recommendation = None
+            if ticket.meta_data and isinstance(ticket.meta_data, dict):
+                recommendation = ticket.meta_data.get("recommendation")
+            
+            # If no recommendation in meta_data, generate one
+            if not recommendation:
+                try:
+                    rec = await self.recommendation_engine.recommend_runbook(ticket, self.db)
+                    recommendation = rec.to_dict()
+                    self.ticket_repo.update_ticket_metadata(
+                        ticket_id=ticket_id,
+                        tenant_id=self.tenant_id,
+                        meta_data={"recommendation": recommendation}
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate recommendation for ticket {ticket_id}: {e}")
             
             return {
                 "id": ticket.id,
@@ -319,6 +355,7 @@ class TicketController(BaseController):
                 "analyzed_at": ticket.analyzed_at.isoformat() if ticket.analyzed_at else None,
                 "resolved_at": ticket.resolved_at.isoformat() if ticket.resolved_at else None,
                 "matched_runbooks": matched_runbooks,
+                "recommendation": recommendation,
                 "execution_sessions": [
                     {
                         "id": es.id,
@@ -346,13 +383,11 @@ class TicketController(BaseController):
             if not ticket:
                 raise self.not_found("Ticket", ticket_id)
             
-            # Verify runbook exists and is approved
-            from app.models.runbook import Runbook
-            runbook = self.db.query(Runbook).filter(
-                Runbook.id == runbook_id,
-                Runbook.tenant_id == self.tenant_id,
-                Runbook.status == "approved"
-            ).first()
+            # Verify runbook exists and is approved using repository
+            runbook = self.runbook_repo.get_approved_by_id_and_tenant(
+                runbook_id=runbook_id,
+                tenant_id=self.tenant_id
+            )
             
             if not runbook:
                 raise self.not_found("Runbook", runbook_id)

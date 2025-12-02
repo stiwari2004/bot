@@ -15,9 +15,31 @@ from app.core.logging import setup_logging, get_logger
 from app.middleware.request_id import RequestIDMiddleware
 from app.api.v1.api import api_router
 
-# Setup structured logging
+# Setup structured logging first (needed for rate limiting messages)
 setup_logging(settings.LOG_LEVEL)
 logger = get_logger(__name__)
+
+# Rate limiting (MF-10) - Optional, graceful fallback if slowapi not installed
+limiter = None
+_rate_limit_exceeded_handler = None
+RateLimitExceeded = None
+
+if settings.RATE_LIMIT_ENABLED:
+    try:
+        from slowapi import Limiter, _rate_limit_exceeded_handler
+        from slowapi.util import get_remote_address
+        from slowapi.errors import RateLimitExceeded
+        
+        limiter = Limiter(key_func=get_remote_address)
+        # Set global limiter for use in endpoints
+        from app.core.rate_limiting import set_limiter
+        set_limiter(limiter)
+        logger.info("Rate limiting enabled (slowapi installed)")
+    except ImportError:
+        logger.warning("Rate limiting disabled: slowapi not installed. Install with: pip install slowapi")
+        limiter = None
+else:
+    logger.info("Rate limiting disabled (RATE_LIMIT_ENABLED=false)")
 
 
 @asynccontextmanager
@@ -27,6 +49,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Troubleshooting AI Agent")
     await init_db()
     logger.info("Database initialized")
+    
+    # Start WebSocket cleanup task
+    import asyncio
+    from app.api.v1.endpoints.agent_execution import cleanup_idle_connections
+    cleanup_task = None
+    try:
+        cleanup_task = asyncio.create_task(cleanup_idle_connections())
+        logger.info("WebSocket cleanup task started")
+    except Exception as e:
+        logger.warning(f"Failed to start WebSocket cleanup task: {e}")
     
     # Preload embedding model to avoid first-request delay
     # Use lazy loading with timeout to prevent blocking startup on constrained systems
@@ -43,7 +75,7 @@ async def lifespan(app: FastAPI):
             # Load model with timeout to prevent infinite blocking
             try:
                 model = await asyncio.wait_for(
-                    asyncio.to_thread(get_shared_embedding_model),
+                    get_shared_embedding_model(),  # Now async
                     timeout=120.0  # 2 minute timeout
                 )
                 logger.info(f"✅ Embedding model loaded: {settings.EMBEDDING_MODEL}")
@@ -73,11 +105,21 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Troubleshooting AI Agent")
     
+    # Cancel WebSocket cleanup task
+    if cleanup_task is not None:
+        try:
+            cleanup_task.cancel()
+            await asyncio.wait_for(cleanup_task, timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        except Exception as e:
+            logger.warning(f"Error cancelling WebSocket cleanup task: {e}")
+        logger.info("WebSocket cleanup task stopped")
+    
     # Stop ticketing poller service
     try:
         from app.services.ticketing_poller import stop_poller
         # Use asyncio.wait_for to ensure we don't block shutdown
-        import asyncio
         try:
             await asyncio.wait_for(stop_poller(), timeout=5.0)
             logger.info("Ticketing poller service stopped")
@@ -95,16 +137,29 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add rate limiting if enabled (MF-10)
+if limiter and RateLimitExceeded and _rate_limit_exceeded_handler:
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Request ID middleware (must be first)
 app.add_middleware(RequestIDMiddleware)
 
-# CORS middleware
+# CORS middleware - Security: Restrict methods and headers
+# In sandbox/dev mode, allow all localhost origins for easier testing
+cors_origins = settings.ALLOWED_HOSTS
+if settings.ENVIRONMENT.lower() in ("sandbox", "development", "dev"):
+    # Allow all localhost origins in sandbox/dev
+    cors_origins = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost:8001"]
+    logger.info(f"CORS: Allowing all localhost origins for {settings.ENVIRONMENT} environment")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_HOSTS,
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # Restrict methods
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],  # Restrict headers
+    expose_headers=["X-Total-Count", "X-Page-Count"],  # Only expose necessary headers
 )
 
 # Include API routes

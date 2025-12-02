@@ -142,6 +142,23 @@ class AnalyticsController(BaseController):
         except Exception as e:
             logger.error(f"Error getting runbook metrics: {e}", exc_info=True)
             raise self.handle_error(e, "Failed to get runbook metrics")
+    
+    async def get_accuracy_metrics(
+        self,
+        tenant_id: int,
+        db: Session,
+        days: int = 30
+    ) -> Dict[str, Any]:
+        """Get overall accuracy metrics across all components"""
+        try:
+            return await self.analytics_service.get_accuracy_metrics(
+                tenant_id=tenant_id,
+                db=db,
+                days=days
+            )
+        except Exception as e:
+            logger.error(f"Error getting accuracy metrics: {e}", exc_info=True)
+            raise self.handle_error(e, "Failed to get accuracy metrics")
 
 
 

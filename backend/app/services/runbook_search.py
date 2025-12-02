@@ -11,6 +11,7 @@ from app.models.runbook import Runbook
 from app.models.runbook_usage import RunbookUsage
 from app.models.runbook_citation import RunbookCitation
 from app.core.logging import get_logger
+from app.core.input_sanitizer import sanitize_for_logging
 
 logger = get_logger(__name__)
 
@@ -126,7 +127,8 @@ class RunbookSearchService:
                 meta = json.loads(search_result.meta_data) if isinstance(search_result.meta_data, str) else search_result.meta_data
                 if 'runbook_id' in meta:
                     return int(meta['runbook_id'])
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+                logger.debug(f"Failed to extract runbook_id from search result metadata: {e}")
                 pass
         
         # Fall back to parsing from title or source
@@ -178,7 +180,8 @@ class RunbookSearchService:
                     try:
                         last_date = datetime.fromisoformat(last_used.replace('Z', '+00:00'))
                         days_since_last_use = (datetime.now(last_date.tzinfo) - last_date).days
-                    except:
+                    except (ValueError, TypeError, AttributeError) as e:
+                        logger.debug(f"Failed to parse last_used date: {e}")
                         pass
             
             results.append({

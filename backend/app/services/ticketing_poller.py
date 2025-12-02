@@ -12,6 +12,7 @@ from app.models.ticketing_tool_connection import TicketingToolConnection
 from app.models.ticket import Ticket
 from app.services.ticketing_connectors.zoho import ZohoTicketFetcher
 from app.services.ticketing_connectors.manageengine import ManageEngineTicketFetcher
+from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -23,6 +24,7 @@ class TicketingPoller:
     def __init__(self):
         self.zoho_fetcher = ZohoTicketFetcher()
         self.manageengine_fetcher = ManageEngineTicketFetcher()
+        self.servicenow_fetcher = ServiceNowTicketFetcher()
         self.running = False
         self._task: Optional[asyncio.Task] = None
     
@@ -55,6 +57,7 @@ class TicketingPoller:
         try:
             await self.zoho_fetcher.close()
             await self.manageengine_fetcher.close()
+            await self.servicenow_fetcher.close()
         except Exception as e:
             logger.warning(f"Error closing fetchers: {e}")
         
@@ -151,15 +154,24 @@ class TicketingPoller:
             # Store original to detect if tokens changed
             original_meta_data = json.dumps(meta_data) if meta_data else None
             
-            # Determine last sync time (default to 1 hour ago if never synced)
+            # Determine last sync time
+            # For first sync or if last_sync_at is None, fetch all recent tickets (last 24 hours)
+            # For subsequent syncs, only fetch tickets updated since last sync
             since = None
             if connection.last_sync_at:
                 since = connection.last_sync_at
                 # Ensure since is timezone-aware
                 if since.tzinfo is None:
                     since = since.replace(tzinfo=timezone.utc)
+                # If last sync was more than 24 hours ago, limit to last 24 hours to avoid huge fetches
+                time_since_last_sync = datetime.now(timezone.utc) - since
+                if time_since_last_sync > timedelta(hours=24):
+                    since = datetime.now(timezone.utc) - timedelta(hours=24)
+                    logger.info(f"Last sync was {time_since_last_sync} ago, limiting fetch to last 24 hours")
             else:
-                since = datetime.now(timezone.utc) - timedelta(hours=1)
+                # First sync - fetch tickets from last 24 hours
+                since = datetime.now(timezone.utc) - timedelta(hours=24)
+                logger.info(f"First sync for {connection.tool_name} connection {connection.id}, fetching tickets from last 24 hours")
             
             tickets = []
             
@@ -180,6 +192,31 @@ class TicketingPoller:
                     limit=100
                 )
             
+            elif connection.tool_name == "servicenow":
+                # ServiceNow supports OAuth 2.0 or Basic Auth
+                logger.info(f"Fetching ServiceNow tickets: since={since}, limit=100")
+                logger.debug(f"ServiceNow meta_data keys: {list(meta_data.keys())}")
+                # Credentials can be in meta_data OR in connection.api_username/api_password
+                # Check both locations
+                username = meta_data.get("username") or connection.api_username
+                password = meta_data.get("password") or connection.api_password
+                logger.debug(f"ServiceNow credentials: username={'present' if username else 'missing'}, password={'present' if password else 'missing'}")
+                if username:
+                    logger.debug(f"ServiceNow username (first 5 chars): {username[:5]}... (length: {len(username)})")
+                if password:
+                    logger.debug(f"ServiceNow password length: {len(password)} chars")
+                tickets = await self.servicenow_fetcher.fetch_tickets(
+                    api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
+                    connection_meta=meta_data,
+                    username=username,
+                    password=password,
+                    client_id=meta_data.get("client_id"),
+                    client_secret=meta_data.get("client_secret"),
+                    since=since,
+                    limit=100
+                )
+                logger.info(f"ServiceNow fetcher returned {len(tickets)} tickets")
+            
             else:
                 logger.warning(f"Unsupported tool for polling: {connection.tool_name}")
                 return
@@ -193,18 +230,34 @@ class TicketingPoller:
             # Create/update tickets in database
             created_count = 0
             updated_count = 0
+            error_count = 0
+            
+            logger.info(f"Processing {len(tickets)} tickets from {connection.tool_name} connection {connection.id}")
+            
+            if len(tickets) == 0:
+                logger.warning(f"No tickets fetched from {connection.tool_name} connection {connection.id}. This could mean:")
+                logger.warning(f"  1. No tickets match the query criteria (since={since})")
+                logger.warning(f"  2. API returned empty result")
+                logger.warning(f"  3. Authentication/authorization issue")
             
             for ticket_data in tickets:
                 try:
+                    external_id = ticket_data.get("external_id")
+                    title = ticket_data.get("title", "No title")
+                    source = ticket_data.get("source")
+                    
+                    logger.debug(f"Processing ticket: external_id={external_id}, source={source}, title={title[:50]}")
+                    
                     # Check if ticket already exists by external_id
                     existing = db.query(Ticket).filter(
                         Ticket.tenant_id == connection.tenant_id,
-                        Ticket.source == ticket_data["source"],
-                        Ticket.external_id == ticket_data["external_id"]
+                        Ticket.source == source,
+                        Ticket.external_id == external_id
                     ).first()
                     
                     if existing:
                         # Update existing ticket
+                        logger.debug(f"Ticket {external_id} already exists, updating...")
                         # CRITICAL: Preserve existing meta_data (including matched_runbooks) when syncing from external system
                         from sqlalchemy.orm.attributes import flag_modified
                         # Note: json is already imported at the top of the file
@@ -230,12 +283,14 @@ class TicketingPoller:
                         existing.meta_data = preserved_meta
                         flag_modified(existing, "meta_data")
                         updated_count += 1
+                        logger.debug(f"Updated ticket {external_id}")
                     else:
                         # Create new ticket
+                        logger.info(f"Creating new ticket: external_id={external_id}, title={title[:50]}")
                         new_ticket = Ticket(
                             tenant_id=connection.tenant_id,
-                            source=ticket_data["source"],
-                            external_id=ticket_data["external_id"],
+                            source=source,
+                            external_id=external_id,
                             title=ticket_data["title"],
                             description=ticket_data["description"],
                             severity=ticket_data["severity"],
@@ -247,14 +302,18 @@ class TicketingPoller:
                         )
                         db.add(new_ticket)
                         created_count += 1
+                        logger.info(f"✅ Created ticket: {external_id} - {title[:50]}")
                         
                 except Exception as e:
-                    logger.error(f"Error processing ticket {ticket_data.get('external_id')}: {e}")
+                    error_count += 1
+                    logger.error(f"❌ Error processing ticket {ticket_data.get('external_id')}: {e}", exc_info=True)
                     continue
             
-            # Update connection metadata if tokens were refreshed (for Zoho and ManageEngine)
+            logger.info(f"Ticket processing complete: {created_count} created, {updated_count} updated, {error_count} errors")
+            
+            # Update connection metadata if tokens were refreshed (for Zoho, ManageEngine, and ServiceNow)
             # Always persist tokens if they were refreshed, even if fetch_tickets() succeeded
-            if connection.tool_name in ("zoho", "manageengine") and meta_data:
+            if connection.tool_name in ("zoho", "manageengine", "servicenow") and meta_data:
                 connection.meta_data = json.dumps(meta_data)
                 if tokens_refreshed:
                     logger.info(f"Persisted refreshed tokens for {connection.tool_name} connection {connection.id}")
@@ -278,7 +337,7 @@ class TicketingPoller:
             
             # CRITICAL: Persist refreshed tokens even if fetch_tickets() failed
             # This ensures we don't lose refreshed tokens due to API errors
-            if tokens_refreshed and connection.tool_name in ("zoho", "manageengine") and meta_data:
+            if tokens_refreshed and connection.tool_name in ("zoho", "manageengine", "servicenow") and meta_data:
                 try:
                     logger.warning(
                         f"Fetch failed but tokens were refreshed. Persisting tokens for {connection.tool_name} "

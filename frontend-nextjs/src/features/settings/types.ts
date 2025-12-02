@@ -16,6 +16,7 @@ export interface TicketingConnection {
   sync_interval_minutes?: number;
   api_key?: string | null;
   api_username?: string | null;
+  api_password?: string | null;
   meta_data?: string | any;
   oauth_authorized?: boolean;
 }
@@ -25,6 +26,19 @@ export interface TicketingTool {
   display_name: string;
   connection_types: string[];
   description: string;
+}
+
+export interface MonitoringConnection {
+  id: number;
+  tool_name: string;
+  connection_type: string;
+  is_active: boolean;
+  webhook_url: string | null;
+  api_base_url: string | null;
+  last_sync_at: string | null;
+  last_sync_status: string | null;
+  last_error: string | null;
+  meta_data?: any;
 }
 
 export interface InfrastructureConnection {

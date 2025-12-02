@@ -4,27 +4,77 @@ Runbook API endpoints
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel, Field, validator
+from enum import Enum
 
 from app.core.database import get_db, SessionLocal
 from app.models.user import User
 from app.schemas.runbook import RunbookResponse, RunbookUpdate
 from app.services.auth import get_current_user
 from app.controllers.runbook_controller import RunbookController
+from app.controllers.runbook_version_controller import RunbookVersionController
+from app.controllers.citation_controller import CitationController
 from app.services.cloud_discovery import CloudDiscoveryService
 from app.services.ci_extraction_service import CIExtractionService
+from app.core.rate_limiting import rate_limit
 
 router = APIRouter()
+
+
+# Input validation models
+class ServiceType(str, Enum):
+    """CI Type enumeration"""
+    SERVER = "server"
+    DATABASE = "database"
+    WEB = "web"
+    STORAGE = "storage"
+    NETWORK = "network"
+    AUTO = "auto"
+    # Backward compatibility
+    WINDOWS = "Windows"
+    LINUX = "Linux"
+
+
+class EnvironmentType(str, Enum):
+    """Environment enumeration"""
+    PROD = "prod"
+    STAGING = "staging"
+    DEV = "dev"
+    TESTING = "testing"
+
+
+class RiskLevel(str, Enum):
+    """Risk level enumeration"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class GenerateAgentRunbookRequest(BaseModel):
+    """Request model for agent runbook generation"""
+    issue_description: str = Field(..., min_length=10, max_length=5000, description="Issue description")
+    service: ServiceType = Field(..., description="CI Type")
+    env: EnvironmentType = Field(..., description="Environment")
+    risk: RiskLevel = Field(..., description="Risk level")
+    
+    @validator('issue_description')
+    def validate_issue_description(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Issue description cannot be empty")
+        # Sanitize: remove control characters except newlines and tabs
+        sanitized = ''.join(c for c in v if ord(c) >= 32 or c in '\n\t')
+        if len(sanitized) < 10:
+            raise ValueError("Issue description must be at least 10 characters")
+        return sanitized
 
 
 ## Removed legacy generation endpoint to avoid confusion; use /generate-agent only
 
 
 @router.post("/generate-agent", response_model=RunbookResponse)
+@rate_limit("100/minute")  # High limit for dev/test
 async def generate_agent_runbook(
-    issue_description: str,
-    service: str = Query(..., description="CI Type: server|database|web|storage|network|auto. For backward compatibility, Windows|Linux are treated as 'server' CI type."),
-    env: str = Query(..., description="Environment: prod|staging|dev|testing"),
-    risk: str = Query(..., description="Risk: low|medium|high"),
+    request: GenerateAgentRunbookRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -34,13 +84,23 @@ async def generate_agent_runbook(
     For servers, OS type (Windows/Linux) is auto-detected from issue description.
     For backward compatibility, 'Windows' or 'Linux' are accepted and treated as 'server' CI type.
     """
+    # Normalize service for backward compatibility
+    service_value = request.service.value
+    if service_value in ["Windows", "Linux"]:
+        service_value = "server"
+    
     controller = RunbookController(db, current_user.tenant_id)
-    return await controller.generate_agent_runbook(issue_description, service, env, risk)
+    return await controller.generate_agent_runbook(
+        request.issue_description,
+        service_value,
+        request.env.value,
+        request.risk.value
+    )
 
 
 @router.get("/demo/detect-os")
 async def detect_os_from_server(
-    server_name: str = Query(..., description="Server/VM name to detect OS for"),
+    server_name: str = Query(..., min_length=1, max_length=255, description="Server/VM name to detect OS for"),
     db: Session = Depends(get_db)
 ):
     """Detect OS type (Windows/Linux) from Azure VM metadata (demo tenant)."""
@@ -447,3 +507,104 @@ async def delete_runbook(
     """Delete a runbook (soft delete)"""
     controller = RunbookController(db, current_user.tenant_id)
     return controller.delete_runbook(runbook_id)
+
+
+# Module 3: Runbook Versioning Endpoints
+@router.get("/demo/{runbook_id}/versions")
+@rate_limit("60/minute")
+async def get_runbook_versions(
+    runbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get version history for a runbook"""
+    controller = RunbookVersionController(db, current_user.tenant_id)
+    return await controller.get_version_history(runbook_id)
+
+
+@router.post("/demo/{runbook_id}/versions")
+@rate_limit("30/minute")
+async def create_runbook_version(
+    runbook_id: int,
+    title: Optional[str] = None,
+    body_md: Optional[str] = None,
+    body_yaml: Optional[str] = None,
+    change_summary: Optional[str] = None,
+    change_type: str = Query("minor", regex="^(major|minor|patch)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new version of a runbook"""
+    controller = RunbookVersionController(db, current_user.tenant_id)
+    return await controller.create_version(
+        runbook_id=runbook_id,
+        title=title,
+        body_md=body_md,
+        body_yaml=body_yaml,
+        change_summary=change_summary,
+        change_type=change_type,
+        created_by=current_user.id
+    )
+
+
+@router.get("/demo/{runbook_id}/versions/{version_id_1}/diff/{version_id_2}")
+@rate_limit("60/minute")
+async def get_version_diff(
+    runbook_id: int,
+    version_id_1: int,
+    version_id_2: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get diff between two versions"""
+    controller = RunbookVersionController(db, current_user.tenant_id)
+    return await controller.get_version_diff(runbook_id, version_id_1, version_id_2)
+
+
+@router.post("/demo/versions/{version_id}/set-current")
+@rate_limit("30/minute")
+async def set_current_version(
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Set a version as the current version"""
+    controller = RunbookVersionController(db, current_user.tenant_id)
+    return await controller.set_current_version(version_id)
+
+
+# Module 5: Citation Verification Endpoints
+@router.post("/demo/{runbook_id}/citations/verify")
+@rate_limit("30/minute")
+async def verify_runbook_citations(
+    runbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Verify all citations for a runbook"""
+    controller = CitationController(db, current_user.tenant_id)
+    return await controller.verify_runbook_citations(runbook_id)
+
+
+@router.get("/demo/{runbook_id}/citations/health")
+@rate_limit("60/minute")
+async def get_citation_health(
+    runbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get citation health summary for a runbook"""
+    controller = CitationController(db, current_user.tenant_id)
+    return await controller.get_citation_health(runbook_id)
+
+
+@router.post("/demo/citations/{citation_id}/verify")
+@rate_limit("30/minute")
+async def verify_single_citation(
+    citation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Verify a single citation"""
+    controller = CitationController(db, current_user.tenant_id)
+    return await controller.verify_single_citation(citation_id)

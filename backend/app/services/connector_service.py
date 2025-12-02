@@ -181,10 +181,24 @@ class ConnectorService:
     """Service for managing external tool connectors"""
     
     def __init__(self):
+        # Import monitoring connectors
+        try:
+            from app.services.monitoring_connectors.datadog import DatadogConnector as MonitoringDatadogConnector
+            from app.services.monitoring_connectors.azure_monitor import AzureMonitorConnector
+            from app.services.monitoring_connectors.prometheus import PrometheusConnector
+            from app.services.monitoring_connectors.splunk import SplunkConnector
+        except ImportError:
+            MonitoringDatadogConnector = None
+            AzureMonitorConnector = None
+            PrometheusConnector = None
+            SplunkConnector = None
+        
         self.connectors = {
             "datadog": DatadogConnector(),
             "servicenow": ServiceNowConnector(),
-            "prometheus": None,  # Prometheus uses webhooks typically
+            "prometheus": PrometheusConnector() if PrometheusConnector else None,
+            "azure_monitor": AzureMonitorConnector() if AzureMonitorConnector else None,
+            "splunk": SplunkConnector() if SplunkConnector else None,
             "zabbix": None,  # TODO: Implement
             "solarwinds": None,  # TODO: Implement
             "manageengine": None,  # TODO: Implement

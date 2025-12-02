@@ -1,7 +1,8 @@
 """
 Repository for ticket data access
 """
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.models.ticket import Ticket
@@ -66,5 +67,72 @@ class TicketRepository(BaseRepository[Ticket]):
         ).delete()
         self.db.commit()
         return deleted
+    
+    def create_ticket(
+        self,
+        tenant_id: int,
+        source: str,
+        external_id: Optional[str],
+        title: str,
+        description: Optional[str],
+        severity: str,
+        environment: str,
+        service: Optional[str],
+        status: str,
+        raw_payload: Optional[Dict[str, Any]],
+        meta_data: Optional[Dict[str, Any]],
+        received_at: Optional[datetime] = None
+    ) -> Ticket:
+        """Create a new ticket with all fields"""
+        from datetime import datetime, timezone
+        ticket = Ticket(
+            tenant_id=tenant_id,
+            source=source,
+            external_id=external_id,
+            title=title,
+            description=description,
+            severity=severity,
+            environment=environment,
+            service=service,
+            status=status,
+            raw_payload=raw_payload,
+            meta_data=meta_data,
+            received_at=received_at or datetime.now(timezone.utc)
+        )
+        self.db.add(ticket)
+        self.db.commit()
+        self.db.refresh(ticket)
+        return ticket
+    
+    def update_ticket_metadata(
+        self,
+        ticket_id: int,
+        tenant_id: int,
+        meta_data: Dict[str, Any]
+    ) -> Optional[Ticket]:
+        """Update ticket metadata"""
+        ticket = self.get_by_id_and_tenant(ticket_id, tenant_id)
+        if ticket:
+            if not ticket.meta_data:
+                ticket.meta_data = {}
+            ticket.meta_data.update(meta_data)
+            self.db.commit()
+            self.db.refresh(ticket)
+        return ticket
+    
+    def update_ticket(
+        self,
+        ticket_id: int,
+        tenant_id: int,
+        **kwargs
+    ) -> Optional[Ticket]:
+        """Update ticket fields"""
+        ticket = self.get_by_id_and_tenant(ticket_id, tenant_id)
+        if ticket:
+            for key, value in kwargs.items():
+                setattr(ticket, key, value)
+            self.db.commit()
+            self.db.refresh(ticket)
+        return ticket
 
 

@@ -1,29 +1,70 @@
 """
-Ticket ingestion endpoints - Webhook receiver
-POC version - simplified
+Alert and Ticket ingestion endpoints - Webhook receiver
+Alerts come from monitoring tools, Tickets come from ticketing tools
 """
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Query, Path
 from sqlalchemy.orm import Session
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from enum import Enum
 from app.core.database import get_db
+from app.controllers.alert_controller import AlertController
 from app.controllers.ticket_controller import TicketController
 
 router = APIRouter()
 
 
+# Validation enums
+class TicketStatus(str, Enum):
+    """Ticket status enumeration"""
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    ANALYZING = "analyzing"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
+class WebhookSource(str, Enum):
+    """Webhook source enumeration"""
+    PROMETHEUS = "prometheus"
+    DATADOG = "datadog"
+    AZURE_MONITOR = "azure_monitor"
+    SPLUNK = "splunk"
+    PAGERDUTY = "pagerduty"
+    SERVICENOW = "servicenow"
+    JIRA = "jira"
+    CUSTOM = "custom"
+
+
 @router.post("/webhook/{source}")
 async def receive_webhook(
-    source: str,
-    payload: Dict[str, Any],
+    source: str = Path(..., min_length=1, max_length=50),
+    payload: Dict[str, Any] = None,
     db: Session = Depends(get_db),
     request: Request = None
 ):
     """
-    Receive webhook from monitoring tools
+    Receive webhook from monitoring tools - Creates ALERTS, not tickets
     
-    Sources: prometheus, datadog, pagerduty, servicenow, jira, custom
+    IMPORTANT: This creates an ALERT in the alerts table, NOT a ticket.
+    Tickets come from ticketing tools (ServiceNow/ManageEngine) via polling.
+    Alerts are used for validation and matching with tickets.
+    
+    Sources: prometheus, datadog, azure_monitor, splunk, pagerduty, servicenow, jira, custom
     """
-    controller = TicketController(db, tenant_id=1)  # Demo tenant
+    # Validate source
+    if source not in [s.value for s in WebhookSource]:
+        raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of: {', '.join([s.value for s in WebhookSource])}")
+    
+    # Validate payload
+    if payload is None:
+        raise HTTPException(status_code=400, detail="Payload is required")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+    if len(str(payload)) > 100000:  # Limit payload size
+        raise HTTPException(status_code=413, detail="Payload too large (max 100KB)")
+    
+    # Use AlertController to create alerts (not tickets)
+    controller = AlertController(db, tenant_id=1)  # Demo tenant
     return await controller.receive_webhook(source, payload)
 
 
@@ -40,8 +81,8 @@ async def create_demo_ticket(
 @router.get("/demo/tickets")
 async def list_tickets(
     db: Session = Depends(get_db),
-    status: str = None,
-    limit: int = 50
+    status: Optional[str] = Query(None, max_length=50),
+    limit: int = Query(50, ge=1, le=1000)
 ):
     """List tickets (demo)"""
     try:

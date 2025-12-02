@@ -20,6 +20,14 @@ COPY . .
 # Create upload directory
 RUN mkdir -p uploads
 
+# Create non-root user for security (MF-8)
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /app/uploads
+
+# Switch to non-root user
+USER appuser
+
 # Expose port
 EXPOSE 8000
 

@@ -13,6 +13,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
+import { apiConfig } from '@/lib/api-config';
 import {
   ChartBarIcon,
   CheckCircleIcon,
@@ -99,7 +100,7 @@ export function RunbookMetrics({ runbookId }: { runbookId: number }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/v1/analytics/demo/runbooks/${runbookId}/metrics?days=${days}`);
+      const response = await fetch(apiConfig.endpoints.runbooks.metrics(runbookId, days));
       if (!response.ok) {
         throw new Error('Failed to fetch runbook metrics');
       }

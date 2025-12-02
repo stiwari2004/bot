@@ -1,0 +1,35 @@
+{
+  "schemaId": "AzureMonitorMetricAlert",
+  "data": {
+    "essentials": {
+      "alertId": "test-alert-12345",
+      "alertRule": "High CPU Alert - Test",
+      "severity": "Sev2",
+      "signalType": "Metric",
+      "monitorCondition": "Fired",
+      "monitoringService": "Platform",
+      "firedDateTime": "2025-12-01T10:00:00Z",
+      "description": "CPU usage exceeded 80% threshold on test VM",
+      "essentialsVersion": "1.0",
+      "alertContextVersion": "1.0"
+    },
+    "alertContext": {
+      "properties": {},
+      "conditionType": "StaticThreshold",
+      "condition": {
+        "windowSize": "PT5M",
+        "allOf": [
+          {
+            "metricName": "Percentage CPU",
+            "metricNamespace": "Microsoft.Compute/virtualMachines",
+            "operator": "GreaterThan",
+            "threshold": "80",
+            "timeAggregation": "Average"
+          }
+        ]
+      }
+    }
+  }
+}
+
+

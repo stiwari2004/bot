@@ -1,0 +1,92 @@
+# Sandbox Environment - Isolated testing environment
+# Note: version is obsolete in newer docker-compose, removed to avoid warning
+# Usage: docker-compose -f docker-compose.sandbox.yml up -d
+
+services:
+  backend-sandbox:
+    build: ./backend
+    container_name: bot-backend-sandbox
+    ports:
+      - "8001:8000"  # Different port from main
+    environment:
+      - DATABASE_URL=postgresql://sandbox:sandbox@postgres-sandbox:5432/sandbox_db
+      - REDIS_URL=redis://redis-sandbox:6379/1
+      - ENVIRONMENT=sandbox
+      - DEBUG=true
+      - RATE_LIMIT_ENABLED=false  # Disable for sandbox
+      - SECRET_KEY=${SECRET_KEY:-sandbox-secret-key-change-in-production}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY:-eMdoJhLn4e-0NVd2CA7m8W6PZImk5pkykVGjehHjJ7c=}
+      - DEFAULT_TENANT_ID=1
+      - PRELOAD_EMBEDDING_MODEL=false
+      - ENABLE_TICKETING_POLLER=false  # Disable poller in sandbox
+      - ALLOWED_HOSTS=["http://localhost:3000","http://localhost:3001","http://localhost:8000","http://localhost:8001"]
+    volumes:
+      - ./backend:/app
+      - sandbox-uploads:/app/uploads
+    depends_on:
+      postgres-sandbox:
+        condition: service_healthy
+      redis-sandbox:
+        condition: service_started
+    networks:
+      - sandbox-network
+    restart: unless-stopped
+
+  frontend-sandbox:
+    build: ./frontend-nextjs
+    container_name: bot-frontend-sandbox
+    ports:
+      - "3001:3000"  # Different port from main
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8001
+      - IN_DOCKER=true
+    depends_on:
+      - backend-sandbox
+    networks:
+      - sandbox-network
+    restart: unless-stopped
+
+  postgres-sandbox:
+    image: pgvector/pgvector:pg15
+    container_name: bot-postgres-sandbox
+    ports:
+      - "5433:5432"  # Different port from main
+    environment:
+      - POSTGRES_USER=sandbox
+      - POSTGRES_PASSWORD=sandbox
+      - POSTGRES_DB=sandbox_db
+    volumes:
+      - sandbox-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sandbox"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sandbox-network
+    restart: unless-stopped
+
+  redis-sandbox:
+    image: redis:7.2-alpine
+    container_name: bot-redis-sandbox
+    ports:
+      - "6380:6379"  # Different port from main
+    volumes:
+      - sandbox-redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - sandbox-network
+    restart: unless-stopped
+
+volumes:
+  sandbox-postgres-data:
+    driver: local
+  sandbox-redis-data:
+    driver: local
+  sandbox-uploads:
+    driver: local
+
+networks:
+  sandbox-network:
+    driver: bridge
+

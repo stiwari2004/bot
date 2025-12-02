@@ -13,6 +13,11 @@ from app.services.execution.command_validator import CommandValidator
 from app.services.execution.command_error_detector import CommandErrorDetector, FailureType
 from app.services.execution.command_corrector import CommandCorrector
 from app.services.runbook.runbook_updater import RunbookUpdater
+from app.services.execution.step_timeout_manager import StepTimeoutManager
+from app.services.execution.step_event_publisher import StepEventPublisher
+from app.services.execution.step_self_healing import StepSelfHealing
+from app.services.execution.step_precheck_handler import StepPrecheckHandler
+from app.services.execution.step_session_finalizer import StepSessionFinalizer
 
 logger = get_logger(__name__)
 
@@ -27,53 +32,20 @@ class StepExecutionService:
         self.resolution_verification_service = resolution_verification_service
         self.event_service = event_service
         
-        # Initialize self-healing services
+        # Initialize specialized services
         self.command_validator = CommandValidator()
-        self.error_detector = CommandErrorDetector()
-        self.command_corrector = CommandCorrector()
-        self.runbook_updater = RunbookUpdater()
+        self.timeout_manager = StepTimeoutManager()
+        self.event_publisher = StepEventPublisher(event_service)
+        self.self_healing = StepSelfHealing()
+        self.precheck_handler = StepPrecheckHandler()
+        self.session_finalizer = StepSessionFinalizer(
+            event_service,
+            ticket_status_service,
+            resolution_verification_service,
+            connection_service
+        )
     
-    def _get_command_timeout(self, command: str) -> int:
-        """Determine timeout based on command type"""
-        if not command:
-            return 120
-        
-        command_lower = command.lower().strip()
-        
-        # Very long-running commands (30 minutes)
-        if any(cmd in command_lower for cmd in ['sfc /scannow', 'dism /online /cleanup-image /restorehealth', 'chkdsk /f', 'chkdsk /r']):
-            return 1800
-        
-        # Long-running commands (10 minutes)
-        if any(cmd in command_lower for cmd in ['repair-windowsimage', 'dism /online', 'windowsupdate']):
-            return 600
-        
-        # Medium-running commands (5 minutes)
-        if any(cmd in command_lower for cmd in ['defrag', 'get-eventlog', 'get-winevent', 'get-wmiobject']):
-            return 300
-        
-        # Default timeout
-        return 120
-    
-    def _determine_timeout_from_validation(self, validation_result: dict, command: str) -> int:
-        """
-        Determine timeout from validation result, falling back to pattern-based timeout.
-        
-        Args:
-            validation_result: Result from command validation
-            command: Original command
-            
-        Returns:
-            Timeout in seconds
-        """
-        # Use validation-suggested timeout if available
-        if validation_result and validation_result.get("suggested_timeout"):
-            suggested = validation_result["suggested_timeout"]
-            logger.debug(f"Using validation-suggested timeout: {suggested}s")
-            return suggested
-        
-        # Fall back to pattern-based timeout
-        return self._get_command_timeout(command)
+    # Timeout management methods removed - now handled by StepTimeoutManager
     
     async def execute_step(
         self,
@@ -102,22 +74,7 @@ class StepExecutionService:
             connector = get_connector(connector_type)
             
             # Publish step started event
-            if self.event_service:
-                try:
-                    await self.event_service.publish_event(
-                        db,
-                        session=session,
-                        event_type="execution.step.started",
-                        payload={
-                            "command": step.command,
-                            "step_number": step.step_number,
-                            "step_type": step.step_type or "main",
-                            "description": step.notes or "",
-                        },
-                        step_number=step.step_number,
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to publish step.started event: {e}")
+            await self.event_publisher.publish_step_started(db, session, step)
             
             # Pre-execution validation - ONLY rule-based (fast, safe), NO Perplexity (can produce wrong corrections)
             # We'll let the command execute first, then correct if it fails
@@ -168,7 +125,16 @@ class StepExecutionService:
                 # Fail-safe: continue with original command if validation fails
             
             # Determine timeout (use rule result if available, otherwise default)
-            timeout = self._determine_timeout_from_validation(rule_result if 'rule_result' in locals() else None, step.command or "") if 'rule_result' in locals() and rule_result else self._get_command_timeout(step.command or "")
+            rule_result_local = rule_result if 'rule_result' in locals() else None
+            timeout = self.timeout_manager.determine_timeout(rule_result_local, step.command or "")
+            
+            # Backup network device config before making changes (if this is a network device)
+            if connector_type == "network_device":
+                backup_config = await self.rollback_service.backup_network_device_config(
+                    db, session, step, connection_config
+                )
+                if backup_config:
+                    logger.info(f"Backed up network device config before step {step.step_number}")
             
             # Execute command
             logger.info(f"Executing command: {step.command[:100] if step.command else 'N/A'}...")
@@ -228,95 +194,63 @@ class StepExecutionService:
             
             # Publish telemetry events (matching worker format)
             # IMPORTANT: Publish output event BEFORE completion event so frontend sees output first
-            if self.event_service:
-                try:
-                    # ALWAYS publish output event for successful steps (even if empty)
-                    # This ensures frontend shows the output card
-                    # For failed steps, we publish error output separately
-                    if result["success"]:
-                        # Successful step - publish stdout output
-                        # IMPORTANT: Always publish output, even if empty, so frontend shows the output card
-                        output_payload = {
-                            "output": output_text or "",  # Ensure it's always a string, never None
-                            "step_number": step.step_number,
-                            "step_type": step.step_type or "main",
-                            "connector_type": connector_type,
-                        }
-                        stream_id = await self.event_service.publish_event(
-                            db,
-                            session=session,
-                            event_type="execution.step.output",
-                            payload=output_payload,
-                            step_number=step.step_number,
-                        )
-                        logger.info(
-                            f"✅ Published execution.step.output event for step {step.step_number} "
-                            f"(stream_id={stream_id}), output length: {len(output_text) if output_text else 0}, "
-                            f"output preview: {output_text[:300] if output_text else 'EMPTY'}..."
-                        )
-                        
-                        # If output is empty, log a warning with full context
-                        if not output_text:
-                            logger.warning(
-                                f"⚠️ Step {step.step_number} output is EMPTY! "
-                                f"Command: {step.command}, "
-                                f"Raw output length: {len(raw_output) if raw_output else 0}, "
-                                f"Raw error length: {len(raw_error) if raw_error else 0}, "
-                                f"Exit code: {result.get('exit_code', 'N/A')}"
-                            )
-                    else:
-                        # Failed step - publish error output (stderr)
-                        if error_text:
-                            error_payload = {
-                                "output": error_text,
-                                "step_number": step.step_number,
-                                "step_type": step.step_type or "main",
-                                "connector_type": connector_type,
-                                "is_error": True,
-                            }
-                            stream_id = await self.event_service.publish_event(
-                                db,
-                                session=session,
-                                event_type="execution.step.output",
-                                payload=error_payload,
-                                step_number=step.step_number,
-                            )
-                            logger.info(
-                                f"✅ Published execution.step.output (error) event for step {step.step_number} "
-                                f"(stream_id={stream_id}), error length: {len(error_text)}"
-                            )
-                        else:
-                            logger.warning(f"⚠️ Step {step.step_number} failed but has no error text to publish")
-                    
-                    # Publish completion event
-                    event_type = "execution.step.completed" if result["success"] else "execution.step.failed"
-                    await self.event_service.publish_event(
-                        db,
-                        session=session,
-                        event_type=event_type,
-                        payload={
-                            "command": step.command,
-                            "output": output_text,  # Full output for telemetry
-                            "error": error_text,    # Full error for telemetry
-                            "success": result["success"],
-                            "exit_code": result.get("exit_code", 0),
-                            "duration_ms": execution_duration_ms,
-                            "step_number": step.step_number,
-                            "step_type": step.step_type or "main",
-                            "description": step.notes or "",
-                        },
-                        step_number=step.step_number,
+            await self.event_publisher.publish_step_output(
+                db, session, step, output_text, error_text, connector_type, result["success"]
+            )
+            
+            # Check conditional logic for next action (rollback/escalate)
+            try:
+                from app.services.decision import ConditionalLogicService
+                conditional_logic = ConditionalLogicService()
+                # Get step output as string
+                step_output_text = step.output if isinstance(step.output, str) else str(step.output) if step.output else None
+                next_action = await conditional_logic.decide_next_action(
+                    session, step_output_text, db
+                )
+                
+                if next_action.get("action") == "rollback":
+                    logger.warning(
+                        f"Conditional logic triggered rollback for session {session.id}: "
+                        f"{next_action.get('reason')}"
                     )
-                    logger.info(f"Published {event_type} event for step {step.step_number}")
-                    
-                    # Commit events to database so they're immediately available
-                    try:
-                        db.commit()
-                        logger.debug(f"Committed events to database for step {step.step_number}")
-                    except Exception as commit_error:
-                        logger.warning(f"Failed to commit events to database: {commit_error}")
-                except Exception as e:
-                    logger.error(f"Failed to publish step telemetry events: {e}", exc_info=True)
+                    # Trigger rollback
+                    if step.rollback_command:
+                        try:
+                            await self.rollback_service.rollback_step(
+                                db, session, step
+                            )
+                        except Exception as rollback_error:
+                            logger.error(f"Rollback failed: {rollback_error}")
+                
+                elif next_action.get("action") == "escalate":
+                    logger.warning(
+                        f"Conditional logic triggered escalation for session {session.id}: "
+                        f"{next_action.get('reason')}"
+                    )
+                    session.status = "escalated"
+                    if session.ticket_id:
+                        from app.models.ticket import Ticket
+                        ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
+                        if ticket:
+                            ticket.status = "escalated"
+                            ticket.escalation_reason = next_action.get("reason", "Multiple failures detected")
+                            db.commit()
+            except Exception as e:
+                logger.warning(f"Error in conditional logic check: {e}")
+                # Don't fail execution if conditional logic fails
+            
+            # Publish completion event
+            await self.event_publisher.publish_step_completion(
+                db, session, step, output_text, error_text,
+                result["success"], result.get("exit_code", 0), execution_duration_ms
+            )
+            
+            # Commit events to database so they're immediately available
+            try:
+                db.commit()
+                logger.debug(f"Committed events to database for step {step.step_number}")
+            except Exception as commit_error:
+                logger.warning(f"Failed to commit events to database: {commit_error}")
             
             # Note: Sequential execution is already ensured by the flow (next step only starts after previous completes)
             # No delay needed - commands execute immediately after previous completes
@@ -327,21 +261,18 @@ class StepExecutionService:
             # Handle step result
             if not result["success"]:
                 # Detect failure type for self-healing
-                failure_type = self.error_detector.detect_failure_type(
+                failure_type = self.self_healing.detect_failure_type(
                     result,
                     error_text,
                     result.get("exit_code", -1)
                 )
                 
                 # Check retry count to prevent infinite loops
-                # Store retry count in step's command_payload or notes metadata
-                retry_count = 0
-                if step.command_payload and isinstance(step.command_payload, dict):
-                    retry_count = step.command_payload.get("retry_count", 0)
+                retry_count = self.self_healing.get_retry_count(step)
                 max_retries = 1  # Allow 1 retry attempt per step
                 
                 # Attempt self-healing for command errors (not Azure conflicts, timeouts, or connection errors)
-                if failure_type == FailureType.COMMAND_ERROR and retry_count < max_retries:
+                if self.self_healing.should_attempt_healing(failure_type, retry_count, max_retries):
                     logger.info(
                         f"Step {step.step_number} failed with command error, attempting self-healing "
                         f"(retry {retry_count + 1}/{max_retries})"
@@ -557,7 +488,12 @@ class StepExecutionService:
                             await self.execute_step(db, session, next_step)
                     else:
                         # All steps completed (with some failures)
-                        await self._finalize_session_with_errors(db, session)
+                        failed_steps = db.query(ExecutionStep).filter(
+                            ExecutionStep.session_id == session.id,
+                            ExecutionStep.completed == True,
+                            ExecutionStep.success == False
+                        ).all()
+                        await self.session_finalizer.finalize_session(db, session, failed_steps)
                 else:
                     # Stop execution for main steps (fail-fast for safety)
                     logger.error(
@@ -612,268 +548,34 @@ class StepExecutionService:
                         # Check if we just finished all prechecks - analyze before proceeding to main steps
                         # This should trigger after ANY precheck completes, not just when transitioning to main
                         if step.step_type == "precheck":
-                            all_prechecks_done = await self._check_all_prechecks_complete(db, session)
+                            all_prechecks_done = await self.precheck_handler.check_all_prechecks_complete(db, session)
                             if all_prechecks_done:
                                 logger.info(f"All precheck steps completed for session {session.id}, triggering precheck analysis")
                                 
-                                # Check if there's a next step - if not, we still need to analyze
-                                if not next_step:
-                                    logger.info(f"No next step after prechecks, analyzing prechecks now")
-                                    # We'll handle this case below after the next_step check
                                 # Analyze prechecks before proceeding
-                                from app.services.precheck_analysis_service import get_precheck_analysis_service
-                                from app.services.ticketing_integration_service import get_ticketing_integration_service
-                                from app.models.ticket import Ticket
-                                from app.models.runbook import Runbook
-                                
-                                precheck_service = get_precheck_analysis_service()
-                                ticketing_service = get_ticketing_integration_service()
-                                
-                                if session.ticket_id:
-                                    ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
-                                    runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first() if session.runbook_id else None
-                                    
-                                    if ticket:
-                                        analysis_result = await precheck_service.analyze_precheck_outputs(
-                                            db=db,
-                                            ticket=ticket,
-                                            session=session,
-                                            runbook=runbook
-                                        )
-                                        
-                                        analysis_status = analysis_result.get("analysis_status", "success")
-                                        is_false_positive = analysis_result.get("is_false_positive", False)
-                                        confidence = analysis_result.get("confidence", 0.0)
-                                        reasoning = analysis_result.get("reasoning", "")
-                                        
-                                        # Store analysis result
-                                        ticket.precheck_analysis_result = analysis_result
-                                        ticket.precheck_executed_at = datetime.now(timezone.utc)
-                                        ticket.precheck_status = analysis_status
-                                        
-                                        # Handle different scenarios
-                                        if analysis_status == "failed":
-                                            # Precheck execution failed - mark for manual review
-                                            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
-                                            from sqlalchemy.orm.attributes import flag_modified
-                                            import json
-                                            
-                                            # Explicitly preserve existing meta_data
-                                            if ticket.meta_data:
-                                                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
-                                            else:
-                                                preserved_meta = {}
-                                            
-                                            ticket.status = "in_progress"
-                                            ticket.escalation_reason = f"Precheck execution failed: {reasoning}"
-                                            
-                                            # Preserve meta_data explicitly
-                                            ticket.meta_data = preserved_meta
-                                            flag_modified(ticket, "meta_data")
-                                            
-                                            db.commit()
-                                            db.refresh(ticket)  # Refresh to ensure meta_data is preserved
-                                            
-                                            await ticketing_service.mark_for_manual_review(
-                                                db=db,
-                                                ticket=ticket,
-                                                reason=f"Precheck execution failed: {reasoning}"
-                                            )
-                                            session.status = "completed"
-                                            session.completed_at = datetime.now(timezone.utc)
-                                            db.commit()
-                                            logger.info(f"Precheck execution failed, stopping: {reasoning}")
-                                            return
-                                        
-                                        elif analysis_status == "ambiguous":
-                                            # Ambiguous output - escalate
-                                            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
-                                            from sqlalchemy.orm.attributes import flag_modified
-                                            import json
-                                            
-                                            # Explicitly preserve existing meta_data
-                                            if ticket.meta_data:
-                                                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
-                                            else:
-                                                preserved_meta = {}
-                                            
-                                            ticket.status = "escalated"
-                                            ticket.escalation_reason = f"Ambiguous precheck output: {reasoning}"
-                                            
-                                            # Preserve meta_data explicitly
-                                            ticket.meta_data = preserved_meta
-                                            flag_modified(ticket, "meta_data")
-                                            
-                                            db.commit()
-                                            db.refresh(ticket)  # Refresh to ensure meta_data is preserved
-                                            
-                                            await ticketing_service.escalate_ticket(
-                                                db=db,
-                                                ticket=ticket,
-                                                escalation_reason=f"Ambiguous precheck output: {reasoning}"
-                                            )
-                                            session.status = "completed"
-                                            session.completed_at = datetime.now(timezone.utc)
-                                            db.commit()
-                                            logger.info(f"Ambiguous precheck output, escalating: {reasoning}")
-                                            return
-                                        
-                                        elif is_false_positive and confidence >= 0.7:
-                                            # False positive detected - resolve ticket
-                                            # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
-                                            from sqlalchemy.orm.attributes import flag_modified
-                                            import json
-                                            
-                                            # Explicitly preserve existing meta_data
-                                            if ticket.meta_data:
-                                                # Create a new dict to ensure SQLAlchemy detects changes
-                                                preserved_meta = dict(ticket.meta_data) if isinstance(ticket.meta_data, dict) else json.loads(ticket.meta_data) if isinstance(ticket.meta_data, str) else {}
-                                            else:
-                                                preserved_meta = {}
-                                            
-                                            # Update status fields
-                                            ticket.status = "resolved"  # Use "resolved" instead of "closed" for external systems
-                                            ticket.classification = "false_positive"
-                                            ticket.classification_confidence = "high" if confidence >= 0.8 else "medium"
-                                            ticket.resolved_at = datetime.now(timezone.utc)
-                                            
-                                            # Preserve meta_data explicitly
-                                            ticket.meta_data = preserved_meta
-                                            flag_modified(ticket, "meta_data")
-                                            
-                                            db.commit()
-                                            db.refresh(ticket)  # Refresh to ensure meta_data is still there
-                                            
-                                            # Update external ticket system (use resolve_ticket instead of close_ticket)
-                                            external_update_success = await ticketing_service.resolve_ticket(
-                                                db=db,
-                                                ticket=ticket,
-                                                resolution_notes=f"False positive detected: {reasoning}"
-                                            )
-                                            
-                                            if external_update_success:
-                                                logger.info(f"✅ Successfully updated external ticket {ticket.external_id} to resolved status")
-                                            else:
-                                                logger.warning(f"⚠️ Failed to update external ticket {ticket.external_id} - ticket may still appear open in external system")
-                                            
-                                            session.status = "completed"
-                                            session.completed_at = datetime.now(timezone.utc)
-                                            db.commit()
-                                            logger.info(f"False positive detected, resolving ticket: {reasoning}")
-                                            return
-                                        else:
-                                            # True positive - proceed
-                                            ticket.status = "in_progress"
-                                            ticket.classification = "true_positive" if not is_false_positive else "uncertain"
-                                            db.commit()
-                                            logger.info(f"Precheck analysis: proceeding with main steps - {reasoning}")
+                                result = await self.precheck_handler.analyze_and_handle_prechecks(db, session)
+                                if result == "stop":
+                                    return  # Execution stopped (failed, ambiguous, or false positive)
                         
                         # Execute next step
                         await self.execute_step(db, session, next_step)
                 else:
                     # No next step - check if we just finished all prechecks
                     if step.step_type == "precheck":
-                        all_prechecks_done = await self._check_all_prechecks_complete(db, session)
+                        all_prechecks_done = await self.precheck_handler.check_all_prechecks_complete(db, session)
                         if all_prechecks_done:
                             logger.info(f"All precheck steps completed (no main steps), triggering precheck analysis")
-                            # Trigger precheck analysis even if no main steps exist
-                            from app.services.precheck_analysis_service import get_precheck_analysis_service
-                            from app.services.ticketing_integration_service import get_ticketing_integration_service
-                            from app.models.ticket import Ticket
-                            from app.models.runbook import Runbook
-                            
-                            precheck_service = get_precheck_analysis_service()
-                            ticketing_service = get_ticketing_integration_service()
-                            
-                            if session.ticket_id:
-                                ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
-                                runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first() if session.runbook_id else None
-                                
-                                if ticket:
-                                    analysis_result = await precheck_service.analyze_precheck_outputs(
-                                        db=db,
-                                        ticket=ticket,
-                                        session=session,
-                                        runbook=runbook
-                                    )
-                                    
-                                    analysis_status = analysis_result.get("analysis_status", "success")
-                                    is_false_positive = analysis_result.get("is_false_positive", False)
-                                    confidence = analysis_result.get("confidence", 0.0)
-                                    reasoning = analysis_result.get("reasoning", "")
-                                    
-                                    # Store analysis result
-                                    ticket.precheck_analysis_result = analysis_result
-                                    ticket.precheck_executed_at = datetime.now(timezone.utc)
-                                    ticket.precheck_status = analysis_status
-                                    
-                                    # Handle different scenarios
-                                    # CRITICAL: Preserve meta_data (including matched_runbooks) when updating ticket
-                                    from sqlalchemy.orm.attributes import flag_modified
-                                    if ticket.meta_data:
-                                        flag_modified(ticket, "meta_data")
-                                    
-                                    if analysis_status == "failed":
-                                        ticket.status = "in_progress"
-                                        ticket.escalation_reason = f"Precheck execution failed: {reasoning}"
-                                        db.commit()
-                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
-                                        
-                                        await ticketing_service.mark_for_manual_review(
-                                            db=db,
-                                            ticket=ticket,
-                                            reason=f"Precheck execution failed: {reasoning}"
-                                        )
-                                        session.status = "completed"
-                                        session.completed_at = datetime.now(timezone.utc)
-                                        db.commit()
-                                        logger.info(f"Precheck execution failed, stopping: {reasoning}")
-                                        return
-                                    
-                                    elif analysis_status == "ambiguous":
-                                        ticket.status = "escalated"
-                                        ticket.escalation_reason = f"Ambiguous precheck output: {reasoning}"
-                                        db.commit()
-                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
-                                        
-                                        await ticketing_service.escalate_ticket(
-                                            db=db,
-                                            ticket=ticket,
-                                            escalation_reason=f"Ambiguous precheck output: {reasoning}"
-                                        )
-                                        session.status = "completed"
-                                        session.completed_at = datetime.now(timezone.utc)
-                                        db.commit()
-                                        logger.info(f"Ambiguous precheck output, escalating: {reasoning}")
-                                        return
-                                    
-                                    elif is_false_positive and confidence >= 0.7:
-                                        ticket.status = "closed"
-                                        ticket.classification = "false_positive"
-                                        ticket.classification_confidence = "high" if confidence >= 0.8 else "medium"
-                                        ticket.resolved_at = datetime.now(timezone.utc)
-                                        db.commit()
-                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
-                                        
-                                        await ticketing_service.close_ticket(
-                                            db=db,
-                                            ticket=ticket,
-                                            reason=f"False positive detected: {reasoning}"
-                                        )
-                                        session.status = "completed"
-                                        session.completed_at = datetime.now(timezone.utc)
-                                        db.commit()
-                                        logger.info(f"False positive detected, closing ticket: {reasoning}")
-                                        return
-                                    else:
-                                        ticket.status = "in_progress"
-                                        ticket.classification = "true_positive" if not is_false_positive else "uncertain"
-                                        db.commit()
-                                        db.refresh(ticket)  # Refresh to ensure meta_data is preserved
-                                        logger.info(f"Precheck analysis complete (no main steps): {reasoning}")
+                            result = await self.precheck_handler.analyze_and_handle_prechecks(db, session)
+                            if result == "stop":
+                                return  # Execution stopped
                     
                     # All steps completed - check for failures
-                    await self._finalize_session(db, session)
+                    failed_steps = db.query(ExecutionStep).filter(
+                        ExecutionStep.session_id == session.id,
+                        ExecutionStep.completed == True,
+                        ExecutionStep.success == False
+                    ).all()
+                    await self.session_finalizer.finalize_session(db, session, failed_steps)
         
         except Exception as e:
             logger.error(f"Error executing step {step.step_number}: {e}", exc_info=True)
@@ -917,218 +619,8 @@ class StepExecutionService:
         db.commit()
         logger.info(f"Completed execution of step {step.step_number} for session {session.id}")
     
-    async def _finalize_session(self, db: Session, session: ExecutionSession):
-        """Finalize session when all steps complete - check for failures"""
-        # Get all failed steps
-        failed_steps = db.query(ExecutionStep).filter(
-            ExecutionStep.session_id == session.id,
-            ExecutionStep.completed == True,
-            ExecutionStep.success == False
-        ).all()
-        
-        failed_step_numbers = [s.step_number for s in failed_steps]
-        
-        # Determine final status
-        if not failed_steps:
-            # All steps succeeded
-            session.status = "completed"
-            logger.info(f"Session {session.id} completed successfully - all steps passed")
-        else:
-            # Some steps failed - check if only diagnostic steps failed
-            failed_main_steps = [s for s in failed_steps if s.step_type == "main"]
-            
-            if failed_main_steps:
-                # Critical main step failed - should have been caught earlier, but handle gracefully
-                session.status = "failed"
-                logger.error(
-                    f"Session {session.id} failed - main steps failed: {[s.step_number for s in failed_main_steps]}"
-                )
-            else:
-                # Only diagnostic steps (precheck/postcheck) failed
-                session.status = "completed_with_errors"
-                logger.warning(
-                    f"Session {session.id} completed with errors - diagnostic steps failed: {failed_step_numbers}"
-                )
-        
-        session.completed_at = datetime.now(timezone.utc)
-        
-        # Calculate duration
-        if session.started_at:
-            started = session.started_at
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=timezone.utc)
-            completed = session.completed_at
-            if completed.tzinfo is None:
-                completed = completed.replace(tzinfo=timezone.utc)
-            duration = (completed - started).total_seconds() / 60
-            session.total_duration_minutes = int(duration)
-        
-        # CRITICAL: Commit session status before calling verify_resolution
-        # Otherwise verify_resolution will see the old status
-        db.commit()
-        db.refresh(session)
-        
-        # Perform Azure cleanup after all steps (including postcheck) complete
-        # This is the only place cleanup should happen - not before each step
-        await self._perform_final_cleanup(db, session)
-        
-        # Publish session completion event
-        if self.event_service:
-            try:
-                event_payload = {
-                    "status": session.status,
-                    "total_steps": session.total_steps,
-                    "failed_steps": failed_step_numbers,
-                    "duration_minutes": session.total_duration_minutes,
-                }
-                if failed_steps:
-                    event_payload["failure_summary"] = [
-                        {
-                            "step_number": s.step_number,
-                            "step_type": s.step_type,
-                            "error": s.error[:200] if s.error else "Unknown error",
-                        }
-                        for s in failed_steps
-                    ]
-                
-                await self.event_service.publish_event(
-                    db,
-                    session=session,
-                    event_type="execution.session.completed",
-                    payload=event_payload,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to publish session.completed event: {e}")
-        
-        # Verify resolution (this also updates ticket status and external system if resolved)
-        # NOTE: Session status must be committed before this call (done above)
-        if session.ticket_id:
-            issue_resolved = session.status == "completed"  # Only fully resolved if no errors
-            verification_result = await self.resolution_verification_service.verify_resolution(
-                db, session.id, session.ticket_id
-            )
-            logger.info(f"Resolution verification: resolved={verification_result['resolved']}")
-            
-            # If verification didn't update the ticket (e.g., uncertain resolution), update it now
-            # Note: verify_resolution already calls update_ticket_on_execution_complete and external update if resolved=True
-            if not verification_result.get('resolved'):
-                # Ticket not resolved - update status but don't update external system yet
-                self.ticket_status_service.update_ticket_on_execution_complete(
-                    db, session.ticket_id, session.status, issue_resolved=issue_resolved
-                )
-        
-        db.commit()
-    
-    async def _finalize_session_with_errors(self, db: Session, session: ExecutionSession):
-        """Finalize session when all steps complete but some diagnostic steps failed"""
-        # This is called when diagnostic steps failed but we continued
-        # Final status will be "completed_with_errors"
-        await self._finalize_session(db, session)
-    
-    async def _perform_final_cleanup(self, db: Session, session: ExecutionSession):
-        """
-        Perform final cleanup after all steps (including postcheck) complete.
-        This is the only place cleanup should happen - not before each step.
-        """
-        try:
-            # Get connection config to determine connector type
-            connection_config = await self.connection_service.get_connection_config(db, session, None)
-            connector_type = connection_config.get("connector_type", "") if connection_config else ""
-            
-            # Only cleanup for Azure Bastion connector
-            if connector_type == "azure_bastion":
-                logger.info(f"Performing final Azure cleanup after all steps complete for session {session.id}")
-                try:
-                    from app.services.infrastructure.azure_connector import AzureBastionConnector
-                    from azure.identity import ClientSecretCredential, DefaultAzureCredential
-                    from azure.mgmt.compute import ComputeManagementClient
-                    
-                    connector = AzureBastionConnector()
-                    
-                    # Get VM details from connection config
-                    resource_id = connection_config.get("resource_id") or connection_config.get("target_resource_id")
-                    if not resource_id:
-                        logger.warning(f"Cannot perform final cleanup - missing resource_id in connection config")
-                        return
-                    
-                    # Parse resource ID
-                    parts = resource_id.split("/")
-                    if len(parts) < 9:
-                        logger.warning(f"Cannot perform final cleanup - invalid resource_id format")
-                        return
-                    
-                    subscription_id = parts[parts.index("subscriptions") + 1]
-                    resource_group = parts[parts.index("resourceGroups") + 1]
-                    vm_name = parts[parts.index("virtualMachines") + 1]
-                    
-                    # Get credentials
-                    azure_creds = connection_config.get("azure_credentials") or {}
-                    tenant_id = azure_creds.get("tenant_id") or connection_config.get("tenant_id")
-                    client_id = azure_creds.get("client_id") or connection_config.get("client_id")
-                    client_secret = azure_creds.get("client_secret") or connection_config.get("client_secret")
-                    
-                    # Create credential and compute client
-                    if tenant_id and client_id and client_secret:
-                        credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
-                    else:
-                        credential = DefaultAzureCredential()
-                    
-                    compute_client = ComputeManagementClient(credential, subscription_id)
-                    
-                    # Determine shell
-                    os_type = connection_config.get("os_type", "")
-                    shell = "PowerShell" if (os_type and "windows" in os_type.lower()) else "bash"
-                    
-                    # Perform cleanup
-                    cleanup_result = await connector._attempt_azure_cleanup(
-                        vm_name=vm_name,
-                        resource_group=resource_group,
-                        compute_client=compute_client,
-                        credential=credential,
-                        subscription_id=subscription_id,
-                        shell=shell
-                    )
-                    if cleanup_result.get("cleanup_success"):
-                        logger.info(f"Final cleanup successful for session {session.id}")
-                    else:
-                        logger.warning(f"Final cleanup failed for session {session.id}: {cleanup_result.get('error', 'Unknown')}")
-                except Exception as cleanup_error:
-                    logger.warning(f"Final cleanup error for session {session.id}: {cleanup_error}")
-        except Exception as e:
-            # Don't fail session finalization if cleanup fails
-            logger.warning(f"Error performing final cleanup for session {session.id}: {e}")
-    
-    async def _check_all_prechecks_complete(self, db: Session, session: ExecutionSession) -> bool:
-        """
-        Check if all precheck steps are complete
-        
-        Args:
-            db: Database session
-            session: Execution session
-            
-        Returns:
-            True if all prechecks are complete, False otherwise
-        """
-        precheck_steps = db.query(ExecutionStep).filter(
-            ExecutionStep.session_id == session.id,
-            ExecutionStep.step_type == "precheck"
-        ).order_by(ExecutionStep.step_number).all()
-        
-        if not precheck_steps:
-            logger.debug(f"No precheck steps found for session {session.id}")
-            return False  # No prechecks defined
-        
-        # Check if all prechecks are completed
-        step_statuses = [(s.step_number, s.completed, s.success) for s in precheck_steps]
-        all_complete = all(step.completed for step in precheck_steps)
-        
-        logger.info(
-            f"Precheck completion check for session {session.id}: "
-            f"total={len(precheck_steps)}, all_complete={all_complete}, "
-            f"step_statuses={step_statuses}"
-        )
-        
-        return all_complete
+    # Session finalization methods removed - now handled by StepSessionFinalizer
+    # Precheck handling methods removed - now handled by StepPrecheckHandler
     
     def _validate_correction_safety(self, original_command: str, corrected_command: str, error_text: str) -> bool:
         """

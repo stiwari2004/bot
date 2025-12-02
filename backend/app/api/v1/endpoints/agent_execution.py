@@ -1,29 +1,49 @@
 """
 Agent execution endpoints with human validation
 """
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Query, status
+from fastapi.exceptions import WebSocketException
+try:
+    from websockets.exceptions import ConnectionClosed
+except ImportError:
+    ConnectionClosed = Exception  # Fallback if websockets not installed
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import Optional, List
+from fastapi import Depends
 from app.core.database import get_db
+from app.core.tenant_utils import get_tenant_id
+from app.core.config import settings
 from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.models.runbook import Runbook
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import get_current_user, get_current_user_optional
 from app.services.execution import ExecutionEngine
 from app.services.runbook_search import RunbookSearchService
 from app.services.ticket_status_service import get_ticket_status_service
+from app.controllers.execution_controller import ExecutionController
 from app.core.logging import get_logger
+from app.core.rate_limiting import rate_limit
+from app.core.errors import handle_exception
+from app.core.input_sanitizer import sanitize_for_logging
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import json
+import asyncio
+from typing import Dict, List, Tuple
 
 router = APIRouter()
 logger = get_logger(__name__)
 
-# Store active WebSocket connections
-active_connections: dict = {}
+# Store active WebSocket connections with metadata
+# Format: {session_id: [(websocket, last_activity_time, user_id), ...]}
+active_connections: Dict[int, List[Tuple[WebSocket, datetime, int]]] = {}
+
+# WebSocket configuration
+WEBSOCKET_IDLE_TIMEOUT = 30 * 60  # 30 minutes in seconds
+WEBSOCKET_MAX_CONNECTIONS_PER_SESSION = 10
+WEBSOCKET_HEARTBEAT_INTERVAL = 60  # 1 minute
 
 
 class ExecutionRequest(BaseModel):
@@ -41,55 +61,21 @@ class StepApprovalRequest(BaseModel):
 
 @router.get("/pending-approvals")
 async def get_pending_approvals(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Get all sessions waiting for approval"""
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        
-        # Try to get current user if available
-        try:
-            from app.services.auth import get_current_user
-            current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-        except:
-            pass  # Use default for demo
-        
-        sessions = db.query(ExecutionSession).filter(
-            ExecutionSession.tenant_id == tenant_id,
-            ExecutionSession.waiting_for_approval == True,
-            ExecutionSession.status == "waiting_approval"
-        ).all()
-        
-        result = []
-        for session in sessions:
-            step = db.query(ExecutionStep).filter(
-                ExecutionStep.session_id == session.id,
-                ExecutionStep.step_number == session.approval_step_number
-            ).first()
-            
-            runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
-            
-            result.append({
-                "session_id": session.id,
-                "runbook_id": session.runbook_id,
-                "runbook_title": runbook.title if runbook else "Unknown",
-                "step_number": session.approval_step_number,
-                "step_type": step.step_type if step else None,
-                "command": step.command if step else None,
-                "issue_description": session.issue_description,
-                "created_at": session.created_at.isoformat() if session.created_at else None
-            })
-        
-        return {"pending_approvals": result}
-        
+        tenant_id = get_tenant_id(current_user)
+        controller = ExecutionController(db, tenant_id)
+        return controller.get_pending_approvals()
     except Exception as e:
         logger.error(f"Error getting pending approvals: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get pending approvals: {str(e)}")
 
 
 @router.post("/execute")
+@rate_limit("100/minute")  # High limit for dev/test
 async def start_execution(
     request: ExecutionRequest,
     background_tasks: BackgroundTasks,
@@ -100,136 +86,78 @@ async def start_execution(
     start_time = time.time()
     logger.info(f"[START_EXECUTION] Received execution request: runbook_id={request.runbook_id}, ticket_id={request.ticket_id}, issue_description={request.issue_description[:50] if request.issue_description else None}")
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        user_id = None
-        
-        # Try to get current user if available
+        # Get tenant_id and user_id from current user or defaults
+        current_user = None
         try:
-            from app.services.auth import get_current_user
             current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-            user_id = current_user.id
-        except:
-            pass  # Use defaults for demo
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
+            pass  # Use defaults if no user
         
-        # Verify runbook exists
-        runbook = db.query(Runbook).filter(
-            Runbook.id == request.runbook_id,
-            Runbook.tenant_id == tenant_id
-        ).first()
+        tenant_id = get_tenant_id(current_user)
+        user_id = current_user.id if current_user else None
         
-        if not runbook:
-            raise HTTPException(status_code=404, detail="Runbook not found")
-        
-        if runbook.status != "approved":
-            raise HTTPException(status_code=400, detail="Runbook must be approved before execution")
-        
-        # Create execution session
-        engine = ExecutionEngine()
-        session = await engine.create_execution_session(
-            db=db,
+        # Delegate to controller - all business logic is now in ExecutionController
+        controller = ExecutionController(db, tenant_id)
+        payload = await controller.create_execution_session(
             runbook_id=request.runbook_id,
-            tenant_id=tenant_id,
-            ticket_id=request.ticket_id,
             issue_description=request.issue_description,
-            user_id=user_id
-            # Note: metadata is not used in execution engine, but can be stored in session if needed
+            ticket_id=request.ticket_id,
+            user_id=user_id,
+            metadata=request.metadata,
+            auto_start=False  # Don't auto-start here - we'll do it in background
         )
         
-        # Update ticket status when execution starts (if ticket_id provided)
-        if request.ticket_id:
-            ticket_status_service = get_ticket_status_service()
-            ticket_status_service.update_ticket_on_execution_start(db, request.ticket_id)
-        
-        # Return session immediately, then start execution asynchronously
-        db.refresh(session)
-        
-        # Return full session data including steps
-        from app.services.execution_orchestrator import execution_orchestrator
-        payload = execution_orchestrator.serialize_session(session)
-        payload["runbook_title"] = runbook.title
-        
         elapsed = time.time() - start_time
-        logger.info(f"[START_EXECUTION] Session created in {elapsed:.2f}s, returning session {session.id}")
+        logger.info(f"[START_EXECUTION] Session created in {elapsed:.2f}s, returning session {payload.get('id')}")
         
-        # Start execution in background - use asyncio.create_task for async functions
-        async def start_execution_async(session_id: int):
-            try:
-                logger.info(f"[START_EXECUTION] ===== ASYNC TASK STARTED =====")
-                logger.info(f"[START_EXECUTION] Session ID: {session_id}")
-                logger.info(f"[START_EXECUTION] About to create new DB session...")
-                
-                # Need a new DB session for async execution
+        # Start execution in background (non-blocking)
+        session_id = payload.get('id')
+        if session_id:
+            async def start_execution_background():
+                """Background task to start execution"""
                 from app.core.database import SessionLocal
-                async_db = SessionLocal()
+                from app.services.execution import ExecutionEngine
+                from app.models.execution_session import ExecutionSession
+                import asyncio
+                
+                # Small delay to ensure response is sent first
+                await asyncio.sleep(0.1)
+                
+                background_db = SessionLocal()
                 try:
-                    logger.info(f"[START_EXECUTION] DB session created, querying session {session_id}...")
-                    execution_engine = ExecutionEngine()
-                    session_refreshed = async_db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+                    logger.info(f"[BACKGROUND] Starting execution for session {session_id}")
                     
-                    if not session_refreshed:
-                        logger.error(f"[START_EXECUTION] ❌ Session {session_id} not found in database!")
+                    # Check session status and update if needed
+                    session = background_db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+                    if not session:
+                        logger.error(f"[BACKGROUND] Session {session_id} not found")
                         return
                     
-                    logger.info(f"[START_EXECUTION] Session found: id={session_refreshed.id}, status={session_refreshed.status}, current_step={session_refreshed.current_step}")
+                    # If session is queued, change it to pending to allow execution
+                    if session.status == "queued":
+                        logger.info(f"[BACKGROUND] Session {session_id} is queued, changing to pending")
+                        session.status = "pending"
+                        background_db.commit()
+                        background_db.refresh(session)
                     
-                    if session_refreshed.status == "pending":
-                        logger.info(f"[START_EXECUTION] ✅ Session {session_id} is pending, calling execution_engine.start_execution()...")
-                        session_refreshed = await execution_engine.start_execution(async_db, session_refreshed.id)
-                        async_db.refresh(session_refreshed)
-                        logger.info(f"[START_EXECUTION] ✅ Execution engine returned. Session status: {session_refreshed.status}, current_step: {session_refreshed.current_step}")
-                    else:
-                        logger.warning(
-                            f"[START_EXECUTION] ⚠️ Session {session_id} is not pending "
-                            f"(status: {session_refreshed.status}), skipping execution start"
-                        )
-                except Exception as db_error:
-                    logger.error(f"[START_EXECUTION] ❌ Database error for session {session_id}: {db_error}", exc_info=True)
-                    import traceback
-                    logger.error(f"[START_EXECUTION] Traceback: {traceback.format_exc()}")
-                    raise
-                finally:
-                    async_db.close()
-                    logger.info(f"[START_EXECUTION] DB session closed")
-            except Exception as e:
-                logger.error(f"[START_EXECUTION] ❌ CRITICAL ERROR in async execution for session {session_id}: {e}", exc_info=True)
-                import traceback
-                logger.error(f"[START_EXECUTION] Full traceback: {traceback.format_exc()}")
-                # Re-raise to ensure the error is logged
-                raise
-        
-        # Use asyncio.create_task to run the async function in the background
-        # This ensures it runs even if the response is sent
-        import asyncio
-        try:
-            logger.info(f"[START_EXECUTION] Creating asyncio task for session {session.id}...")
-            task = asyncio.create_task(start_execution_async(session.id))
-            logger.info(f"[START_EXECUTION] ✅ Task created: {task}")
-            
-            # Add done callback to log completion/errors
-            def task_done_callback(future_task):
-                try:
-                    # Get the result (this will raise if there was an exception)
-                    result = future_task.result()
-                    logger.info(f"[START_EXECUTION] ✅ Background task completed for session {session.id}, result: {result}")
+                    engine = ExecutionEngine()
+                    session = await engine.start_execution(background_db, session_id)
+                    logger.info(f"[BACKGROUND] Execution started for session {session_id}, status: {session.status}")
+                    
+                    # Ensure events are published by committing
+                    background_db.commit()
                 except Exception as e:
-                    logger.error(f"[START_EXECUTION] ❌ Background task failed for session {session.id}: {e}", exc_info=True)
+                    logger.error(f"[BACKGROUND] Failed to start execution for session {session_id}: {e}", exc_info=True)
                     import traceback
-                    logger.error(f"[START_EXECUTION] Task failure traceback: {traceback.format_exc()}")
-            task.add_done_callback(task_done_callback)
-            logger.info(f"[START_EXECUTION] Done callback added to task")
-        except Exception as e:
-            logger.error(f"[START_EXECUTION] Failed to create background task for session {session.id}: {e}", exc_info=True)
-            # Fallback: try to start execution synchronously (but this will block)
-            # This should rarely happen, but it's a safety net
-            logger.warning(f"[START_EXECUTION] Falling back to synchronous execution (this may block)")
-            try:
-                session = await engine.start_execution(db, session.id)
-                db.refresh(session)
-                logger.info(f"[START_EXECUTION] Fallback synchronous execution completed for session {session.id}")
-            except Exception as sync_error:
-                logger.error(f"[START_EXECUTION] Fallback execution also failed: {sync_error}", exc_info=True)
+                    logger.error(f"[BACKGROUND] Traceback: {traceback.format_exc()}")
+                    background_db.rollback()
+                finally:
+                    background_db.close()
+            
+            # FastAPI BackgroundTasks supports async functions
+            background_tasks.add_task(start_execution_background)
+            logger.info(f"[START_EXECUTION] Queued background execution for session {session_id}")
         
         return payload
         
@@ -241,6 +169,7 @@ async def start_execution(
 
 
 @router.post("/{session_id}/approve-step")
+@rate_limit("200/minute")  # High limit for dev/test
 async def approve_step(
     session_id: int,
     request: StepApprovalRequest,
@@ -248,16 +177,16 @@ async def approve_step(
 ):
     """Approve or reject a step"""
     try:
-        # Get tenant_id and user_id
-        tenant_id = 1
-        user_id = 1
+        # Get tenant_id and user_id from current user or defaults
+        current_user = None
         try:
-            from app.services.auth import get_current_user
             current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-            user_id = current_user.id
-        except:
-            pass  # Use defaults for demo
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
+            pass  # Use defaults if no user
+        
+        tenant_id = get_tenant_id(current_user)
+        user_id = current_user.id if current_user else None
         
         # Delegate to controller
         from app.controllers.execution_controller import ExecutionController
@@ -295,7 +224,8 @@ async def list_execution_sessions(
             from app.services.auth import get_current_user
             current_user = await get_current_user()
             tenant_id = current_user.tenant_id
-        except:
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
             pass  # Use default for demo
         
         query = db.query(ExecutionSession).filter(
@@ -350,7 +280,8 @@ async def get_execution_status(
             from app.services.auth import get_current_user
             current_user = await get_current_user()
             tenant_id = current_user.tenant_id
-        except:
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
             pass  # Use default for demo
         
         session = db.query(ExecutionSession).filter(
@@ -415,7 +346,8 @@ async def cancel_execution(
             from app.services.auth import get_current_user
             current_user = await get_current_user()
             tenant_id = current_user.tenant_id
-        except:
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
             pass  # Use default for demo
         
         session = db.query(ExecutionSession).filter(
@@ -467,7 +399,8 @@ async def delete_execution_session(
             from app.services.auth import get_current_user
             current_user = await get_current_user()
             tenant_id = current_user.tenant_id
-        except:
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
             pass  # Use default for demo
         
         session = db.query(ExecutionSession).filter(
@@ -1107,7 +1040,8 @@ async def get_session_steps(
             from app.services.auth import get_current_user
             current_user = await get_current_user()
             tenant_id = current_user.tenant_id
-        except:
+        except (HTTPException, Exception) as e:
+            logger.debug(f"User authentication optional: {e}")
             pass  # Use default for demo
         
         session = db.query(ExecutionSession).filter(
@@ -1152,19 +1086,124 @@ async def get_session_steps(
         raise HTTPException(status_code=500, detail=f"Failed to get session steps: {str(e)}")
 
 
+def cleanup_connection(session_id: int, websocket: WebSocket):
+    """Helper function to clean up a WebSocket connection"""
+    if session_id in active_connections:
+        # Remove this specific websocket from the list
+        active_connections[session_id] = [
+            (ws, last_activity, user_id) 
+            for ws, last_activity, user_id in active_connections[session_id]
+            if ws != websocket
+        ]
+        # Remove empty session entries
+        if not active_connections[session_id]:
+            del active_connections[session_id]
+            logger.debug(f"Removed empty connection list for session {session_id}")
+
+
+async def cleanup_idle_connections():
+    """Background task to clean up idle WebSocket connections"""
+    while True:
+        try:
+            await asyncio.sleep(WEBSOCKET_HEARTBEAT_INTERVAL)
+            current_time = datetime.now(timezone.utc)
+            sessions_to_remove = []
+            
+            for session_id, connections in list(active_connections.items()):
+                active_conns = []
+                for ws, last_activity, user_id in connections:
+                    # Check if connection is idle
+                    idle_time = (current_time - last_activity).total_seconds()
+                    if idle_time > WEBSOCKET_IDLE_TIMEOUT:
+                        logger.info(f"Closing idle WebSocket connection for session {session_id} (idle for {idle_time:.0f}s)")
+                        try:
+                            await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="Connection timeout")
+                        except Exception:
+                            pass  # Connection may already be closed
+                    else:
+                        # Check if connection is still alive
+                        try:
+                            # Try to ping the connection
+                            await ws.send_json({"type": "ping"})
+                            active_conns.append((ws, last_activity, user_id))
+                        except Exception:
+                            logger.debug(f"Removing dead connection for session {session_id}")
+                            # Connection is dead, don't add it back
+                
+                if active_conns:
+                    active_connections[session_id] = active_conns
+                else:
+                    sessions_to_remove.append(session_id)
+            
+            # Remove empty sessions
+            for session_id in sessions_to_remove:
+                del active_connections[session_id]
+                logger.debug(f"Removed empty connection list for session {session_id}")
+                
+        except Exception as e:
+            logger.error(f"Error in cleanup_idle_connections: {e}", exc_info=True)
+
+
 @router.websocket("/ws/approvals/{session_id}")
 async def websocket_approvals(websocket: WebSocket, session_id: int):
-    """WebSocket endpoint for real-time approval updates"""
-    await websocket.accept()
+    """WebSocket endpoint for real-time approval updates (MF-9: Requires authentication)"""
+    # Security: Authenticate WebSocket connection
+    token = websocket.query_params.get("token") or websocket.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
+        return
     
+    # Use context manager for database session
+    from app.core.database import SessionLocal
+    from jose import JWTError, jwt
+    from app.core.config import settings
+    
+    db = None
+    user_id = None
     try:
-        # Store connection
+        # Authenticate user
+        db = SessionLocal()
+        try:
+            # Validate token and get user
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                email: str = payload.get("sub")
+                if not email:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+                    return
+                user = db.query(User).filter(User.email == email).first()
+                if not user:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="User not found")
+                    return
+                user_id = user.id
+            except (JWTError, Exception) as e:
+                logger.warning(f"WebSocket authentication failed: {e}")
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+                return
+        finally:
+            db.close()
+            db = None
+        
+        # Check connection limit
+        if session_id in active_connections:
+            current_connections = len(active_connections[session_id])
+            if current_connections >= WEBSOCKET_MAX_CONNECTIONS_PER_SESSION:
+                await websocket.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason=f"Maximum connections ({WEBSOCKET_MAX_CONNECTIONS_PER_SESSION}) reached for this session"
+                )
+                return
+        
+        await websocket.accept()
+        
+        # Store connection with metadata
+        current_time = datetime.now(timezone.utc)
         if session_id not in active_connections:
             active_connections[session_id] = []
-        active_connections[session_id].append(websocket)
+        active_connections[session_id].append((websocket, current_time, user_id))
+        logger.info(f"WebSocket connection established for session {session_id} (user {user_id}, total connections: {len(active_connections[session_id])})")
         
         # Send initial status
-        from app.core.database import SessionLocal
         db = SessionLocal()
         try:
             session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
@@ -1177,32 +1216,74 @@ async def websocket_approvals(websocket: WebSocket, session_id: int):
                 })
         finally:
             db.close()
+            db = None
         
-        # Listen for messages
+        # Listen for messages with timeout
         while True:
-            data = await websocket.receive_json()
-            
-            if data.get("type") == "approval":
-                # Handle approval
-                approve = data.get("approve", False)
-                step_number = data.get("step_number")
+            try:
+                # Wait for message with timeout
+                data = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=WEBSOCKET_HEARTBEAT_INTERVAL
+                )
                 
-                # Process approval (this would call the approval endpoint logic)
-                await websocket.send_json({
-                    "type": "approval_received",
-                    "approved": approve,
-                    "step_number": step_number
-                })
+                # Update last activity time
+                current_time = datetime.now(timezone.utc)
+                if session_id in active_connections:
+                    for i, (ws, last_activity, uid) in enumerate(active_connections[session_id]):
+                        if ws == websocket:
+                            active_connections[session_id][i] = (ws, current_time, uid)
+                            break
+                
+                if data.get("type") == "approval":
+                    # Handle approval
+                    approve = data.get("approve", False)
+                    step_number = data.get("step_number")
+                    
+                    # Process approval (this would call the approval endpoint logic)
+                    await websocket.send_json({
+                        "type": "approval_received",
+                        "approved": approve,
+                        "step_number": step_number
+                    })
+                elif data.get("type") == "pong":
+                    # Heartbeat response
+                    pass
+                    
+            except asyncio.TimeoutError:
+                # Send ping to check if connection is alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                    # Update last activity
+                    current_time = datetime.now(timezone.utc)
+                    if session_id in active_connections:
+                        for i, (ws, last_activity, uid) in enumerate(active_connections[session_id]):
+                            if ws == websocket:
+                                active_connections[session_id][i] = (ws, current_time, uid)
+                                break
+                except Exception:
+                    # Connection is dead, break the loop
+                    break
             
     except WebSocketDisconnect:
-        # Remove connection
-        if session_id in active_connections:
-            active_connections[session_id].remove(websocket)
-            if not active_connections[session_id]:
-                del active_connections[session_id]
+        logger.info(f"WebSocket disconnected for session {session_id}")
+        cleanup_connection(session_id, websocket)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await websocket.close()
+        logger.error(f"WebSocket error for session {session_id}: {e}", exc_info=True)
+        cleanup_connection(session_id, websocket)
+        try:
+            await websocket.close()
+        except Exception:
+            pass  # Connection may already be closed
+    finally:
+        # Ensure database session is closed
+        if db is not None:
+            try:
+                db.close()
+            except Exception as e:
+                logger.debug(f"Error closing database session: {e}")
+        # Final cleanup
+        cleanup_connection(session_id, websocket)
 
 
 async def notify_approval_needed(session_id: int, step_number: int):
@@ -1213,10 +1294,21 @@ async def notify_approval_needed(session_id: int, step_number: int):
             "session_id": session_id,
             "step_number": step_number
         }
-        # Send to all connected clients
-        for ws in active_connections[session_id]:
+        # Send to all connected clients and clean up dead connections
+        current_time = datetime.now(timezone.utc)
+        active_conns = []
+        for ws, last_activity, user_id in active_connections[session_id]:
             try:
                 await ws.send_json(message)
-            except:
-                pass
+                # Update last activity
+                active_conns.append((ws, current_time, user_id))
+            except (WebSocketDisconnect, ConnectionClosed, WebSocketException, Exception) as e:
+                logger.debug(f"Failed to send message to WebSocket client: {e}")
+                # Don't add dead connection back
+        # Update active connections
+        if active_conns:
+            active_connections[session_id] = active_conns
+        else:
+            # No active connections, remove the session
+            del active_connections[session_id]
 

@@ -60,7 +60,8 @@ class CoverageAnalytics:
                     issue = metadata.get('issue_description', '')
                     if issue:
                         issue_counts[issue] = issue_counts.get(issue, 0) + 1
-                except:
+                except (KeyError, AttributeError, TypeError, ValueError) as e:
+                    logger.debug(f"Error processing metadata for analytics: {e}")
                     pass
             
             # Total approved runbooks

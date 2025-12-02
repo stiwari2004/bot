@@ -32,21 +32,65 @@ export function useAgentVitals(): AgentVitalsHook {
       setLoading(true);
       setError(null);
 
-      const [statsRes, ticketsRes, approvalsRes, executionsRes] = await Promise.all([
+      // Fetch all endpoints, but handle failures gracefully
+      const [statsRes, ticketsRes, approvalsRes, executionsRes] = await Promise.allSettled([
         fetch(`${API_BASE}/api/v1/demo/stats`),
         fetch(`${API_BASE}/api/v1/tickets/demo/tickets?limit=100&status=open,in_progress,analyzing`),
         fetch(`${API_BASE}/api/v1/agent/pending-approvals`),
         fetch(`${API_BASE}/api/v1/executions/demo/executions?limit=100`),
       ]);
 
-      if (!statsRes.ok || !ticketsRes.ok || !approvalsRes.ok || !executionsRes.ok) {
-        throw new Error('Failed to fetch vitals');
+      // Parse responses with error handling
+      let statsData = { total_documents: 0, total_chunks: 0, total_runbooks: 0 };
+      let ticketsData = { tickets: [] };
+      let approvalsData = { pending_approvals: [] };
+      let executionsData = { sessions: [] };
+
+      try {
+        if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+          statsData = await statsRes.value.json();
+        }
+      } catch (e) {
+        console.warn('[useAgentVitals] Failed to parse stats:', e);
       }
 
-      const statsData = await statsRes.json();
-      const ticketsData = await ticketsRes.json();
-      const approvalsData = await approvalsRes.json();
-      const executionsData = await executionsRes.json();
+      try {
+        if (ticketsRes.status === 'fulfilled' && ticketsRes.value.ok) {
+          ticketsData = await ticketsRes.value.json();
+        }
+      } catch (e) {
+        console.warn('[useAgentVitals] Failed to parse tickets:', e);
+      }
+
+      try {
+        if (approvalsRes.status === 'fulfilled' && approvalsRes.value.ok) {
+          approvalsData = await approvalsRes.value.json();
+        }
+      } catch (e) {
+        console.warn('[useAgentVitals] Failed to parse pending approvals:', e);
+      }
+
+      try {
+        if (executionsRes.status === 'fulfilled' && executionsRes.value.ok) {
+          executionsData = await executionsRes.value.json();
+        }
+      } catch (e) {
+        console.warn('[useAgentVitals] Failed to parse executions:', e);
+      }
+
+      // Log any failures for debugging
+      if (statsRes.status === 'rejected' || (statsRes.status === 'fulfilled' && !statsRes.value.ok)) {
+        console.warn('[useAgentVitals] Failed to fetch stats:', statsRes.status === 'rejected' ? statsRes.reason : statsRes.value.status);
+      }
+      if (ticketsRes.status === 'rejected' || (ticketsRes.status === 'fulfilled' && !ticketsRes.value.ok)) {
+        console.warn('[useAgentVitals] Failed to fetch tickets:', ticketsRes.status === 'rejected' ? ticketsRes.reason : ticketsRes.value.status);
+      }
+      if (approvalsRes.status === 'rejected' || (approvalsRes.status === 'fulfilled' && !approvalsRes.value.ok)) {
+        console.warn('[useAgentVitals] Failed to fetch pending approvals:', approvalsRes.status === 'rejected' ? approvalsRes.reason : approvalsRes.value.status);
+      }
+      if (executionsRes.status === 'rejected' || (executionsRes.status === 'fulfilled' && !executionsRes.value.ok)) {
+        console.warn('[useAgentVitals] Failed to fetch executions:', executionsRes.status === 'rejected' ? executionsRes.reason : executionsRes.value.status);
+      }
 
       const sessions = Array.isArray(executionsData.sessions) ? executionsData.sessions : [];
       const todayString = new Date().toDateString();
@@ -98,5 +142,8 @@ export function useAgentVitals(): AgentVitalsHook {
     refresh: fetchVitals,
   };
 }
+
+
+
 
 

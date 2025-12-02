@@ -39,17 +39,27 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
           setRedirectUri(meta.redirect_uri || 'http://localhost:8000/oauth/callback');
         } else {
           setApiSecret(meta.api_secret ? '••••••••' : '');
-          if (meta.api_key || connection.api_key) {
-            setAuthMethod('api_key');
-          } else if (meta.api_username || connection.api_username) {
-            setAuthMethod('username');
+          // For ServiceNow, load username/password from meta_data or connection fields
+          if (connection.tool_name === 'servicenow') {
+            setApiUsername(meta.username || connection.api_username || '');
+            const hasPassword = meta.password || (connection.api_password && connection.api_password.length > 0);
+            setApiPassword(hasPassword ? '••••••••' : '');
+            setAuthMethod('username'); // ServiceNow uses username/password (Basic Auth)
+          } else {
+            if (meta.api_key || connection.api_key) {
+              setAuthMethod('api_key');
+            } else if (meta.api_username || connection.api_username) {
+              setAuthMethod('username');
+            }
           }
         }
       } catch (e) {
         // Ignore parse errors
       }
     }
-  }, [connection]);
+    // Only depend on specific properties that matter, not the entire connection object
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection.id, connection.tool_name, connection.meta_data, connection.api_username, connection.api_password, connection.api_key]);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -88,7 +98,16 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
           }
         } else {
           if (apiUsername) payload.api_username = apiUsername;
-          if (apiPassword) payload.api_password = apiPassword;
+          if (apiPassword && apiPassword !== '••••••••') {
+            payload.api_password = apiPassword;
+          }
+          // For ServiceNow, also store credentials in meta_data for consistency
+          if (connection.tool_name === 'servicenow') {
+            if (apiUsername) meta.username = apiUsername;
+            if (apiPassword && apiPassword !== '••••••••') {
+              meta.password = apiPassword;
+            }
+          }
         }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;

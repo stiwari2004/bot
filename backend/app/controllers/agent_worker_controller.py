@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.controllers.base_controller import BaseController
+from app.repositories.agent_worker_assignment_repository import AgentWorkerAssignmentRepository
+from app.repositories.execution_repository import ExecutionRepository
 from app.services.agent_worker_manager import agent_worker_manager
 from app.services.execution_orchestrator import execution_orchestrator
 from app.models.execution_session import AgentWorkerAssignment, ExecutionSession
@@ -87,32 +89,30 @@ class AgentWorkerController(BaseController):
     ) -> Dict[str, Any]:
         """Mark the latest pending assignment for a session as acknowledged by worker"""
         try:
-            query = db.query(AgentWorkerAssignment).filter(
-                AgentWorkerAssignment.session_id == session_id
-            )
-            if assignment_id:
-                query = query.filter(AgentWorkerAssignment.id == assignment_id)
-            else:
-                query = query.filter(AgentWorkerAssignment.status == "pending")
+            assignment_repo = AgentWorkerAssignmentRepository(db)
+            execution_repo = ExecutionRepository(db)
             
-            assignment = query.order_by(AgentWorkerAssignment.id.desc()).first()
+            # Get assignment using repository
+            status_filter = None if assignment_id else "pending"
+            assignment = assignment_repo.get_by_session_id(
+                session_id=session_id,
+                assignment_id=assignment_id,
+                status=status_filter
+            )
             if not assignment:
                 raise self.not_found("Assignment", assignment_id)
             
-            # Validate session exists
-            session_exists = (
-                db.query(ExecutionSession.id)
-                .filter(ExecutionSession.id == session_id)
-                .first()
-            )
-            if not session_exists:
+            # Validate session exists using repository
+            if not assignment_repo.session_exists(session_id):
                 raise self.not_found("Execution session", session_id)
             
-            assignment.worker_id = worker_id
-            assignment.status = "acknowledged"
-            assignment.acknowledged_at = datetime.now(timezone.utc)
-            db.commit()
-            db.refresh(assignment)
+            # Update assignment using repository
+            assignment = assignment_repo.update_assignment(
+                assignment_id=assignment.id,
+                worker_id=worker_id,
+                status="acknowledged",
+                acknowledged_at=datetime.now(timezone.utc)
+            )
             
             agent_worker_manager.heartbeat(worker_id)
             metrics.record_assignment(assignment.status)
@@ -138,11 +138,10 @@ class AgentWorkerController(BaseController):
     ) -> Dict[str, Any]:
         """Allow workers to publish execution events back to orchestrator"""
         try:
-            session = (
-                db.query(ExecutionSession)
-                .filter(ExecutionSession.id == session_id)
-                .first()
-            )
+            execution_repo = ExecutionRepository(db)
+            
+            # Get session using repository
+            session = execution_repo.get_by_id(session_id)
             if not session:
                 raise self.not_found("Execution session", session_id)
             

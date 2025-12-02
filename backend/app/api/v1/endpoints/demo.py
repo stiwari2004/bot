@@ -4,6 +4,7 @@ Demo endpoints for testing the system
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
+from pydantic import BaseModel, Field, validator
 import json
 import hashlib
 
@@ -17,11 +18,27 @@ from app.core.vector_store import ChunkData
 router = APIRouter()
 
 
+# Input validation models
+class SearchDemoRequest(BaseModel):
+    """Request model for demo search"""
+    query: str = Field(..., min_length=2, max_length=500, description="Search query")
+    
+    @validator('query')
+    def validate_query(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Query cannot be empty")
+        # Sanitize: remove control characters
+        sanitized = ''.join(c for c in v if ord(c) >= 32 or c in '\n\t')
+        if len(sanitized) < 2:
+            raise ValueError("Query must be at least 2 characters")
+        return sanitized
+
+
 @router.post("/upload-demo")
 async def upload_demo_file(
     file: UploadFile = File(...),
-    source_type: str = Form(...),
-    title: Optional[str] = Form(None),
+    source_type: str = Form(..., min_length=1, max_length=50),
+    title: Optional[str] = Form(None, max_length=255),
     db: Session = Depends(get_db)
 ):
     """Upload and process a demo file"""
@@ -51,16 +68,22 @@ async def upload_demo_file(
 
 @router.post("/search-demo")
 async def search_demo(
-    query: str = Form(...),
+    query: str = Form(..., min_length=2, max_length=500),
     db: Session = Depends(get_db)
 ):
     """Demo semantic search"""
+    # Validate query
+    if not query or len(query.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
+    if len(query) > 500:
+        raise HTTPException(status_code=400, detail="Query must be less than 500 characters")
+    
     try:
         vector_service = VectorStoreService()
         
         # Perform hybrid search (using tenant_id = 1 for demo)
         results = await vector_service.hybrid_search(
-            query=query,
+            query=query.strip(),
             tenant_id=1,  # Demo tenant
             db=db,
             top_k=5,

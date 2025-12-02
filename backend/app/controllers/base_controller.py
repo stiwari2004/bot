@@ -50,7 +50,12 @@ class BaseController:
     
     @staticmethod
     def validate_tenant_access(db: Session, tenant_id: int, resource_id: int, model_class) -> bool:
-        """Validate that resource belongs to tenant"""
+        """Validate that resource belongs to tenant
+        
+        NOTE: This method uses direct DB query as it's a utility method used across
+        different repositories. For specific models, use their respective repositories
+        instead of this method.
+        """
         resource = db.query(model_class).filter(
             model_class.id == resource_id,
             model_class.tenant_id == tenant_id

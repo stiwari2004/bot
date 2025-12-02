@@ -8,14 +8,15 @@ from fastapi import HTTPException
 
 from app.controllers.base_controller import BaseController
 from app.repositories.execution_repository import ExecutionRepository
-from app.models.execution_session import ExecutionSession, ExecutionStep, ExecutionFeedback
-from app.models.runbook import Runbook
-from app.models.runbook_usage import RunbookUsage
+from app.repositories.runbook_repository import RunbookRepository
+from app.repositories.runbook_usage_repository import RunbookUsageRepository
+from app.models.execution_session import ExecutionSession
 from app.services.execution_orchestrator import execution_orchestrator
 from app.services.idempotency import idempotency_manager
 from app.services.execution import ExecutionEngine
 from app.services.ticket_status_service import get_ticket_status_service
 from app.core.logging import get_logger
+from app.core.transactions import transaction
 
 logger = get_logger(__name__)
 
@@ -27,6 +28,8 @@ class ExecutionController(BaseController):
         self.db = db
         self.tenant_id = tenant_id
         self.execution_repo = ExecutionRepository(db)
+        self.runbook_repo = RunbookRepository(db)
+        self.runbook_usage_repo = RunbookUsageRepository(db)
         self.execution_engine = ExecutionEngine()
         self.ticket_status_service = get_ticket_status_service()
     
@@ -37,15 +40,34 @@ class ExecutionController(BaseController):
         ticket_id: Optional[int] = None,
         user_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
+        auto_start: bool = True
     ) -> Dict[str, Any]:
-        """Create a new execution session for a runbook"""
+        """Create a new execution session for a runbook
+        
+        Args:
+            runbook_id: ID of the runbook to execute
+            issue_description: Optional description of the issue
+            ticket_id: Optional ticket ID to associate with execution
+            user_id: Optional user ID who initiated execution
+            metadata: Optional metadata dictionary
+            idempotency_key: Optional key for idempotent requests
+            auto_start: If True, automatically start execution in background
+        """
         idempotency_key = (idempotency_key or "").strip() or None
         reservation_committed = False
         
         try:
-            runbook = self.db.query(Runbook).filter(Runbook.id == runbook_id).first()
+            # Verify runbook exists and is approved using repository
+            runbook = self.runbook_repo.get_approved_by_id_and_tenant(
+                runbook_id=runbook_id,
+                tenant_id=self.tenant_id
+            )
             if not runbook:
+                # Check if runbook exists but not approved
+                runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+                if runbook:
+                    raise self.bad_request("Runbook must be approved before execution")
                 raise self.not_found("Runbook", runbook_id)
             
             if idempotency_key:
@@ -76,18 +98,18 @@ class ExecutionController(BaseController):
             # For demo endpoint, always auto-start execution
             if session.status == "queued":
                 logger.info(f"Session {session.id} is queued. Changing to pending and starting execution for demo...")
-                session.status = "pending"
-                self.db.commit()
-                self.db.refresh(session)
+                with transaction(self.db):
+                    session = self.execution_repo.update_session(session_id=session.id, status="pending")
             
-            if session.status == "pending":
-                try:
-                    logger.info(f"Auto-starting execution for session {session.id}")
-                    session = await self.execution_engine.start_execution(self.db, session.id)
-                    self.db.refresh(session)
-                    logger.info(f"Execution started for session {session.id}, status: {session.status}")
-                except Exception as e:
-                    logger.error(f"Failed to auto-start execution for session {session.id}: {e}", exc_info=True)
+            # Update ticket status when execution starts (if ticket_id provided)
+            if ticket_id:
+                self.ticket_status_service.update_ticket_on_execution_start(self.db, ticket_id)
+            
+            # Note: Auto-start execution is now handled by the endpoint using background_tasks
+            # This prevents blocking the API response while execution runs
+            if auto_start and session.status == "pending":
+                logger.info(f"Session {session.id} is ready for execution (will be started in background)")
+                # Don't start here - let the endpoint handle it in background
             
             payload = execution_orchestrator.serialize_session(session)
             payload["runbook_title"] = runbook.title
@@ -124,7 +146,7 @@ class ExecutionController(BaseController):
                 # Continue with empty steps list
             
             try:
-                runbook = self.db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
+                runbook = self.runbook_repo.get_by_id_and_tenant(session.runbook_id, self.tenant_id) if session.runbook_id else None
             except Exception as e:
                 logger.warning(f"Error loading runbook for session {session_id}: {e}")
                 runbook = None
@@ -245,7 +267,8 @@ class ExecutionController(BaseController):
                         user_id=None,
                         approve=True
                     )
-                    self.db.refresh(session)
+                    # Refresh session from database to get latest state
+                    session = self.execution_repo.get_by_id(session_id)
                     logger.info(f"Step {step_number} approved and executed. Session status: {session.status}")
                     return {"message": "Step approved and execution triggered", "session": session}
                 else:
@@ -258,20 +281,19 @@ class ExecutionController(BaseController):
             elif step.requires_approval and step.approved is None:
                 session.waiting_for_approval = True
             
-            # Update session progress
+            # Update session progress using repository
             if approved is None or not approved or not step.requires_approval:
                 remaining_steps = [s for s in session.steps if not s.completed]
-                if remaining_steps:
-                    session.current_step = remaining_steps[0].step_number
-                else:
-                    session.current_step = session.steps[-1].step_number if session.steps else None
-                session.waiting_for_approval = any(s.requires_approval and s.approved is None for s in session.steps)
-                if session.waiting_for_approval:
-                    session.status = "waiting_approval"
-                elif session.status != "failed":
-                    session.status = "in_progress"
-            
-            self.db.commit()
+                current_step = remaining_steps[0].step_number if remaining_steps else (session.steps[-1].step_number if session.steps else None)
+                waiting_for_approval = any(s.requires_approval and s.approved is None for s in session.steps)
+                new_status = "waiting_approval" if waiting_for_approval else ("in_progress" if session.status != "failed" else session.status)
+                
+                self.execution_repo.update_session(
+                    session_id=session_id,
+                    current_step=current_step,
+                    waiting_for_approval=waiting_for_approval,
+                    status=new_status
+                )
             return {"message": "Step updated successfully"}
         except HTTPException:
             raise
@@ -396,8 +418,8 @@ class ExecutionController(BaseController):
                 suggestions=suggestions
             )
             
-            # Create or update runbook usage tracking
-            runbook_usage = RunbookUsage(
+            # Create runbook usage tracking using repository
+            self.runbook_usage_repo.create_usage(
                 runbook_id=session.runbook_id,
                 tenant_id=session.tenant_id,
                 user_id=session.user_id,
@@ -407,8 +429,6 @@ class ExecutionController(BaseController):
                 feedback_text=feedback_text,
                 execution_time_minutes=duration_minutes
             )
-            self.db.add(runbook_usage)
-            self.db.commit()
             
             return {"message": "Execution session completed", "session_id": session_id}
         except HTTPException:
@@ -431,20 +451,24 @@ class ExecutionController(BaseController):
             if session.status in ["completed", "failed", "abandoned"]:
                 raise self.bad_request(f"Session is already {session.status} and cannot be abandoned")
             
-            # Mark as abandoned
-            session.status = "abandoned"
-            session.completed_at = datetime.now(timezone.utc)
+            # Mark as abandoned using repository
+            completed_at = datetime.now(timezone.utc)
+            duration_minutes = None
             if session.started_at:
-                duration_minutes = int((session.completed_at - session.started_at).total_seconds() / 60)
-                session.total_duration_minutes = duration_minutes
+                duration_minutes = int((completed_at - session.started_at).total_seconds() / 60)
+            
+            self.execution_repo.update_session(
+                session_id=session_id,
+                status="abandoned",
+                completed_at=completed_at,
+                total_duration_minutes=duration_minutes
+            )
             
             # Update ticket status if linked
             if session.ticket_id:
                 self.ticket_status_service.update_ticket_on_execution_complete(
                     self.db, session.ticket_id, "abandoned", issue_resolved=False
                 )
-            
-            self.db.commit()
             logger.info(f"Execution session {session_id} abandoned. Reason: {reason or 'No reason provided'}")
             
             return {"message": "Execution session abandoned", "session_id": session_id}
@@ -486,7 +510,7 @@ class ExecutionController(BaseController):
             if offset < 0:
                 offset = 0
             
-            sessions = self.execution_repo.get_by_tenant(self.tenant_id, limit, offset)
+            sessions = self.execution_repo.get_by_tenant(self.tenant_id, limit=limit, offset=offset)
             
             result: List[Dict[str, Any]] = []
             for session in sessions:
@@ -496,7 +520,7 @@ class ExecutionController(BaseController):
                         self.db.merge(session)
                     
                     payload = execution_orchestrator.serialize_session(session)
-                    runbook = self.db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
+                    runbook = self.runbook_repo.get_by_id_and_tenant(session.runbook_id, self.tenant_id) if session.runbook_id else None
                     if runbook:
                         if runbook.is_active == "archived":
                             payload["runbook_title"] = f"{runbook.title} (Archived)"
@@ -515,5 +539,36 @@ class ExecutionController(BaseController):
             logger.exception("Failed to list execution sessions: %s", e)
             # Return empty result instead of raising error
             return {"sessions": []}
+    
+    def get_pending_approvals(self) -> Dict[str, Any]:
+        """Get all sessions waiting for approval"""
+        try:
+            sessions = self.execution_repo.get_pending_approvals(self.tenant_id)
+            
+            result = []
+            for session in sessions:
+                step = self.execution_repo.get_step(
+                    session.id, 
+                    session.approval_step_number, 
+                    None  # step_type not needed for lookup
+                )
+                
+                runbook = self.runbook_repo.get_by_id_and_tenant(session.runbook_id, self.tenant_id) if session.runbook_id else None
+                
+                result.append({
+                    "session_id": session.id,
+                    "runbook_id": session.runbook_id,
+                    "runbook_title": runbook.title if runbook else "Unknown",
+                    "step_number": session.approval_step_number,
+                    "step_type": step.step_type if step else None,
+                    "command": step.command if step else None,
+                    "issue_description": session.issue_description,
+                    "created_at": session.created_at.isoformat() if session.created_at else None
+                })
+            
+            return {"pending_approvals": result}
+        except Exception as e:
+            logger.exception("Failed to get pending approvals: %s", e)
+            raise self.handle_error(e, "Failed to get pending approvals")
 
 

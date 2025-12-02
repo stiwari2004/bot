@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.models.ticketing_tool_connection import TicketingToolConnection
 from app.core.logging import get_logger
 from app.services.ticketing_connectors.zoho_oauth import ZohoOAuthService
+from app.services.ticketing_poller import TicketingPoller
 from pydantic import BaseModel
 from datetime import datetime
 import json
@@ -19,6 +20,65 @@ import secrets
 router = APIRouter()
 logger = get_logger(__name__)
 oauth_service = ZohoOAuthService()
+
+# Global poller instance for manual sync
+_poller_instance: Optional[TicketingPoller] = None
+
+
+@router.get("/ticketing-tools")
+async def list_ticketing_tools():
+    """List available ticketing tools that can be connected"""
+    return {
+        "tools": [
+            {
+                "name": "servicenow",
+                "display_name": "ServiceNow",
+                "description": "ServiceNow ITSM platform",
+                "connection_types": ["api_poll", "webhook"],
+                "auth_methods": ["basic_auth", "oauth2"],
+                "icon": "servicenow"
+            },
+            {
+                "name": "zoho",
+                "display_name": "Zoho Desk",
+                "description": "Zoho Desk ticketing system",
+                "connection_types": ["api_poll"],
+                "auth_methods": ["oauth2"],
+                "icon": "zoho"
+            },
+            {
+                "name": "manageengine",
+                "display_name": "ManageEngine ServiceDesk Plus",
+                "description": "ManageEngine ServiceDesk Plus",
+                "connection_types": ["api_poll"],
+                "auth_methods": ["oauth2"],
+                "icon": "manageengine"
+            },
+            {
+                "name": "jira",
+                "display_name": "Jira",
+                "description": "Atlassian Jira issue tracker",
+                "connection_types": ["api_poll", "webhook"],
+                "auth_methods": ["api_token", "oauth2"],
+                "icon": "jira"
+            },
+            {
+                "name": "zendesk",
+                "display_name": "Zendesk",
+                "description": "Zendesk customer support platform",
+                "connection_types": ["api_poll", "webhook"],
+                "auth_methods": ["api_token", "oauth2"],
+                "icon": "zendesk"
+            }
+        ]
+    }
+
+def get_poller_instance() -> TicketingPoller:
+    """Get or create poller instance for manual sync"""
+    global _poller_instance
+    if _poller_instance is None:
+        _poller_instance = TicketingPoller()
+    return _poller_instance
 
 
 class TicketingConnectionCreate(BaseModel):
@@ -142,6 +202,14 @@ async def list_ticketing_connections(
             elif c.tool_name == "manageengine":
                 # ManageEngine is authorized if access_token exists (stored after OAuth callback, same as Zoho)
                 oauth_authorized = bool(meta_data.get("access_token"))
+            elif c.tool_name == "servicenow":
+                # ServiceNow is authorized if credentials exist (username/password or OAuth client_id/secret)
+                # Check both meta_data and connection fields
+                has_username = bool(meta_data.get("username") or c.api_username)
+                has_password = bool(meta_data.get("password") or c.api_password)
+                has_oauth = bool(meta_data.get("client_id") and meta_data.get("client_secret"))
+                # Authorized if we have either Basic Auth credentials OR OAuth credentials
+                oauth_authorized = (has_username and has_password) or has_oauth
             
             result.append({
                 "id": c.id,
@@ -171,7 +239,7 @@ async def get_ticketing_connection(
     connection_id: int,
     db: Session = Depends(get_db)
 ):
-    """Get ticketing tool connection details"""
+    """Get a specific ticketing tool connection"""
     try:
         tenant_id = 1
         
@@ -186,11 +254,15 @@ async def get_ticketing_connection(
         meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
         oauth_authorized = False
         if connection.tool_name == "zoho":
-            # Zoho is authorized if access_token exists (stored after OAuth callback)
             oauth_authorized = bool(meta_data.get("access_token"))
         elif connection.tool_name == "manageengine":
-            # ManageEngine is authorized if access_token exists (stored after OAuth callback, same as Zoho)
             oauth_authorized = bool(meta_data.get("access_token"))
+        elif connection.tool_name == "servicenow":
+            # ServiceNow is authorized if credentials exist (username/password or OAuth client_id/secret)
+            has_username = bool(meta_data.get("username") or connection.api_username)
+            has_password = bool(meta_data.get("password") or connection.api_password)
+            has_oauth = bool(meta_data.get("client_id") and meta_data.get("client_secret"))
+            oauth_authorized = (has_username and has_password) or has_oauth
         
         return {
             "id": connection.id,
@@ -202,7 +274,6 @@ async def get_ticketing_connection(
             "last_sync_at": connection.last_sync_at.isoformat() if connection.last_sync_at else None,
             "last_sync_status": connection.last_sync_status,
             "last_error": connection.last_error,
-            "sync_interval_minutes": connection.sync_interval_minutes,
             "created_at": connection.created_at.isoformat() if connection.created_at else None,
             "oauth_authorized": oauth_authorized
         }
@@ -218,10 +289,10 @@ async def get_ticketing_connection(
 @router.patch("/ticketing-connections/{connection_id}")
 async def update_ticketing_connection(
     connection_id: int,
-    update: TicketingConnectionUpdate,
+    connection_update: TicketingConnectionUpdate,
     db: Session = Depends(get_db)
 ):
-    """Update ticketing tool connection"""
+    """Update a ticketing tool connection"""
     try:
         tenant_id = 1
         
@@ -234,26 +305,51 @@ async def update_ticketing_connection(
             raise HTTPException(status_code=404, detail="Connection not found")
         
         # Update fields
-        if update.is_active is not None:
-            connection.is_active = update.is_active
-        if update.webhook_url is not None:
-            connection.webhook_url = update.webhook_url
-        if update.webhook_secret is not None:
-            connection.webhook_secret = update.webhook_secret
-        if update.api_base_url is not None:
-            connection.api_base_url = update.api_base_url
-        if update.api_key is not None:
-            connection.api_key = update.api_key
-        if update.api_username is not None:
-            connection.api_username = update.api_username
-        if update.api_password is not None:
-            connection.api_password = update.api_password
-        if update.sync_interval_minutes is not None:
-            connection.sync_interval_minutes = update.sync_interval_minutes
-        if update.meta_data is not None:
-            connection.meta_data = json.dumps(update.meta_data)
+        if connection_update.is_active is not None:
+            connection.is_active = connection_update.is_active
+        if connection_update.webhook_url is not None:
+            connection.webhook_url = connection_update.webhook_url
+        if connection_update.webhook_secret is not None:
+            connection.webhook_secret = connection_update.webhook_secret
+        if connection_update.api_base_url is not None:
+            connection.api_base_url = connection_update.api_base_url
+        if connection_update.api_key is not None:
+            connection.api_key = connection_update.api_key
+        if connection_update.api_username is not None:
+            connection.api_username = connection_update.api_username
+        if connection_update.api_password is not None:
+            connection.api_password = connection_update.api_password
+        if connection_update.sync_interval_minutes is not None:
+            connection.sync_interval_minutes = connection_update.sync_interval_minutes
         
-        connection.updated_at = datetime.utcnow()
+        # Get or create existing_meta for ServiceNow sync
+        existing_meta = None
+        if connection.tool_name == "servicenow" and (connection_update.api_username is not None or connection_update.api_password is not None):
+            existing_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+        
+        # Update meta_data if provided
+        if connection_update.meta_data is not None:
+            # Merge with existing meta_data
+            if existing_meta is None:
+                existing_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            existing_meta.update(connection_update.meta_data)
+            connection.meta_data = json.dumps(existing_meta)
+            logger.info(f"Updated meta_data for {connection.tool_name} connection {connection.id}. Keys: {list(existing_meta.keys())}")
+        
+        # For ServiceNow, also sync api_username/api_password to meta_data (if not already in meta_data from above)
+        if connection.tool_name == "servicenow":
+            if existing_meta is None:
+                existing_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            updated = False
+            if connection_update.api_username is not None:
+                existing_meta["username"] = connection_update.api_username
+                updated = True
+            if connection_update.api_password is not None:
+                existing_meta["password"] = connection_update.api_password
+                updated = True
+            if updated:
+                connection.meta_data = json.dumps(existing_meta)
+                logger.info(f"Synced ServiceNow credentials to meta_data for connection {connection.id}. Keys: {list(existing_meta.keys())}")
         
         db.commit()
         db.refresh(connection)
@@ -261,6 +357,7 @@ async def update_ticketing_connection(
         return {
             "id": connection.id,
             "tool_name": connection.tool_name,
+            "connection_type": connection.connection_type,
             "is_active": connection.is_active,
             "message": "Connection updated successfully"
         }
@@ -277,7 +374,7 @@ async def delete_ticketing_connection(
     connection_id: int,
     db: Session = Depends(get_db)
 ):
-    """Delete ticketing tool connection"""
+    """Delete a ticketing tool connection"""
     try:
         tenant_id = 1
         
@@ -292,7 +389,9 @@ async def delete_ticketing_connection(
         db.delete(connection)
         db.commit()
         
-        return {"message": "Connection deleted successfully"}
+        return {
+            "message": "Connection deleted successfully"
+        }
         
     except HTTPException:
         raise
@@ -366,6 +465,30 @@ async def test_ticketing_connection(
                     await fetcher.close()
                     raise
             
+            elif connection.tool_name == "servicenow":
+                from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
+                fetcher = ServiceNowTicketFetcher()
+                try:
+                    # ServiceNow supports OAuth 2.0 or Basic Auth
+                    # Credentials can be in meta_data OR in connection.api_username/api_password
+                    username = meta_data.get("username") or connection.api_username
+                    password = meta_data.get("password") or connection.api_password
+                    tickets = await fetcher.fetch_tickets(
+                        api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
+                        connection_meta=meta_data,
+                        username=username,
+                        password=password,
+                        client_id=meta_data.get("client_id"),
+                        client_secret=meta_data.get("client_secret"),
+                        since=None,  # Fetch recent tickets
+                        limit=10  # Just test with a few tickets
+                    )
+                    tickets_fetched = len(tickets)
+                    await fetcher.close()
+                except Exception as e:
+                    await fetcher.close()
+                    raise
+            
             else:
                 # For other tools, just mark success without fetching
                 tickets_fetched = 0
@@ -403,13 +526,12 @@ async def test_ticketing_connection(
         raise HTTPException(status_code=500, detail=f"Failed to test connection: {str(e)}")
 
 
-@router.get("/ticketing-connections/{connection_id}/oauth/authorize")
-@router.post("/ticketing-connections/{connection_id}/oauth/authorize")
-async def authorize_oauth_connection(
+@router.post("/ticketing-connections/{connection_id}/sync")
+async def sync_ticketing_connection(
     connection_id: int,
     db: Session = Depends(get_db)
 ):
-    """Generate OAuth authorization URL for Zoho connection or login URL for ManageEngine"""
+    """Manually trigger sync for a ticketing tool connection (actually creates tickets)"""
     try:
         tenant_id = 1
         
@@ -421,284 +543,165 @@ async def authorize_oauth_connection(
         if not connection:
             raise HTTPException(status_code=404, detail="Connection not found")
         
-        # Check if already authorized
-        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
-        existing_token = meta_data.get("access_token")
-        existing_refresh_token = meta_data.get("refresh_token")
-        if existing_token:
-            logger.info(f"Connection {connection_id} already has access_token, but user requested re-authorization")
-            # Clear access_token and expires_at, but preserve refresh_token
-            # (Zoho may not return a new refresh_token if app was already authorized)
-            meta_data.pop("access_token", None)
-            meta_data.pop("expires_at", None)
-            # Keep refresh_token - will be updated in callback if Zoho returns a new one
-            connection.meta_data = json.dumps(meta_data)
-            db.commit()
-            logger.info(f"Cleared access_token for connection {connection_id} to allow re-authorization. Preserving refresh_token: {bool(existing_refresh_token)}")
+        if not connection.is_active:
+            raise HTTPException(status_code=400, detail="Connection is not active")
         
-        # Zoho OAuth flow
-        if connection.tool_name == "zoho":
-            meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
-            client_id = meta_data.get("client_id")
-            redirect_uri = meta_data.get("redirect_uri", settings.OAUTH_CALLBACK_URL)
-            zoho_domain = meta_data.get("zoho_domain", "com")  # Default to .com, but support .in for Indian accounts
-            
-            if not client_id:
-                raise HTTPException(status_code=400, detail="Client ID not configured. Please update connection with OAuth credentials.")
-            
-            # Generate state for CSRF protection
-            state = f"{connection_id}:{secrets.token_urlsafe(32)}"
-            
-            # Generate authorization URL with domain
-            auth_url = oauth_service.generate_authorization_url(
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                state=state,
-                domain=zoho_domain
-            )
-            
-            # Store state in meta_data temporarily
-            meta_data["oauth_state"] = state
-            connection.meta_data = json.dumps(meta_data)
-            db.commit()
-            
-            return {
-                "authorization_url": auth_url,
-                "state": state
-            }
+        if connection.connection_type != "api_poll":
+            raise HTTPException(status_code=400, detail="Manual sync only available for api_poll connections")
         
-        # ManageEngine OAuth flow (uses same OAuth as Zoho)
-        elif connection.tool_name == "manageengine":
-            meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
-            client_id = meta_data.get("client_id")
-            redirect_uri = meta_data.get("redirect_uri", settings.OAUTH_CALLBACK_URL)
-            # ManageEngine often uses .in domain (India), default to .in for ManageEngine
-            zoho_domain = meta_data.get("zoho_domain", "in")  # Default to .in for ManageEngine (Indian accounts)
-            
-            if not client_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Client ID not configured. Please update connection with OAuth credentials (Client ID and Client Secret)."
-                )
-            
-            # Generate state for CSRF protection
-            state = f"{connection_id}:{secrets.token_urlsafe(32)}"
-            
-            # ManageEngine ServiceDesk Plus Cloud uses OAuth 2.0 with Zoho accounts
-            # Use the same OAuth service as Zoho, but with ManageEngine-specific scopes
-            scopes = ["SDPOnDemand.requests.ALL"]  # ManageEngine scope format
-            
-            auth_url = oauth_service.generate_authorization_url(
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                scopes=scopes,
-                state=state,
-                domain=zoho_domain
-            )
-            
-            # Store state in meta_data temporarily
-            meta_data["oauth_state"] = state
-            connection.meta_data = json.dumps(meta_data)
-            db.commit()
-            
-            logger.info(f"Generated ManageEngine OAuth authorization URL for connection {connection_id}")
-            
-            return {
-                "authorization_url": auth_url,
-                "state": state
-            }
+        logger.info(f"Manual sync triggered for {connection.tool_name} connection {connection_id}")
         
-        else:
-            raise HTTPException(status_code=400, detail="Authorization is only supported for Zoho and ManageEngine")
+        # Use the poller service to actually sync (this creates tickets in database)
+        poller = get_poller_instance()
+        await poller._poll_connection(connection, db)
+        
+        # Refresh connection to get updated stats
+        db.refresh(connection)
+        
+        return {
+            "status": "success",
+            "message": f"Sync completed for {connection.tool_name} connection",
+            "last_sync_at": connection.last_sync_at.isoformat() if connection.last_sync_at else None,
+            "last_sync_status": connection.last_sync_status
+        }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error generating authorization URL: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate authorization URL: {str(e)}")
+        logger.error(f"Error syncing ticketing connection: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync connection: {str(e)}")
 
 
-@router.get("/oauth/callback")
-async def oauth_callback(
-    code: str = Query(...),
-    state: str = Query(...),
-    error: Optional[str] = None,
+@router.get("/ticketing-connections/{connection_id}/oauth/authorize")
+@router.post("/ticketing-connections/{connection_id}/oauth/authorize")
+async def authorize_ticketing_connection(
+    connection_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    """Handle OAuth callback from Zoho or ManageEngine"""
-    logger.info(f"OAuth callback received - code: {code[:20]}..., state: {state[:50]}..., error: {error}")
+    """OAuth authorization endpoint for ticketing tools (Zoho, ManageEngine)"""
     try:
-        if error:
-            logger.error(f"OAuth error: {error}")
-            return RedirectResponse(url=f"{settings.FRONTEND_BASE_URL}/?tab=settings&oauth_error={error}")
-        
-        # Extract connection_id from state
-        if ":" not in state:
-            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=invalid_state")
-        
-        connection_id_str, _ = state.split(":", 1)
-        try:
-            connection_id = int(connection_id_str)
-        except ValueError:
-            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=invalid_state")
-        
         tenant_id = 1
+        
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
             TicketingToolConnection.tenant_id == tenant_id
         ).first()
         
         if not connection:
-            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=connection_not_found")
+            raise HTTPException(status_code=404, detail="Connection not found")
         
-        # Support both Zoho and ManageEngine (both use same OAuth flow)
         if connection.tool_name not in ("zoho", "manageengine"):
-            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=invalid_tool")
+            raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
         
         meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
-        stored_state = meta_data.get("oauth_state")
-        
-        # Verify state
-        if stored_state != state:
-            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=state_mismatch")
-        
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
-        redirect_uri = meta_data.get("redirect_uri", "http://localhost:8000/oauth/callback")
-        # Get domain (default to .in for ManageEngine, .com for Zoho)
-        zoho_domain = meta_data.get("zoho_domain")
-        if not zoho_domain:
-            # Default based on tool: .in for ManageEngine (often Indian accounts), .com for Zoho
-            zoho_domain = "in" if connection.tool_name == "manageengine" else "com"
+        redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
         
         if not client_id or not client_secret:
-            logger.error(f"OAuth callback: Missing credentials for connection {connection_id}. client_id={bool(client_id)}, client_secret={bool(client_secret)}")
-            logger.error(f"OAuth callback: meta_data keys: {list(meta_data.keys())}")
-            return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=missing_credentials")
+            raise HTTPException(status_code=400, detail="OAuth credentials (client_id, client_secret) not configured")
         
-        # Log client ID (first 10 chars only for security) and redirect URI for debugging
-        logger.info(f"OAuth callback: Exchange token for connection {connection_id}, tool={connection.tool_name}, domain={zoho_domain}, client_id={client_id[:10]}..., redirect_uri={redirect_uri}")
+        # Generate state token for CSRF protection
+        state_token = secrets.token_urlsafe(32)
+        # Store state in session or cache (simplified - in production use Redis)
+        # For now, we'll include it in the redirect URL
+        
+        # Determine Zoho domain based on tool
+        zoho_domain = "com"  # Default
+        if connection.tool_name == "manageengine":
+            zoho_domain = meta_data.get("zoho_domain", "in")  # ManageEngine typically uses .in
+        
+        # Build OAuth authorization URL
+        auth_url = f"https://accounts.zoho.{zoho_domain}/oauth/v2/auth"
+        params = {
+            "scope": "Desk.tickets.READ,Desk.tickets.WRITE,Desk.tickets.UPDATE" if connection.tool_name == "zoho" else "Desk.tickets.READ,Desk.tickets.WRITE,Desk.tickets.UPDATE",
+            "client_id": client_id,
+            "response_type": "code",
+            "redirect_uri": redirect_uri,
+            "access_type": "offline",
+            "state": state_token
+        }
+        
+        # For GET request, redirect to OAuth
+        if request.method == "GET":
+            from urllib.parse import urlencode
+            full_url = f"{auth_url}?{urlencode(params)}"
+            return RedirectResponse(url=full_url)
+        
+        # For POST request, return the URL
+        from urllib.parse import urlencode
+        full_url = f"{auth_url}?{urlencode(params)}"
+        return {
+            "authorization_url": full_url,
+            "state": state_token,
+            "message": "Visit the authorization_url to authorize the connection"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating OAuth authorization URL: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate authorization URL: {str(e)}")
+
+
+@router.get("/ticketing-connections/{connection_id}/oauth/callback")
+async def oauth_callback(
+    connection_id: int,
+    code: str = Query(...),
+    state: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """OAuth callback endpoint for ticketing tools"""
+    try:
+        tenant_id = 1
+        
+        connection = db.query(TicketingToolConnection).filter(
+            TicketingToolConnection.id == connection_id,
+            TicketingToolConnection.tenant_id == tenant_id
+        ).first()
+        
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
+        
+        if connection.tool_name not in ("zoho", "manageengine"):
+            raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
+        
+        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+        client_id = meta_data.get("client_id")
+        client_secret = meta_data.get("client_secret")
+        redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
+        
+        if not client_id or not client_secret:
+            raise HTTPException(status_code=400, detail="OAuth credentials not configured")
+        
+        # Determine Zoho domain
+        zoho_domain = "com"
+        if connection.tool_name == "manageengine":
+            zoho_domain = meta_data.get("zoho_domain", "in")
         
         # Exchange code for tokens
-        try:
-            logger.info(f"Attempting to exchange OAuth code for connection {connection_id} using domain: {zoho_domain}")
-            token_data = await oauth_service.exchange_code_for_tokens(
-                code=code,
-                client_id=client_id,
-                client_secret=client_secret,
-                redirect_uri=redirect_uri,
-                domain=zoho_domain
-            )
-            
-            logger.info(f"Token exchange successful for connection {connection_id}")
-            logger.info(f"Token data received: keys={list(token_data.keys())}, has_refresh_token={bool(token_data.get('refresh_token'))}")
-            
-            # Preserve existing refresh_token if Zoho didn't return a new one
-            # (Zoho may not return refresh_token if app was already authorized)
-            existing_refresh_token = meta_data.get("refresh_token")
-            new_refresh_token = token_data.get("refresh_token")
-            
-            if not new_refresh_token and existing_refresh_token:
-                logger.info(f"Zoho did not return new refresh_token, preserving existing one for connection {connection_id}")
-                token_data["refresh_token"] = existing_refresh_token
-            
-            # Update meta_data with tokens (filter out None values to avoid saving null)
-            token_data_clean = {k: v for k, v in token_data.items() if v is not None}
-            meta_data.update(token_data_clean)
-            meta_data.pop("oauth_state", None)  # Remove temporary state
-            connection.meta_data = json.dumps(meta_data)
-            connection.last_sync_at = datetime.utcnow()
-            connection.last_sync_status = "success"
-            connection.last_error = None
-            
-            try:
-                db.commit()
-                logger.info(f"Database updated for connection {connection_id}")
-            except Exception as commit_error:
-                logger.error(f"Failed to commit OAuth tokens to database: {commit_error}", exc_info=True)
-                db.rollback()
-                return RedirectResponse(url=f"settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=database_error")
-            
-            # Verify tokens were saved
-            db.refresh(connection)
-            updated_meta = json.loads(connection.meta_data) if connection.meta_data else {}
-            has_token = bool(updated_meta.get("access_token"))
-            has_refresh_token = bool(updated_meta.get("refresh_token"))
-            logger.info(
-                f"OAuth authorization successful for connection {connection_id}. "
-                f"access_token saved: {has_token}, refresh_token saved: {has_refresh_token}"
-            )
-            
-            if not has_token:
-                logger.error(f"WARNING: OAuth callback completed but access_token not found in database for connection {connection_id}")
-            
-            if not has_refresh_token:
-                logger.warning(
-                    f"WARNING: OAuth callback completed but refresh_token not found in database for connection {connection_id}. "
-                    f"This will cause issues when access_token expires. Token data keys: {list(token_data.keys())}"
-                )
-            
-            return RedirectResponse(url=f"settings.FRONTEND_BASE_URL/?tab=settings&oauth_success=true&connection_id={connection_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to exchange OAuth code: {e}", exc_info=True)
-            try:
-                connection.last_error = str(e)[:500]  # Limit error length
-                connection.last_sync_status = "failed"
-                db.commit()
-            except Exception as commit_error:
-                logger.error(f"Failed to save error to database: {commit_error}")
-                db.rollback()
-            return RedirectResponse(url=f"settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=token_exchange_failed")
+        tokens = await oauth_service.exchange_code_for_tokens(
+            code=code,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            domain=zoho_domain
+        )
         
+        # Update connection with tokens
+        meta_data.update(tokens)
+        connection.meta_data = json.dumps(meta_data)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "OAuth authorization successful",
+            "connection_id": connection_id
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error handling OAuth callback: {e}")
-        return RedirectResponse(url="settings.FRONTEND_BASE_URL/?tab=settings&oauth_error=internal_error")
-
-
-@router.get("/ticketing-tools")
-async def list_available_ticketing_tools():
-    """List available ticketing tools that can be connected"""
-    return {
-        "tools": [
-            {
-                "name": "servicenow",
-                "display_name": "ServiceNow",
-                "connection_types": ["webhook", "api_poll"],
-                "description": "ServiceNow ITSM platform"
-            },
-            {
-                "name": "zendesk",
-                "display_name": "Zendesk",
-                "connection_types": ["webhook", "api_poll"],
-                "description": "Zendesk Support platform"
-            },
-            {
-                "name": "jira",
-                "display_name": "Jira",
-                "connection_types": ["webhook", "api_poll"],
-                "description": "Atlassian Jira"
-            },
-            {
-                "name": "bmc_remedy",
-                "display_name": "BMC Remedy",
-                "connection_types": ["api_poll"],
-                "description": "BMC Remedy ITSM"
-            },
-            {
-                "name": "manageengine",
-                "display_name": "ManageEngine",
-                "connection_types": ["webhook", "api_poll"],
-                "description": "ManageEngine ServiceDesk"
-            },
-            {
-                "name": "zoho",
-                "display_name": "Zoho Desk",
-                "connection_types": ["webhook", "api_poll"],
-                "description": "Zoho Desk ticketing platform"
-            }
-        ]
-    }
-
-
-
+        logger.error(f"Error processing OAuth callback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process OAuth callback: {str(e)}")

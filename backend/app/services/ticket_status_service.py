@@ -3,6 +3,8 @@ Ticket Status Service - Update ticket status based on execution lifecycle
 """
 from sqlalchemy.orm import Session
 from app.core.logging import get_logger
+from app.core.input_sanitizer import sanitize_for_logging
+from app.core.transactions import transaction
 from app.models.ticket import Ticket
 from app.models.execution_session import ExecutionSession
 from datetime import datetime

@@ -12,12 +12,14 @@ from app.core.config import settings
 from app.schemas.auth import Token, UserCreate, UserResponse
 from app.services.auth import authenticate_user, create_access_token, get_current_user
 from app.models.user import User
+from app.core.rate_limiting import rate_limit
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
 
 @router.post("/login", response_model=Token)
+@rate_limit("10/minute")  # Stricter limit for login
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
@@ -47,6 +49,7 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/register", response_model=UserResponse)
+@rate_limit("5/minute")  # Stricter limit for registration
 async def register(
     user_data: UserCreate,
     db: Session = Depends(get_db)

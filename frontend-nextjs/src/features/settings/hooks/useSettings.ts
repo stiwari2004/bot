@@ -8,6 +8,7 @@ import type {
   TicketingTool,
   InfrastructureConnection,
   Credential,
+  MonitoringConnection,
 } from '../types';
 
 export function useSettings() {
@@ -16,6 +17,7 @@ export function useSettings() {
   const [availableTools, setAvailableTools] = useState<TicketingTool[]>([]);
   const [infrastructureConnections, setInfrastructureConnections] = useState<InfrastructureConnection[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [monitoringConnections, setMonitoringConnections] = useState<MonitoringConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +62,19 @@ export function useSettings() {
       setInfrastructureConnections(data.connections || []);
     } catch (err) {
       console.error('Failed to fetch infrastructure connections:', err);
+    }
+  }, []);
+
+  const fetchMonitoringConnections = useCallback(async () => {
+    try {
+      const response = await fetch(apiConfig.endpoints.connectors.monitoringConnections());
+      if (!response.ok) {
+        throw new Error('Failed to fetch monitoring connections');
+      }
+      const data = await response.json();
+      setMonitoringConnections(data.connections || []);
+    } catch (err) {
+      console.error('Failed to fetch monitoring connections:', err);
     }
   }, []);
 
@@ -123,10 +138,14 @@ export function useSettings() {
   }, [executionMode]);
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return;
+    
     fetchExecutionMode();
     fetchTicketingConnections();
     fetchAvailableTools();
     fetchInfrastructureConnections();
+    fetchMonitoringConnections();
     fetchCredentials();
     
     // Check for OAuth success/error in URL params and refresh connections
@@ -134,7 +153,7 @@ export function useSettings() {
     if (params.has('oauth_success') || params.has('oauth_error')) {
       fetchTicketingConnections();
     }
-  }, [fetchExecutionMode, fetchTicketingConnections, fetchAvailableTools, fetchInfrastructureConnections, fetchCredentials]);
+  }, [fetchExecutionMode, fetchTicketingConnections, fetchAvailableTools, fetchInfrastructureConnections, fetchCredentials, fetchMonitoringConnections]);
 
   return {
     // Data
@@ -143,6 +162,7 @@ export function useSettings() {
     availableTools,
     infrastructureConnections,
     credentials,
+    monitoringConnections,
     
     // State
     loading,
@@ -156,12 +176,14 @@ export function useSettings() {
     setTicketingConnections,
     setInfrastructureConnections,
     setCredentials,
+    setMonitoringConnections,
     
     // Actions
     fetchExecutionMode,
     fetchTicketingConnections,
     fetchInfrastructureConnections,
     fetchCredentials,
+    fetchMonitoringConnections,
     fetchAvailableTools,
     handleModeChange,
   };

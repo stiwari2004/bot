@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.controllers.base_controller import BaseController
 from app.repositories.runbook_repository import RunbookRepository
+from app.repositories.ticket_repository import TicketRepository
 from app.services.runbook.generation import RunbookGeneratorService
 from app.services.runbook.duplicate_detection_service import DuplicateDetectionService
 from app.services.runbook.ticket_cleanup_service import TicketCleanupService
@@ -16,6 +17,7 @@ from app.models.runbook import Runbook
 from app.models.ticket import Ticket
 from app.schemas.runbook import RunbookResponse, RunbookUpdate
 from app.core.logging import get_logger
+from app.core.transactions import transaction
 
 logger = get_logger(__name__)
 
@@ -27,6 +29,7 @@ class RunbookController(BaseController):
         self.db = db
         self.tenant_id = tenant_id
         self.runbook_repo = RunbookRepository(db)
+        self.ticket_repo = TicketRepository(db)
         self.generator = RunbookGeneratorService()
         self.duplicate_service = DuplicateDetectionService()
         self.cleanup_service = TicketCleanupService()
@@ -74,26 +77,22 @@ class RunbookController(BaseController):
             if ticket_id:
                 import json
                 try:
-                    # Refresh to get the latest state
-                    self.db.refresh(runbook)
+                    # Get latest runbook state and update metadata using repository
                     runbook_obj = self.runbook_repo.get_by_id_and_tenant(runbook.id, self.tenant_id)
                     if runbook_obj:
                         meta_data = json.loads(runbook_obj.meta_data) if runbook_obj.meta_data else {}
                         meta_data["ticket_id"] = ticket_id
-                        runbook_obj.meta_data = json.dumps(meta_data)
-                        self.db.commit()
+                        # Use repository update method
+                        self.runbook_repo.update(runbook.id, meta_data=json.dumps(meta_data))
                         logger.info(f"Stored ticket_id {ticket_id} in runbook {runbook.id} meta_data")
                     
                     # Associate with ticket AFTER everything is committed
                     # Use a separate try/except so association failure doesn't break the response
                     try:
                         self._associate_with_ticket(runbook.id, ticket_id)
-                        # Commit the association separately to ensure it's saved
-                        self.db.commit()
                         logger.info(f"Committed association of runbook {runbook.id} with ticket {ticket_id}")
                     except Exception as assoc_err:
                         logger.warning(f"Association failed but runbook was created: {assoc_err}")
-                        self.db.rollback()
                         # Don't fail the request - association can happen later during approval
                 except Exception as e:
                     logger.warning(f"Failed to store ticket_id in meta_data: {e}")
@@ -114,11 +113,8 @@ class RunbookController(BaseController):
         try:
             from sqlalchemy.orm.attributes import flag_modified
             
-            # Use a fresh query to avoid stale session issues
-            ticket = self.db.query(Ticket).filter(
-                Ticket.id == ticket_id,
-                Ticket.tenant_id == self.tenant_id
-            ).first()
+            # Use repository to get ticket
+            ticket = self.ticket_repo.get_by_id_and_tenant(ticket_id, self.tenant_id)
             
             if not ticket:
                 logger.warning(f"Ticket {ticket_id} not found for association with runbook {runbook_id}")
@@ -147,24 +143,19 @@ class RunbookController(BaseController):
                         "reasoning": "Runbook generated for this ticket"
                     })
                     
-                    # Assign the new dict and flag it as modified
-                    ticket.meta_data = new_meta_data
-                    flag_modified(ticket, "meta_data")  # CRITICAL: Tell SQLAlchemy the JSON column changed
-                    
-                    # Commit immediately to ensure it's saved
-                    self.db.commit()
-                    self.db.refresh(ticket)  # Refresh to verify the change
+                    # Update ticket metadata using repository
+                    self.ticket_repo.update_ticket_metadata(
+                        ticket_id=ticket_id,
+                        tenant_id=self.tenant_id,
+                        meta_data=new_meta_data
+                    )
                     
                     # Verify the change was saved
-                    matched_count = len(ticket.meta_data.get("matched_runbooks", []))
-                    logger.info(f"✅ Successfully associated runbook {runbook_id} ({runbook.title}) with ticket {ticket_id}")
-                    logger.info(f"✅ Ticket {ticket_id} now has {matched_count} matched runbook(s) in database")
-                    
-                    # Double-check by querying again
-                    verify_ticket = self.db.query(Ticket).filter(Ticket.id == ticket_id).first()
-                    if verify_ticket and verify_ticket.meta_data:
-                        verify_count = len(verify_ticket.meta_data.get("matched_runbooks", []))
-                        logger.info(f"✅ Verification: Ticket {ticket_id} has {verify_count} matched runbook(s) after refresh")
+                    updated_ticket = self.ticket_repo.get_by_id_and_tenant(ticket_id, self.tenant_id)
+                    if updated_ticket:
+                        matched_count = len(updated_ticket.meta_data.get("matched_runbooks", [])) if updated_ticket.meta_data else 0
+                        logger.info(f"✅ Successfully associated runbook {runbook_id} ({runbook.title}) with ticket {ticket_id}")
+                        logger.info(f"✅ Ticket {ticket_id} now has {matched_count} matched runbook(s) in database")
                     
                     return True
                 else:
@@ -253,18 +244,21 @@ class RunbookController(BaseController):
             if not runbook:
                 raise self.not_found("Runbook", runbook_id)
             
-            # Update fields
+            # Update fields using repository
+            update_data = {}
             if runbook_update.title is not None:
-                runbook.title = runbook_update.title
+                update_data["title"] = runbook_update.title
             if runbook_update.body_md is not None:
-                runbook.body_md = runbook_update.body_md
+                update_data["body_md"] = runbook_update.body_md
             if runbook_update.confidence is not None:
-                runbook.confidence = runbook_update.confidence
+                update_data["confidence"] = runbook_update.confidence
             if runbook_update.meta_data is not None:
-                runbook.meta_data = json.dumps(runbook_update.meta_data)
+                update_data["meta_data"] = json.dumps(runbook_update.meta_data)
             
-            self.db.commit()
-            self.db.refresh(runbook)
+            updated_runbook = self.runbook_repo.update(runbook_id, **update_data)
+            if not updated_runbook:
+                raise self.not_found("Runbook", runbook_id)
+            runbook = updated_runbook
             
             return RunbookResponse(
                 id=runbook.id,

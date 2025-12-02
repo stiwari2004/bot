@@ -13,9 +13,11 @@ Context (use for technical reference ONLY - do not copy examples from here if th
 
 CRITICAL - THIS IS A NETWORK ISSUE:
 - Network issues include: connectivity problems, DNS resolution failures, routing issues, firewall problems, network device failures
-- Network issues are about NETWORK CONNECTIVITY and NETWORK DEVICES (switches, routers, firewalls), NOT servers, databases, or web apps
+- Network issues are about NETWORK CONNECTIVITY and NETWORK DEVICES (switches, routers, firewalls, load balancers), NOT servers, databases, or web apps
 - Use network-specific commands: ping, traceroute, nslookup, dig, ip, route, nmcli
-- Identify network component from issue description (DNS, routing, firewall, switch, router)
+- For NETWORK DEVICES (routers, switches, firewalls): Use device-specific commands (Cisco IOS/NX-OS, Juniper JunOS, etc.)
+- Identify network component from issue description (DNS, routing, firewall, switch, router, VLAN, port, interface)
+- If issue mentions a specific device (router, switch, firewall), include device_name and device_ip in inputs
 
 YAML STRUCTURE:
 
@@ -29,6 +31,7 @@ description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3
 
 INPUTS SECTION - NETWORK-SPECIFIC:
 For NETWORK issues, you typically need host_ip and gateway_ip.
+For NETWORK DEVICE issues (routers, switches, firewalls), include device_name and device_ip.
 
 inputs:
 - name: host_ip
@@ -39,11 +42,27 @@ inputs:
   type: string
   required: true
   description: Gateway or router IP to verify network reachability
+- name: device_name
+  type: string
+  required: false
+  description: Network device hostname (router, switch, firewall) if issue is device-specific
+- name: device_ip
+  type: string
+  required: false
+  description: Network device management IP address if issue is device-specific
 - name: interface
   type: string
   required: false
   default: "eth0"
   description: Network interface to restart during remediation
+- name: vlan_id
+  type: string
+  required: false
+  description: VLAN ID if issue is VLAN-related
+- name: port_number
+  type: string
+  required: false
+  description: Switch port number if issue is port-specific
 
 CRITICAL - MATCH INPUTS TO ISSUE:
 - If issue says "cannot reach host" → Include host_ip and gateway_ip

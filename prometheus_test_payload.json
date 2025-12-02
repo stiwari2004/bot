@@ -1,0 +1,45 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"HighCPUUsage\"}",
+  "status": "firing",
+  "receiver": "troubleshooting-ai-webhook",
+  "groupLabels": {
+    "alertname": "HighCPUUsage"
+  },
+  "commonLabels": {
+    "alertname": "HighCPUUsage",
+    "severity": "warning",
+    "instance": "server1:9100",
+    "job": "node_exporter",
+    "environment": "prod",
+    "service": "web-server"
+  },
+  "commonAnnotations": {
+    "description": "CPU usage is above 80% on server1:9100",
+    "summary": "High CPU usage detected"
+  },
+  "externalURL": "http://alertmanager:9093",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "HighCPUUsage",
+        "severity": "warning",
+        "instance": "server1:9100",
+        "job": "node_exporter",
+        "environment": "prod",
+        "service": "web-server"
+      },
+      "annotations": {
+        "description": "CPU usage is above 80% on server1:9100",
+        "summary": "High CPU usage detected"
+      },
+      "startsAt": "2025-12-01T10:00:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus:9090/graph?g0.expr=cpu_usage%20%3E%2080",
+      "fingerprint": "abc123def456"
+    }
+  ]
+}
+
+

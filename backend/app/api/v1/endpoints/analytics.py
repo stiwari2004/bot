@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.controllers.analytics_controller import AnalyticsController
+from app.controllers.runbook_metrics_controller import RunbookMetricsController
+from app.controllers.decision_analytics_controller import DecisionAnalyticsController
+from app.models.user import User
+from app.services.auth import get_current_user
 
 router = APIRouter()
 controller = AnalyticsController()
@@ -99,11 +103,74 @@ async def get_runbook_quality_metrics_demo(
 async def get_runbook_metrics_demo(
     runbook_id: int,
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Get detailed metrics for a specific runbook"""
-    return await controller.get_runbook_metrics(
+    metrics_controller = RunbookMetricsController(db, current_user.tenant_id)
+    return await metrics_controller.get_runbook_metrics(
         runbook_id=runbook_id,
+        days=days
+    )
+
+
+@router.get("/demo/runbook-quality")
+async def get_runbook_quality_dashboard(
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get quality metrics dashboard for all runbooks"""
+    metrics_controller = RunbookMetricsController(db, current_user.tenant_id)
+    return await metrics_controller.get_all_metrics(days=days)
+
+
+@router.post("/demo/runbooks/{runbook_id}/calculate-metrics")
+async def calculate_runbook_metrics(
+    runbook_id: int,
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Calculate and cache metrics for a runbook"""
+    metrics_controller = RunbookMetricsController(db, current_user.tenant_id)
+    return await metrics_controller.calculate_metrics(
+        runbook_id=runbook_id,
+        days=days
+    )
+
+
+# Module 8: Decision Engine Analytics Endpoints
+@router.get("/demo/decision-engine")
+async def get_decision_analytics(
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get decision engine analytics summary"""
+    controller = DecisionAnalyticsController(db, current_user.tenant_id)
+    return await controller.get_analytics_summary(days=days)
+
+
+@router.get("/demo/decision-engine/trends")
+async def get_decision_analytics_trends(
+    period_type: str = Query("daily", regex="^(daily|weekly|monthly)$"),
+    limit: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get decision engine analytics trends over time"""
+    controller = DecisionAnalyticsController(db, current_user.tenant_id)
+    return await controller.get_trends(period_type=period_type, limit=limit)
+
+
+@router.get("/demo/accuracy")
+async def get_accuracy_metrics_demo(
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db)
+):
+    """Get overall accuracy metrics across all components"""
+    return await controller.get_accuracy_metrics(
         tenant_id=1,  # Demo tenant
         db=db,
         days=days

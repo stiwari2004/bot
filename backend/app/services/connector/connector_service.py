@@ -104,7 +104,8 @@ class ConnectorService:
             try:
                 conn_meta = json.loads(infra_conn.meta_data)
                 sub_id = conn_meta.get('subscription_id')
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+                logger.debug(f"Failed to parse connection metadata for subscription_id: {e}")
                 pass
         
         logger.info(f"Azure credentials check - tenant_id: {bool(tenant_id_cred)}, client_id: {bool(client_id)}, client_secret: {bool(client_secret)}, subscription_id: {bool(sub_id)}")
@@ -222,7 +223,8 @@ class ConnectorService:
             try:
                 conn_meta = json.loads(infra_conn.meta_data)
                 subscription_id = conn_meta.get('subscription_id')
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+                logger.debug(f"Failed to parse connection metadata for subscription_id: {e}")
                 pass
         
         # Also try to get from credential
@@ -320,7 +322,8 @@ class ConnectorService:
                 try:
                     conn_meta = json.loads(infra_conn.meta_data)
                     subscription_id = conn_meta.get('subscription_id')
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+                    logger.debug(f"Failed to parse connection metadata for subscription_id: {e}")
                     pass
         
         if not subscription_id:

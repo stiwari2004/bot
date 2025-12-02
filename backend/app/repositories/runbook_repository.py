@@ -49,6 +49,20 @@ class RunbookRepository(BaseRepository[Runbook]):
             )
         ).first()
     
+    def get_approved_by_id_and_tenant(
+        self,
+        runbook_id: int,
+        tenant_id: int
+    ) -> Optional[Runbook]:
+        """Get approved runbook by ID and tenant"""
+        return self.db.query(Runbook).filter(
+            and_(
+                Runbook.id == runbook_id,
+                Runbook.tenant_id == tenant_id,
+                Runbook.status == "approved"
+            )
+        ).first()
+    
     def get_active_by_tenant(self, tenant_id: int) -> List[Runbook]:
         """Get all active runbooks for duplicate checking"""
         return self.db.query(Runbook).filter(

@@ -8,6 +8,7 @@ from typing import List
 from app.core.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.core.rate_limiting import rate_limit
 from app.schemas.ticket import (
     TicketAnalysisRequest, 
     TicketAnalysisResponse, 
@@ -26,6 +27,7 @@ logger = get_logger(__name__)
 
 
 @router.post("/analyze", response_model=TicketAnalysisResponse)
+@rate_limit("100/minute")  # High limit for dev/test
 async def analyze_ticket(
     request: TicketAnalysisRequest,
     db: Session = Depends(get_db),
@@ -101,9 +103,16 @@ async def analyze_ticket(
             threshold_used=threshold
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error analyzing ticket: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to analyze ticket: {str(e)}")
+        from app.core.errors import handle_exception
+        raise handle_exception(
+            e,
+            context="analyze_ticket",
+            user_id=current_user.id if current_user else None,
+            tenant_id=current_user.tenant_id if current_user else None
+        )
 
 
 @router.post("/demo/analyze", response_model=TicketAnalysisResponse)

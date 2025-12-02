@@ -10,6 +10,7 @@ import {
   ArrowTrendingDownIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import { apiConfig } from '@/lib/api-config';
 
 interface OverallStats {
   total_runbooks_with_executions: number;
@@ -60,7 +61,7 @@ export function RunbookQualityDashboard() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/v1/analytics/demo/runbook-quality?days=${days}`);
+        const response = await fetch(apiConfig.endpoints.analytics.runbookQuality(days));
         if (!response.ok) {
           throw new Error('Failed to fetch quality metrics');
         }

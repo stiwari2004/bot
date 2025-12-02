@@ -78,7 +78,8 @@ Based on similar incidents and knowledge base, this issue typically occurs due t
                     causes.append(f"- {cause_part.capitalize()}")
         
         if not causes:
-            causes = ["- Configuration issues", "- Resource constraints", "- Network connectivity problems"]
+            # Generic causes that apply to any issue type
+            causes = ["- Configuration issues", "- Resource constraints", "- Service or component failures"]
         
         return "\n".join(causes[:3])
     
@@ -95,10 +96,11 @@ Based on similar incidents and knowledge base, this issue typically occurs due t
                         break
         
         if not assessment:
+            # Generic assessment steps that apply to any issue type
             assessment = [
                 "- Check system status and logs",
                 "- Verify resource utilization",
-                "- Confirm network connectivity"
+                "- Review recent changes or events"
             ]
         
         return "\n".join(assessment[:3])
@@ -118,12 +120,13 @@ Based on similar incidents and knowledge base, this issue typically occurs due t
                     commands.append("htop")
         
         if not commands:
+            # Generic diagnostic commands that apply to any issue type
             commands = [
-                "ping -c 4 <target_host>",
-                "traceroute <target_host>",
                 "top",
                 "df -h",
-                "free -m"
+                "free -m",
+                "systemctl status",
+                "journalctl -n 50"
             ]
         
         return "\n".join(commands[:5])
@@ -200,15 +203,15 @@ Unable to find specific information about this issue in the knowledge base.
 ### Step 1: Initial Assessment
 - Check system status and logs
 - Verify resource utilization
-- Confirm network connectivity
+- Review recent changes or events
 
 ### Step 2: Diagnostic Commands
 ```bash
-ping -c 4 <target_host>
-traceroute <target_host>
 top
 df -h
 free -m
+systemctl status
+journalctl -n 50
 ```
 
 ### Step 3: Resolution Steps

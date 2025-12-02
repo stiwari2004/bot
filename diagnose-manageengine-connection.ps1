@@ -69,3 +69,6 @@ Write-Host "3. Poller must be enabled (ENABLE_TICKETING_POLLER=true)" -Foregroun
 Write-Host "4. Connection must have valid OAuth tokens" -ForegroundColor White
 Write-Host "5. Poller runs every 1 minute, but syncs based on sync_interval_minutes" -ForegroundColor White
 
+
+
+

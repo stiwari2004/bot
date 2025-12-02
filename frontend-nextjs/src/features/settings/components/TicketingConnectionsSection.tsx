@@ -121,6 +121,7 @@ export function TicketingConnectionsSection({
                     )}
                   </div>
                   <div className="flex items-center gap-2 ml-4">
+                    {/* OAuth tools (Zoho, ManageEngine) - show Authorize button */}
                     {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') && connection.connection_type === 'api_poll' && (
                       <>
                         {connection.oauth_authorized ? (
@@ -135,6 +136,20 @@ export function TicketingConnectionsSection({
                           >
                             Authorize
                           </button>
+                        )}
+                      </>
+                    )}
+                    {/* ServiceNow (Basic Auth) - show authorization status */}
+                    {connection.tool_name === 'servicenow' && connection.connection_type === 'api_poll' && (
+                      <>
+                        {connection.oauth_authorized ? (
+                          <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-lg">
+                            ✓ Authorized
+                          </span>
+                        ) : (
+                          <span className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-lg">
+                            ⚠ Not Authorized
+                          </span>
                         )}
                       </>
                     )}

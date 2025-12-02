@@ -61,16 +61,16 @@ class ExecutionRepository(BaseRepository[ExecutionSession]):
         self,
         session_id: int,
         step_number: int,
-        step_type: str
+        step_type: Optional[str] = None
     ) -> Optional[ExecutionStep]:
         """Get a specific execution step"""
-        return self.db.query(ExecutionStep).filter(
-            and_(
-                ExecutionStep.session_id == session_id,
-                ExecutionStep.step_number == step_number,
-                ExecutionStep.step_type == step_type
-            )
-        ).first()
+        query = self.db.query(ExecutionStep).filter(
+            ExecutionStep.session_id == session_id,
+            ExecutionStep.step_number == step_number
+        )
+        if step_type:
+            query = query.filter(ExecutionStep.step_type == step_type)
+        return query.first()
     
     def create_feedback(
         self,
@@ -94,5 +94,36 @@ class ExecutionRepository(BaseRepository[ExecutionSession]):
         self.db.commit()
         self.db.refresh(feedback)
         return feedback
+    
+    def get_by_ticket_id(
+        self,
+        ticket_id: int
+    ) -> List[ExecutionSession]:
+        """Get all execution sessions for a ticket"""
+        return self.db.query(ExecutionSession).filter(
+            ExecutionSession.ticket_id == ticket_id
+        ).order_by(ExecutionSession.created_at.desc()).all()
+    
+    def update_session(
+        self,
+        session_id: int,
+        **kwargs
+    ) -> Optional[ExecutionSession]:
+        """Update execution session fields"""
+        session = self.get_by_id(session_id)
+        if session:
+            for key, value in kwargs.items():
+                setattr(session, key, value)
+            self.db.commit()
+            self.db.refresh(session)
+        return session
+    
+    def get_pending_approvals(self, tenant_id: int) -> List[ExecutionSession]:
+        """Get all sessions waiting for approval for a tenant"""
+        return self.db.query(ExecutionSession).filter(
+            ExecutionSession.tenant_id == tenant_id,
+            ExecutionSession.waiting_for_approval == True,
+            ExecutionSession.status == "waiting_approval"
+        ).all()
 
 

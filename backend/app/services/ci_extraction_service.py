@@ -48,7 +48,8 @@ class CIExtractionService:
                 try:
                     import json
                     meta_data = json.loads(meta_data)
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError) as e:
+                    logger.debug(f"Failed to parse ticket meta_data as JSON: {e}")
                     meta_data = {}
             
             ci_association = meta_data.get('ci_association') or meta_data.get('ci_id') or meta_data.get('ci_name')

@@ -41,22 +41,82 @@ async def init_db():
     """Initialize database tables and extensions"""
     try:
         # Import all models to ensure they're registered
-        from app.models import tenant, user, document, chunk, embedding, runbook, execution, audit
-        from app.models import system_config, runbook_usage, runbook_similarity, runbook_citation
-        from app.models import ticket, credential  # New models for Phase 2
+        from app.models import (
+            tenant,
+            user,
+            document,
+            chunk,
+            embedding,
+            runbook,
+            execution,
+            audit,
+        )
+        from app.models import (
+            system_config,
+            runbook_usage,
+            runbook_similarity,
+            runbook_citation,
+        )
+        from app.models import ticket, alert, credential  # New models for Phase 2
         from app.models import execution_session  # Execution tracking + orchestration tables
+        from app.models import execution_pattern  # Execution pattern tracking
+        from app.models import pattern_feedback  # Pattern feedback tracking
+        from app.models import runbook_metrics  # Runbook metrics caching
+        from app.models import confidence_breakdown  # Confidence breakdown tracking
+        from app.models import runbook_version  # Runbook versioning
+        from app.models import citation_verification  # Citation verification
+        from app.models import resolution_flow  # Resolution orchestration
+        from app.models import decision_analytics  # Decision engine analytics
         try:
             from app.models import ticketing_tool_connection  # Ticketing tool connections
         except ImportError:
             pass
+        try:
+            from app.models import monitoring_tool_connection  # Monitoring tool connections
+        except ImportError:
+            pass
         
-        # Enable pgvector extension
+        # Enable required PostgreSQL extensions
         with engine.connect() as conn:
+            # Enable pgvector extension for vector similarity search
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            # Enable pg_trgm extension for trigram-based text search (used in ExecutionPattern indexes)
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
             conn.commit()
         
         # Create all tables
         Base.metadata.create_all(bind=engine)
+        
+        # Create full-text search index for execution_patterns.issue_signature
+        # This needs to be done via raw SQL as SQLAlchemy doesn't handle gin_trgm_ops well
+        with engine.connect() as conn:
+            try:
+                # Check if index already exists
+                result = conn.execute(text("""
+                    SELECT 1 FROM pg_indexes 
+                    WHERE indexname = 'idx_execution_patterns_signature'
+                """))
+                if result.fetchone() is None:
+                    # Create GIN index with trigram operator class for fast text search
+                    conn.execute(text("""
+                        CREATE INDEX idx_execution_patterns_signature 
+                        ON execution_patterns 
+                        USING gin (issue_signature gin_trgm_ops)
+                    """))
+                    conn.commit()
+                    logger.info("Created full-text search index for execution_patterns.issue_signature")
+            except Exception as idx_error:
+                # If pg_trgm extension is not available, create a simpler index
+                logger.warning(f"Could not create trigram index: {idx_error}. Creating standard index instead.")
+                try:
+                    conn.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_execution_patterns_signature 
+                        ON execution_patterns (issue_signature)
+                    """))
+                    conn.commit()
+                    logger.info("Created standard index for execution_patterns.issue_signature")
+                except Exception as fallback_error:
+                    logger.warning(f"Could not create fallback index: {fallback_error}")
         
         # Seed default tenant (required for foreign key constraints)
         from app.models.tenant import Tenant

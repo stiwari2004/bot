@@ -20,23 +20,26 @@ class CredentialEncryption:
     """Simple credential encryption for POC"""
     
     def __init__(self):
-        # Get encryption key from environment or generate one
+        # Get encryption key from environment - REQUIRED in all environments
         key = os.getenv("CREDENTIAL_ENCRYPTION_KEY")
         if not key:
-            if settings.DEBUG:
-                key = Fernet.generate_key()
-                logger.warning(
-                    "CREDENTIAL_ENCRYPTION_KEY not set; generated transient key for DEBUG session. "
-                    "Do not use in production."
-                )
-            else:
-                raise RuntimeError(
-                    "CREDENTIAL_ENCRYPTION_KEY is not set. Configure a managed key (Vault/KMS) before starting the service."
-                )
+            raise RuntimeError(
+                "CREDENTIAL_ENCRYPTION_KEY must be set in all environments.\n"
+                "Generate with: python -c 'from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())'\n"
+                "For production, use a managed key service (HashiCorp Vault, AWS KMS, etc.)"
+            )
+        
         if isinstance(key, str):
             key = key.encode()
         
-        self.cipher = Fernet(key)
+        try:
+            self.cipher = Fernet(key)
+        except Exception as e:
+            raise RuntimeError(
+                f"Invalid CREDENTIAL_ENCRYPTION_KEY: {e}\n"
+                "The key must be a valid Fernet key (32 bytes, base64-encoded)."
+            )
     
     def encrypt(self, plaintext: str) -> str:
         """Encrypt plaintext credential"""

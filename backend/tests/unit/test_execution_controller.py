@@ -1,0 +1,142 @@
+"""
+Unit tests for ExecutionController
+"""
+import pytest
+from unittest.mock import Mock, AsyncMock, patch
+from sqlalchemy.orm import Session
+from app.controllers.execution_controller import ExecutionController
+from app.models.runbook import Runbook
+from app.models.execution_session import ExecutionSession
+from app.models.ticket import Ticket
+
+
+@pytest.fixture
+def mock_db():
+    """Create a mock database session"""
+    return Mock(spec=Session)
+
+
+@pytest.fixture
+def controller(mock_db):
+    """Create an ExecutionController instance"""
+    return ExecutionController(mock_db, tenant_id=1)
+
+
+class TestCreateExecutionSession:
+    """Test create_execution_session method"""
+    
+    @pytest.mark.asyncio
+    async def test_create_session_with_valid_runbook(self, controller, mock_db):
+        """Test creating a session with a valid runbook"""
+        # Mock runbook
+        runbook = Mock(spec=Runbook)
+        runbook.id = 1
+        runbook.tenant_id = 1
+        runbook.status = "approved"
+        runbook.is_active = "active"
+        
+        # Mock database query
+        mock_db.query.return_value.filter.return_value.first.return_value = runbook
+        
+        # Mock session creation
+        mock_session = Mock(spec=ExecutionSession)
+        mock_session.id = 1
+        mock_db.add = Mock()
+        mock_db.commit = Mock()
+        mock_db.refresh = Mock()
+        
+        with patch('app.controllers.execution_controller.ExecutionSession', return_value=mock_session):
+            result = await controller.create_execution_session(
+                runbook_id=1,
+                issue_description="Test issue",
+                user_id=1
+            )
+            
+            assert result is not None
+            mock_db.add.assert_called_once()
+            mock_db.commit.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_create_session_with_nonexistent_runbook(self, controller, mock_db):
+        """Test creating a session with a nonexistent runbook"""
+        # Mock database query to return None
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        
+        with pytest.raises(Exception):  # Should raise HTTPException or similar
+            await controller.create_execution_session(
+                runbook_id=999,
+                issue_description="Test issue",
+                user_id=1
+            )
+    
+    @pytest.mark.asyncio
+    async def test_create_session_with_unapproved_runbook(self, controller, mock_db):
+        """Test creating a session with an unapproved runbook"""
+        # Mock runbook that is not approved
+        runbook = Mock(spec=Runbook)
+        runbook.id = 1
+        runbook.tenant_id = 1
+        runbook.status = "draft"
+        runbook.is_active = "active"
+        
+        mock_db.query.return_value.filter.return_value.first.return_value = runbook
+        
+        with pytest.raises(Exception):  # Should raise HTTPException
+            await controller.create_execution_session(
+                runbook_id=1,
+                issue_description="Test issue",
+                user_id=1
+            )
+
+
+class TestApproveStep:
+    """Test approve_step method"""
+    
+    @pytest.mark.asyncio
+    async def test_approve_step_with_valid_session(self, controller, mock_db):
+        """Test approving a step with a valid session"""
+        # Mock execution session
+        session = Mock(spec=ExecutionSession)
+        session.id = 1
+        session.tenant_id = 1
+        session.status = "running"
+        
+        mock_db.query.return_value.filter.return_value.first.return_value = session
+        
+        # Mock step approval logic
+        with patch.object(controller, '_approve_step_internal', new_callable=AsyncMock) as mock_approve:
+            mock_approve.return_value = {"status": "approved", "step_number": 1}
+            
+            result = await controller.approve_step(
+                session_id=1,
+                step_number=1,
+                user_id=1
+            )
+            
+            assert result is not None
+            mock_approve.assert_called_once()
+
+
+class TestGetPendingApprovals:
+    """Test get_pending_approvals method"""
+    
+    def test_get_pending_approvals(self, controller, mock_db):
+        """Test getting pending approvals"""
+        # Mock pending sessions
+        session1 = Mock(spec=ExecutionSession)
+        session1.id = 1
+        session1.waiting_for_approval = True
+        
+        session2 = Mock(spec=ExecutionSession)
+        session2.id = 2
+        session2.waiting_for_approval = True
+        
+        mock_db.query.return_value.filter.return_value.all.return_value = [session1, session2]
+        
+        result = controller.get_pending_approvals()
+        
+        assert result is not None
+        assert len(result) == 2
+
+
+

@@ -137,8 +137,9 @@ class ZohoOAuthService:
                     logger.error(f"Zoho OAuth token exchange failed: {error_msg}")
                     logger.error(f"Full error response: {error_data}")
                     raise Exception(f"Zoho OAuth error: {error_msg}")
-                except:
+                except (ValueError, KeyError, Exception) as e:
                     logger.error(f"Zoho OAuth token exchange failed with status {response.status_code}: {response_text}")
+                    logger.debug(f"Exception parsing error response: {e}")
                     raise Exception(f"Zoho OAuth error: HTTP {response.status_code} - {response_text[:200]}")
             
             response.raise_for_status()

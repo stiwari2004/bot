@@ -5,6 +5,9 @@ import { createPortal } from 'react-dom';
 import { PlayIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 import type { TicketDetail } from '@/features/tickets/types';
+import { DecisionRecommendationPanel } from './DecisionRecommendationPanel';
+import { PatternMatchView } from './PatternMatchView';
+import { ContextCorrelationView } from './ContextCorrelationView';
 
 interface TicketDetailModalProps {
   ticket: TicketDetail | null;
@@ -91,6 +94,7 @@ export function TicketDetailModal({
 
   const matchedRunbooks = ticket.matched_runbooks || [];
   const executionSessions = ticket.execution_sessions || [];
+  const recommendation = (ticket as any).recommendation || null;
 
   return renderModal(
     <div className="p-6 space-y-6">
@@ -147,6 +151,17 @@ export function TicketDetailModal({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Decision Making Section */}
+      <div className="space-y-4">
+        <h4 className="font-medium text-gray-900">AI Decision Support</h4>
+        <DecisionRecommendationPanel
+          ticketId={ticket.id}
+          onExecute={recommendation?.runbook_id ? () => onExecute(ticket.id, recommendation.runbook_id!) : undefined}
+        />
+        <PatternMatchView ticketId={ticket.id} />
+        <ContextCorrelationView ticketId={ticket.id} />
       </div>
 
       <div>

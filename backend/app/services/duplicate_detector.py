@@ -148,7 +148,8 @@ class DuplicateDetectorService:
                 meta = json.loads(result.meta_data) if isinstance(result.meta_data, str) else result.meta_data
                 if 'runbook_id' in meta:
                     return int(meta['runbook_id'])
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+                logger.debug(f"Failed to extract runbook_id from result metadata: {e}")
                 pass
         
         # Try parsing from title (e.g., "Runbook: Fix Server Issue #42")
@@ -167,7 +168,8 @@ class DuplicateDetectorService:
                     meta = json.loads(doc.metadata) if isinstance(doc.metadata, str) else doc.metadata
                     if 'runbook_id' in meta:
                         return int(meta['runbook_id'])
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError, KeyError, AttributeError) as e:
+                logger.debug(f"Failed to extract runbook_id from document metadata: {e}")
                 pass
         
         return None

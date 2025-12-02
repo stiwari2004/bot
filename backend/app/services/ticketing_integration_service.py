@@ -137,19 +137,47 @@ class TicketingIntegrationService:
             return False
         
         logger.info(f"Attempting to update external ticket {ticket.external_id} (internal ticket {ticket.id}) to status '{status}'")
+        logger.info(f"Ticket source: '{ticket.source}'")
         
         # Find ticketing tool connection for this ticket
-        # We'll match by source or find active connections
+        # Match by source (ticket.source should match connection.tool_name)
+        # Map ticket source to tool_name (e.g., "servicenow" -> "servicenow", "manageengine" -> "manageengine")
+        tool_name_map = {
+            "servicenow": "servicenow",
+            "manageengine": "manageengine",
+            "zoho": "zoho"
+        }
+        
+        # Get the tool name from ticket source
+        expected_tool_name = tool_name_map.get(ticket.source.lower(), ticket.source.lower())
+        
+        # First try to match by tool_name matching ticket source
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.tenant_id == ticket.tenant_id,
-            TicketingToolConnection.is_active == True
+            TicketingToolConnection.is_active == True,
+            TicketingToolConnection.tool_name.ilike(f"%{expected_tool_name}%")
         ).first()
+        
+        # If no match found, fall back to any active connection (for backward compatibility)
+        if not connection:
+            logger.warning(f"No active ticketing connection found matching source '{ticket.source}' for tenant {ticket.tenant_id}, trying any active connection...")
+            connection = db.query(TicketingToolConnection).filter(
+                TicketingToolConnection.tenant_id == ticket.tenant_id,
+                TicketingToolConnection.is_active == True
+            ).first()
         
         if not connection:
             logger.warning(f"No active ticketing connection found for tenant {ticket.tenant_id}")
             return False
         
-        logger.info(f"Found active ticketing connection: {connection.tool_name} for tenant {ticket.tenant_id}")
+        logger.info(f"Found active ticketing connection: {connection.tool_name} for tenant {ticket.tenant_id} (ticket source: {ticket.source})")
+        
+        # Verify the connection matches the ticket source
+        if connection.tool_name.lower() != expected_tool_name:
+            logger.warning(
+                f"⚠️ Connection tool_name '{connection.tool_name}' doesn't match ticket source '{ticket.source}'. "
+                f"This might cause update to fail. Expected: {expected_tool_name}"
+            )
         
         try:
             # Update based on tool type
@@ -162,6 +190,13 @@ class TicketingIntegrationService:
                 )
             elif connection.tool_name.lower() == "zoho":
                 return await self._update_zoho_ticket(
+                    connection=connection,
+                    external_id=ticket.external_id,
+                    status=status,
+                    comment=comment
+                )
+            elif connection.tool_name.lower() == "servicenow":
+                return await self._update_servicenow_ticket(
                     connection=connection,
                     external_id=ticket.external_id,
                     status=status,
@@ -422,6 +457,266 @@ class TicketingIntegrationService:
                     
         except Exception as e:
             logger.error(f"Error updating Zoho ticket: {e}", exc_info=True)
+            return False
+    
+    async def _update_servicenow_ticket(
+        self,
+        connection: TicketingToolConnection,
+        external_id: str,
+        status: str,
+        comment: str
+    ) -> bool:
+        """
+        Update incident status in ServiceNow
+        
+        Args:
+            connection: Ticketing tool connection
+            external_id: External incident number or sys_id
+            status: Status to set
+            comment: Comment to add
+            
+        Returns:
+            True if successful
+        """
+        try:
+            from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
+            import httpx
+            import base64
+            
+            # Get authentication using ServiceNow fetcher
+            fetcher = ServiceNowTicketFetcher()
+            # Parse meta_data (stored as JSON string)
+            if isinstance(connection.meta_data, str):
+                connection_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            else:
+                connection_meta = connection.meta_data if isinstance(connection.meta_data, dict) else {}
+            
+            # Build API base URL
+            api_base_url = connection.api_base_url or connection_meta.get("api_base_url", "")
+            if not api_base_url.startswith("http"):
+                api_base_url = f"https://{api_base_url}"
+            api_base_url = api_base_url.rstrip("/")
+            
+            # Get auth headers
+            # Credentials can be in meta_data OR in connection.api_username/api_password
+            username = connection_meta.get("username") or connection.api_username
+            password = connection_meta.get("password") or connection.api_password
+            headers = await fetcher._get_auth_headers(
+                api_base_url=api_base_url,
+                connection_meta=connection_meta,
+                username=username,
+                password=password,
+                client_id=connection_meta.get("client_id"),
+                client_secret=connection_meta.get("client_secret")
+            )
+            
+            # Status mapping for ServiceNow
+            # ServiceNow uses different values for incident_state vs state fields:
+            # - incident_state: 1=New, 2=In Progress, 3=On Hold, 4=Resolved, 5=Closed, 6=Canceled
+            # - state: Uses different values (6=Resolved based on Postman testing)
+            # IMPORTANT: Use 4 for incident_state and 6 for state when resolving
+            state_map = {
+                "closed": "5",  # Closed (cannot be reopened - use with caution)
+                "resolved": "4",  # Resolved (can be reopened if needed) - for incident_state field
+                "escalated": "2",  # In Progress
+                "in_progress": "2"  # In Progress
+            }
+            
+            # State value for 'state' field (different from incident_state)
+            state_field_map = {
+                "closed": "5",
+                "resolved": "6",  # state field uses 6 for Resolved (not 4!)
+                "escalated": "2",
+                "in_progress": "2"
+            }
+            
+            snow_state = state_map.get(status, "2")  # For incident_state field
+            snow_state_field = state_field_map.get(status, "2")  # For state field
+            logger.info(f"Updating ServiceNow incident {external_id} to incident_state '{snow_state}' and state '{snow_state_field}' (mapped from '{status}')")
+            
+            # ServiceNow PATCH API requires sys_id (UUID), not the incident number
+            # If external_id looks like a number (INC0012345), we need to resolve it to sys_id first
+            actual_sys_id = external_id
+            
+            # Check if external_id is a number (starts with "INC") or sys_id (UUID format)
+            # UUIDs are typically 32 hex characters (with or without dashes)
+            is_number = external_id.startswith("INC")
+            is_uuid = len(external_id) >= 32 and all(c in '0123456789abcdefABCDEF-' for c in external_id.replace('-', ''))
+            
+            if is_number and not is_uuid:
+                # It's a number, need to resolve to sys_id
+                logger.info(f"External ID '{external_id}' is an incident number, resolving to sys_id...")
+                try:
+                    # Query ServiceNow to get sys_id from number
+                    query_url = f"{api_base_url}/api/now/table/incident"
+                    query_params = {
+                        "sysparm_query": f"number={external_id}",
+                        "sysparm_fields": "sys_id,number",
+                        "sysparm_limit": 1
+                    }
+                    
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        query_response = await client.get(
+                            query_url,
+                            headers=headers,
+                            params=query_params
+                        )
+                        
+                        if query_response.status_code == 200:
+                            query_result = query_response.json()
+                            incidents = query_result.get("result", [])
+                            if incidents and len(incidents) > 0:
+                                actual_sys_id = incidents[0].get("sys_id")
+                                if actual_sys_id:
+                                    logger.info(f"Resolved incident number '{external_id}' to sys_id '{actual_sys_id}'")
+                                else:
+                                    logger.error(f"ServiceNow returned incident but no sys_id for number '{external_id}'")
+                                    return False
+                            else:
+                                logger.error(f"Could not find incident with number '{external_id}' in ServiceNow")
+                                return False
+                        else:
+                            error_text = query_response.text[:500] if hasattr(query_response, 'text') else str(query_response.content)[:500]
+                            logger.error(f"Failed to query ServiceNow for incident number '{external_id}': {query_response.status_code} - {error_text}")
+                            return False
+                except Exception as e:
+                    logger.error(f"Error resolving incident number '{external_id}' to sys_id: {e}", exc_info=True)
+                    return False
+            else:
+                logger.info(f"Using external_id '{external_id}' as sys_id (assuming it's already a sys_id)")
+            
+            # Use sys_id for the update
+            api_url = f"{api_base_url}/api/now/table/incident/{actual_sys_id}"
+            logger.info(f"Updating ServiceNow incident using sys_id: {actual_sys_id}")
+            
+            # Build request data
+            # Based on Stack Overflow: https://stackoverflow.com/questions/52937955/cant-resolve-servicenow-incident-using-rest-api
+            # ServiceNow may require:
+            # 1. automated_state_flow=false to bypass business rules
+            # 2. incident_state field (not state) for some instances
+            # 3. All mandatory fields must be set
+            from datetime import datetime, timezone
+            
+            # ServiceNow requires additional fields when resolving/closing incidents
+            # For state 4 (Resolved) or 5 (Closed), we need close_code, close_notes, active=false, and resolved_at
+            if snow_state in ["4", "5"]:  # Resolved or Closed
+                # Try two-step approach: First disable automated state flow, then set state
+                # Step 1: Set automated_state_flow to False (bypasses business rules)
+                logger.info(f"Step 1: Setting automated_state_flow=False for incident {external_id}")
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    step1_response = await client.patch(
+                        api_url,
+                        headers=headers,
+                        json={"automated_state_flow": False}
+                    )
+                    if step1_response.status_code not in [200, 204]:
+                        logger.warning(f"Failed to set automated_state_flow=False: {step1_response.status_code} - {step1_response.text[:200]}")
+                
+                # Step 2: Set all resolution fields including state
+                # Based on Postman testing: incident_state="4" and state="6" both need to be set
+                request_data = {
+                    "incident_state": snow_state,  # "4" for Resolved
+                    "state": snow_state_field,  # "6" for Resolved (different from incident_state!)
+                    "automated_state_flow": False,  # Keep this set
+                    "active": False,  # Set active to false
+                    "resolved_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    "close_code": "Solution provided",  # Enumeration field - must match instance values
+                }
+                
+                # Set close_notes from comment if provided
+                if comment:
+                    request_data["close_notes"] = comment
+                    # Also add as work notes for visibility
+                    request_data["work_notes"] = comment
+                else:
+                    # Default close notes if no comment provided
+                    request_data["close_notes"] = "Resolved by AI Agent"
+            else:
+                # For other states (In Progress, etc.), just add work notes
+                request_data = {
+                    "state": snow_state,
+                    "incident_state": snow_state
+                }
+                if comment:
+                    request_data["work_notes"] = comment
+            
+            # Log the request data for debugging
+            logger.info(f"ServiceNow update request data: {request_data}")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.patch(
+                    api_url,
+                    headers=headers,
+                    json=request_data
+                )
+                
+                if response.status_code in [200, 204]:
+                    try:
+                        result = response.json()
+                        updated_incident = result.get("result", {})
+                        # Check both 'incident_state' and 'state' fields (ServiceNow may return either)
+                        actual_state = updated_incident.get("incident_state") or updated_incident.get("state")
+                        actual_number = updated_incident.get("number")
+                        actual_close_code = updated_incident.get("close_code")
+                        actual_active = updated_incident.get("active")
+                        
+                        logger.info(
+                            f"✅ ServiceNow API returned HTTP {response.status_code} for incident {external_id}. "
+                            f"Requested state: '{snow_state}', API returned incident_state: '{actual_state}', "
+                            f"number: '{actual_number}', active: '{actual_active}', close_code: '{actual_close_code}'"
+                        )
+                        
+                        # Verify the state was actually updated
+                        # ServiceNow may return different state values (e.g., '6' for resolved when we request '4')
+                        # Check if the ticket is actually resolved/closed (state 4, 5, or 6) rather than exact match
+                        actual_state_str = str(actual_state) if actual_state else ""
+                        requested_state_str = str(snow_state)
+                        
+                        # For resolved/closed states, accept 4, 5, or 6 as success
+                        if snow_state in ["4", "5"]:  # Resolved or Closed
+                            if actual_state_str in ["4", "5", "6"]:
+                                # Success - ticket is resolved/closed
+                                logger.info(
+                                    f"✅ Successfully updated ServiceNow incident {external_id} to resolved/closed state. "
+                                    f"Requested: '{snow_state}', API returned: '{actual_state_str}', "
+                                    f"Close code: '{actual_close_code}', Active: '{actual_active}'"
+                                )
+                            else:
+                                logger.warning(
+                                    f"⚠️ State mismatch: Requested resolved/closed ('{snow_state}') but API returned '{actual_state_str}'. "
+                                    f"This might indicate:"
+                                    f"  1. Missing required fields (close_code, close_notes, active=false) for resolved/closed state"
+                                    f"  2. ACL/permissions issue preventing state change"
+                                    f"  3. Business rule preventing the transition"
+                                    f"  4. State transition workflow requirements not met"
+                                )
+                                return False
+                        else:
+                            # For other states, check exact match
+                            if actual_state_str != requested_state_str:
+                                logger.warning(
+                                    f"⚠️ State mismatch: Requested '{snow_state}' but API returned '{actual_state_str}'"
+                                )
+                                return False
+                            else:
+                                logger.info(
+                                    f"✅ Successfully updated ServiceNow incident {external_id} to state '{snow_state}'. "
+                                    f"Close code: '{actual_close_code}', Active: '{actual_active}'"
+                                )
+                    except Exception as e:
+                        # If JSON parsing fails, still consider it success if HTTP status is 200
+                        logger.info(f"✅ Successfully updated ServiceNow incident {external_id} state to {snow_state} (HTTP 200, JSON parse failed: {e})")
+                    
+                    return True
+                else:
+                    error_text = response.text[:500] if hasattr(response, 'text') else str(response.content)[:500]
+                    logger.error(f"❌ Failed to update ServiceNow incident status: {response.status_code} - {error_text}")
+                    logger.error(f"Request URL: {api_url}")
+                    logger.error(f"Request data: {request_data}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error updating ServiceNow incident: {e}", exc_info=True)
             return False
 
 

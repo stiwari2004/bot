@@ -14,21 +14,33 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Troubleshooting AI Agent"
     VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    DEBUG: bool = False  # Security: Default to False, must be explicitly enabled
     LOG_LEVEL: str = "INFO"
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/troubleshooting_ai"
+    DATABASE_URL: str  # No default - must be set via environment variable
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
     # Security
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str  # No default - must be set via environment variable
+    CREDENTIAL_ENCRYPTION_KEY: Optional[str] = None  # Optional - will be validated in credential_service
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # CORS
-    ALLOWED_HOSTS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    # Environment
+    ENVIRONMENT: str = "development"  # development, staging, production
+    
+    # External APIs
+    PERPLEXITY_API_KEY: Optional[str] = None
+    
+    # CORS - Can be set as comma-separated string or JSON array
+    ALLOWED_HOSTS: Union[List[str], str] = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost:8001"]
+    
+    # Rate Limiting (MF-10)
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PER_MINUTE: int = 60  # Requests per minute per IP
+    RATE_LIMIT_PER_HOUR: int = 1000  # Requests per hour per IP
     
     # Vector Store
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
@@ -74,10 +86,93 @@ class Settings(BaseSettings):
     BACKEND_BASE_URL: str = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
     OAUTH_CALLBACK_URL: str = os.getenv("OAUTH_CALLBACK_URL", "http://localhost:8000/oauth/callback")
     
+    # Multi-tenant
+    DEFAULT_TENANT_ID: int = int(os.getenv("DEFAULT_TENANT_ID", "1"))
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "allow"  # Allow extra fields from environment (like PERPLEXITY_API_KEY, ENVIRONMENT, etc.)
+    
+    @field_validator("ALLOWED_HOSTS", mode="before")
+    @classmethod
+    def parse_allowed_hosts(cls, v):
+        """Parse ALLOWED_HOSTS from string (comma-separated) or list"""
+        if isinstance(v, str):
+            # Try JSON first
+            try:
+                import json
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # Fall back to comma-separated
+            return [host.strip() for host in v.split(",") if host.strip()]
+        return v
 
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str, info) -> str:
+        """Validate SECRET_KEY is set and secure (lenient in development)"""
+        if not v:
+            raise ValueError("SECRET_KEY must be set via environment variable")
+        
+        # Check if we're in development
+        environment = os.getenv("ENVIRONMENT", "").lower()
+        is_development = environment in ("development", "dev", "") or os.getenv("DOCKER_COMPOSE") == "true"
+        
+        # In development, allow temporary defaults but warn; in production, require secure key
+        default_values = ["your-secret-key-change-in-production", "dev-secret-key-temp-allow-in-development-only-change-me"]
+        if v in default_values:
+            if is_development:
+                import warnings
+                warnings.warn(
+                    "Using default/temporary SECRET_KEY in development. "
+                    "Generate a secure key with: python -c 'import secrets; print(secrets.token_urlsafe(32))' "
+                    "and set it in backend/.env file or docker-compose.yml",
+                    UserWarning
+                )
+                # For development, we'll allow it but recommend changing
+                return v
+            else:
+                raise ValueError(
+                    "SECRET_KEY must be set to a secure random value (not a default). "
+                    "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                )
+        
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        return v
+    
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def validate_database_url(cls, v: str, info) -> str:
+        """Validate DATABASE_URL doesn't contain default credentials (except in development)"""
+        if not v:
+            raise ValueError("DATABASE_URL must be set via environment variable")
+        
+        # Allow default password in development/docker-compose environments
+        environment = os.getenv("ENVIRONMENT", "").lower()
+        is_development = environment in ("development", "dev", "") or os.getenv("DOCKER_COMPOSE") == "true"
+        
+        # Check for default credentials (only block in production)
+        if not is_development and (":password@" in v or "postgres:password" in v):
+            raise ValueError(
+                "Default database password detected in DATABASE_URL. "
+                "Set a secure DATABASE_URL in environment variables for production."
+            )
+        return v
+    
+    @field_validator("DEBUG")
+    @classmethod
+    def validate_debug_mode(cls, v: bool, info) -> bool:
+        """Prevent DEBUG mode in production"""
+        environment = os.getenv("ENVIRONMENT", "").lower()
+        if v and environment == "production":
+            raise ValueError("DEBUG mode cannot be enabled in production environment")
+        return v
+    
     @field_validator("LLM_TENANT_BUDGETS", mode="before")
     @classmethod
     def _parse_tenant_budgets(cls, value: Union[str, Dict[int, int], None]) -> Dict[int, int]:

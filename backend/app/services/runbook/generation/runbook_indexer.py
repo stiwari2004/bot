@@ -53,11 +53,9 @@ class RunbookIndexer:
             
             logger.info(f"Runbook {runbook_id} approved, now indexing for search")
             
-            # Index the runbook for search
-            # Temporarily disabled indexing to avoid blocking on embedding model load
-            # TODO: Re-enable when embedding model loading is made non-blocking
-            # await self.index_runbook_for_search(runbook, db)
-            logger.info(f"Runbook {runbook.id} created (indexing disabled to avoid blocking)")
+            # Index the runbook for search (now non-blocking)
+            await self.index_runbook_for_search(runbook, db)
+            logger.info(f"Runbook {runbook.id} indexed successfully")
             
             return RunbookResponse(
                 id=runbook.id,

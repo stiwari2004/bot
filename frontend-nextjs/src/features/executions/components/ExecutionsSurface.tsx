@@ -21,12 +21,12 @@ const tabConfig = [
 ];
 
 const statusColors: Record<string, string> = {
-  pending: 'text-amber-300 bg-amber-500/10',
-  running: 'text-blue-300 bg-blue-500/10',
-  waiting_approval: 'text-purple-300 bg-purple-500/10',
-  completed: 'text-emerald-300 bg-emerald-500/10',
-  failed: 'text-red-300 bg-red-500/10',
-  completed_with_errors: 'text-orange-300 bg-orange-500/10',
+  pending: 'text-amber-700 bg-amber-50 border-amber-200',
+  running: 'text-blue-700 bg-blue-50 border-blue-200',
+  waiting_approval: 'text-purple-700 bg-purple-50 border-purple-200',
+  completed: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  failed: 'text-red-700 bg-red-50 border-red-200',
+  completed_with_errors: 'text-orange-700 bg-orange-50 border-orange-200',
 };
 
 const humanStatus = (status: string) =>
@@ -64,9 +64,9 @@ export function ExecutionsSurface() {
 
   const renderStatusBadge = (status: string) => {
     const normalized = (status || 'unknown').toLowerCase();
-    const className = statusColors[normalized] || 'text-slate-300 bg-slate-700/50';
+    const className = statusColors[normalized] || 'text-gray-700 bg-gray-100 border-gray-200';
     return (
-      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>
+      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>
         {humanStatus(normalized)}
       </span>
     );
@@ -75,26 +75,26 @@ export function ExecutionsSurface() {
   const renderActiveTab = () => (
     <div className="space-y-4">
       {activeSessions.length === 0 && (
-        <p className="text-sm text-slate-400">No sessions are currently running.</p>
+        <p className="text-sm text-gray-500 text-left">No sessions are currently running.</p>
       )}
       {activeSessions.map((session) => (
         <div
           key={session.id}
-          className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 hover:border-blue-500/40"
+          className="rounded-2xl border border-gray-100 bg-white p-4 hover:border-indigo-200 hover:shadow-md shadow-sm transition-all"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-slate-500">Runbook</p>
-              <p className="text-lg font-semibold text-white">
+            <div className="text-left">
+              <p className="text-xs uppercase tracking-widest text-gray-500">Runbook</p>
+              <p className="text-lg font-semibold text-gray-900">
                 {session.runbook_title || `Runbook #${session.runbook_id}`}
               </p>
             </div>
             {renderStatusBadge(session.status)}
           </div>
           {session.issue_description && (
-            <p className="mt-2 text-sm text-slate-400">{session.issue_description}</p>
+            <p className="mt-2 text-sm text-gray-600 text-left">{session.issue_description}</p>
           )}
-          <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
+          <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
             <span>Session #{session.id}</span>
             {session.ticket_id && <span>Ticket #{session.ticket_id}</span>}
             {session.started_at && (
@@ -111,26 +111,26 @@ export function ExecutionsSurface() {
   const renderApprovalsTab = () => (
     <div className="space-y-4">
       {approvals.length === 0 && (
-        <p className="text-sm text-slate-400">No approvals waiting. The agent is moving smoothly.</p>
+        <p className="text-sm text-gray-500 text-left">No approvals waiting. The agent is moving smoothly.</p>
       )}
       {approvals.map((approval) => (
         <div
           key={`${approval.session_id}-${approval.step_number}`}
-          className="rounded-2xl border border-purple-500/30 bg-purple-500/5 p-4"
+          className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4 shadow-sm hover:shadow-md transition-shadow"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-purple-300">Approval Required</p>
-              <p className="text-lg font-semibold text-white">
+            <div className="text-left">
+              <p className="text-xs uppercase tracking-widest text-purple-600">Approval Required</p>
+              <p className="text-lg font-semibold text-gray-900">
                 {approval.runbook_title || `Runbook #${approval.runbook_id}`}
               </p>
             </div>
-            <span className="text-xs text-purple-200">
+            <span className="text-xs text-purple-700 font-medium">
               Step {approval.step_number} · {approval.step_type}
             </span>
           </div>
-          <p className="mt-3 text-sm text-purple-100">{approval.command}</p>
-          <div className="mt-3 flex flex-wrap gap-4 text-xs text-purple-200">
+          <p className="mt-3 text-sm text-gray-700 text-left font-mono bg-white p-2 rounded border border-gray-200">{approval.command}</p>
+          <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-600">
             <span>Session #{approval.session_id}</span>
             {approval.issue_description && <span>{approval.issue_description}</span>}
             <span>
@@ -147,14 +147,14 @@ export function ExecutionsSurface() {
       {historySessions.map((session) => (
         <div
           key={session.id}
-          className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 text-sm text-slate-300"
+          className="rounded-xl border border-gray-100 bg-white px-4 py-3 text-sm shadow-sm hover:shadow-md transition-shadow"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="font-semibold text-white">
+            <div className="text-left">
+              <p className="font-semibold text-gray-900">
                 {session.runbook_title || `Runbook #${session.runbook_id}`}
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-gray-500">
                 Session #{session.id} •{' '}
                 {session.started_at
                   ? formatDistanceToNow(new Date(session.started_at), { addSuffix: true })
@@ -166,42 +166,42 @@ export function ExecutionsSurface() {
         </div>
       ))}
       {historySessions.length === 0 && (
-        <p className="text-sm text-slate-500">No executions recorded yet.</p>
+        <p className="text-sm text-gray-500 text-left">No executions recorded yet.</p>
       )}
     </div>
   );
 
   const renderAllTab = () => (
-    <div className="overflow-x-auto rounded-2xl border border-slate-800">
-      <table className="min-w-full divide-y divide-slate-900 text-sm">
-        <thead className="bg-slate-900/50 text-slate-400">
+    <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <table className="min-w-full divide-y divide-gray-200 text-sm">
+        <thead className="bg-gray-50 text-gray-700">
           <tr>
-            <th className="px-4 py-3 text-left font-medium">Runbook</th>
-            <th className="px-4 py-3 text-left font-medium">Ticket</th>
-            <th className="px-4 py-3 text-left font-medium">Status</th>
-            <th className="px-4 py-3 text-left font-medium">Started</th>
-            <th className="px-4 py-3 text-left font-medium">Duration</th>
+            <th className="px-4 py-3 text-left font-semibold">Runbook</th>
+            <th className="px-4 py-3 text-left font-semibold">Ticket</th>
+            <th className="px-4 py-3 text-left font-semibold">Status</th>
+            <th className="px-4 py-3 text-left font-semibold">Started</th>
+            <th className="px-4 py-3 text-left font-semibold">Duration</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-900/60 text-slate-300">
+        <tbody className="divide-y divide-gray-200 bg-white">
           {sessions.map((session) => (
-            <tr key={session.id}>
+            <tr key={session.id} className="hover:bg-gray-50">
               <td className="px-4 py-3">
-                <p className="font-medium text-white">
+                <p className="font-medium text-gray-900">
                   {session.runbook_title || `Runbook #${session.runbook_id}`}
                 </p>
-                <p className="text-xs text-slate-500">Session #{session.id}</p>
+                <p className="text-xs text-gray-500">Session #{session.id}</p>
               </td>
-              <td className="px-4 py-3 text-xs text-slate-400">
+              <td className="px-4 py-3 text-xs text-gray-600">
                 {session.ticket_id ? `#${session.ticket_id}` : '—'}
               </td>
               <td className="px-4 py-3">{renderStatusBadge(session.status)}</td>
-              <td className="px-4 py-3 text-xs text-slate-400">
+              <td className="px-4 py-3 text-xs text-gray-600">
                 {session.started_at
                   ? new Date(session.started_at).toLocaleString()
                   : 'Not started'}
               </td>
-              <td className="px-4 py-3 text-xs text-slate-400">
+              <td className="px-4 py-3 text-xs text-gray-600">
                 {session.total_duration_minutes != null
                   ? `${session.total_duration_minutes} min`
                   : '—'}
@@ -216,15 +216,15 @@ export function ExecutionsSurface() {
   const renderContent = () => {
     if (sessionsError || approvalsError) {
       return (
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-sm text-red-200">
+        <div className="rounded-2xl border border-red-300 bg-red-50 p-6 text-sm text-red-700">
           <ExclamationTriangleIcon className="mb-2 h-5 w-5" />
-          <p>{sessionsError || approvalsError}</p>
+          <p className="text-left">{sessionsError || approvalsError}</p>
         </div>
       );
     }
 
     if (sessionsLoading || approvalsLoading) {
-      return <p className="text-sm text-slate-400">Syncing execution data...</p>;
+      return <p className="text-sm text-gray-500 text-left">Syncing execution data...</p>;
     }
 
     switch (activeTab) {
@@ -244,10 +244,10 @@ export function ExecutionsSurface() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.4em] text-slate-500">Executions</p>
-          <h2 className="text-2xl font-semibold text-white">Execution Control Surface</h2>
-          <p className="text-sm text-slate-400">
+        <div className="text-left">
+          <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Executions</p>
+          <h2 className="text-2xl font-semibold text-gray-900">Execution Control Surface</h2>
+          <p className="text-sm text-gray-600">
             Monitor live sessions, approve interventions, and review history.
           </p>
         </div>
@@ -256,7 +256,7 @@ export function ExecutionsSurface() {
             refreshSessions();
             refreshApprovals();
           }}
-          className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm text-slate-300 hover:border-blue-500 hover:text-white"
+          className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-colors shadow-sm"
         >
           <ArrowPathIcon className="h-4 w-4" />
           Refresh data
@@ -271,10 +271,10 @@ export function ExecutionsSurface() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition ${
+              className={`flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition border shadow-sm ${
                 isActive
-                  ? 'bg-blue-500/10 text-white border border-blue-500/40'
-                  : 'border border-slate-800 text-slate-400 hover:border-slate-700'
+                  ? 'bg-gradient-to-r from-indigo-50 to-violet-50 text-indigo-700 border-indigo-300'
+                  : 'border border-gray-200 text-gray-600 hover:border-indigo-200 hover:bg-indigo-50/50'
               }`}
             >
               <Icon className="h-4 w-4" />

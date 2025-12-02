@@ -9,6 +9,7 @@ import {
 import { useSettings } from '../hooks/useSettings';
 import { ExecutionModeSection } from './ExecutionModeSection';
 import { TicketingConnectionsSection } from './TicketingConnectionsSection';
+import { MonitoringConnectionsSection } from './MonitoringConnectionsSection';
 import { InfrastructureConnectionsSection } from './InfrastructureConnectionsSection';
 import { BenchmarkConfigurationSection } from './BenchmarkConfigurationSection';
 import { InfrastructureThresholdSection } from './InfrastructureThresholdSection';
@@ -29,6 +30,7 @@ export function Settings() {
   const [editingInfraConnection, setEditingInfraConnection] = useState<InfrastructureConnection | null>(null);
   const [testCommandConnection, setTestCommandConnection] = useState<InfrastructureConnection | null>(null);
   const [showTestCommand, setShowTestCommand] = useState(false);
+  const [showAddMonitoringConnection, setShowAddMonitoringConnection] = useState(false);
 
   const {
     executionMode,
@@ -46,6 +48,8 @@ export function Settings() {
     fetchTicketingConnections,
     fetchInfrastructureConnections,
     fetchCredentials,
+    monitoringConnections,
+    fetchMonitoringConnections,
   } = useSettings();
 
   const infrastructureHooks = useInfrastructureConnections(
@@ -135,7 +139,7 @@ export function Settings() {
         onShowEditModal={setEditingConnection}
       />
 
-      <InfrastructureConnectionsSection
+        <InfrastructureConnectionsSection
         connections={infrastructureConnections}
         credentials={credentials}
         onRefresh={fetchInfrastructureConnections}
@@ -148,6 +152,13 @@ export function Settings() {
           setTestCommandConnection(connection);
           setShowTestCommand(true);
         }}
+      />
+
+      <MonitoringConnectionsSection
+        connections={monitoringConnections}
+        onRefresh={fetchMonitoringConnections}
+        onSuccess={handleSuccess}
+        onError={(msg) => setError(msg)}
       />
 
       {/* Modals */}

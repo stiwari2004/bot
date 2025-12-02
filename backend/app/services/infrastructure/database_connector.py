@@ -1,10 +1,11 @@
 """
-Database connector for PostgreSQL, MySQL, etc.
+Database connector for PostgreSQL, MySQL, etc. (MF-4: Command injection protection)
 """
 import json
 from typing import Any, Dict
 from app.core.logging import get_logger
 from app.services.infrastructure.base_connector import InfrastructureConnector
+from app.services.infrastructure.command_validator import CommandValidator
 
 logger = get_logger(__name__)
 
@@ -27,6 +28,17 @@ class DatabaseConnector(InfrastructureConnector):
         }
         """
         try:
+            # Validate command to prevent SQL injection (MF-4)
+            is_safe, error_msg = CommandValidator.validate_command(command, "sql")
+            if not is_safe:
+                logger.error(f"Command injection attempt blocked: {error_msg}")
+                return {
+                    "success": False,
+                    "output": "",
+                    "error": f"Command validation failed: {error_msg}",
+                    "exit_code": -1
+                }
+            
             db_type = connection_config.get("db_type", "postgresql")
             host = connection_config.get("host")
             port = connection_config.get("port", 5432)

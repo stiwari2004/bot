@@ -35,9 +35,20 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # SECURITY: These values are for LOCAL DEVELOPMENT ONLY
+      # For production, use environment variables or secrets management
+      # 
+      # IMPORTANT: Set these in a .env file in the backend/ directory:
+      #   SECRET_KEY=<your-generated-key>
+      #   CREDENTIAL_ENCRYPTION_KEY=<your-generated-key>
+      # 
+      # Generate secure values:
+      #   SECRET_KEY: python -c 'import secrets; print(secrets.token_urlsafe(32))'
+      #   CREDENTIAL_ENCRYPTION_KEY: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/troubleshooting_ai
-      - SECRET_KEY=your-secret-key-change-in-production
-      - CREDENTIAL_ENCRYPTION_KEY=mkEobHr9CF2zTF8xJHVGVuySweN7KFvbus3rTdiZy5Y=
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-temp-allow-in-development-only-change-me}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY:-mkEobHr9CF2zTF8xJHVGVuySweN7KFvbus3rTdiZy5Y=}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - LLM_PROVIDER=llamacpp
       - LLAMACPP_BASE_URL=http://host.docker.internal:11434
       - REDIS_URL=redis://redis:6379/0
@@ -79,11 +90,16 @@ services:
       context: ./frontend-nextjs
       dockerfile: Dockerfile
       args:
-        - NODE_ENV=production
+        - NODE_ENV=development
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+    volumes:
+      - ./frontend-nextjs:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
     depends_on:
       - backend
 

@@ -10,11 +10,13 @@ from app.models.user import User
 from app.services.auth import get_current_user
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
 from app.services.vector_store import VectorStoreService
+from app.core.rate_limiting import rate_limit
 
 router = APIRouter()
 
 
 @router.post("/", response_model=SearchResponse)
+@rate_limit("100/minute")  # High limit for dev/test
 async def semantic_search(
     request: SearchRequest,
     db: Session = Depends(get_db),

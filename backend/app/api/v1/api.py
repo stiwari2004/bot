@@ -20,7 +20,17 @@ from app.api.v1.endpoints import (
 
 # Import new Phase 2 endpoints
 try:
-    from app.api.v1.endpoints import ticket_ingestion, agent_execution, ticket_csv_upload, settings, ticketing_connections
+    from app.api.v1.endpoints import (
+        ticket_ingestion,
+        agent_execution,
+        ticket_csv_upload,
+        settings,
+        ticketing_connections,
+        alerts,
+        monitoring_connections,
+        decision,
+        resolution,
+    )
     connectors = None  # Will be imported separately if available
     try:
         from app.api.v1.endpoints import connectors
@@ -34,6 +44,10 @@ except ImportError:
     connectors = None
     settings = None
     ticketing_connections = None
+    alerts = None
+    monitoring_connections = None
+    decision = None
+    resolution = None
 
 api_router = APIRouter()
 
@@ -43,6 +57,8 @@ api_router.include_router(documents.router, prefix="/documents", tags=["document
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(runbooks.router, prefix="/runbooks", tags=["runbooks"])
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
+if alerts:
+    api_router.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(executions.router, prefix="/executions", tags=["executions"])
 api_router.include_router(agent_workers.router, prefix="/agent/workers", tags=["agent-workers"])
@@ -68,5 +84,11 @@ if settings:
     api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 if ticketing_connections:
     api_router.include_router(ticketing_connections.router, prefix="/settings", tags=["ticketing-connections"])
+if monitoring_connections:
+    api_router.include_router(monitoring_connections.router, prefix="/connectors", tags=["monitoring-connections"])
+if decision:
+    api_router.include_router(decision.router, prefix="/decision", tags=["decision"])
+if resolution:
+    api_router.include_router(resolution.router, prefix="/resolution", tags=["resolution"])
 
 

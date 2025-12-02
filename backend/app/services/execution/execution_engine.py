@@ -18,6 +18,7 @@ from app.services.ticket_status_service import get_ticket_status_service
 from app.services.resolution_verification_service import get_resolution_verification_service
 from app.services.precheck_analysis_service import get_precheck_analysis_service
 from app.services.ticketing_integration_service import get_ticketing_integration_service
+from app.services.decision import PatternStorageService, ConditionalLogicService
 from app.models.ticket import Ticket
 from app.models.runbook import Runbook
 from datetime import datetime, timezone
@@ -51,6 +52,8 @@ class ExecutionEngine:
             self.ticket_status_service,
             self.resolution_verification_service
         )
+        self.pattern_storage_service = PatternStorageService()
+        self.conditional_logic_service = ConditionalLogicService()
     
     async def create_execution_session(
         self,
@@ -99,8 +102,16 @@ class ExecutionEngine:
         if not session:
             raise ValueError(f"Execution session {session_id} not found")
         
-        if session.status != "pending":
-            raise ValueError(f"Session {session_id} is not in pending status")
+        # Accept both pending and queued statuses (queued will be converted to pending)
+        if session.status not in ("pending", "queued"):
+            raise ValueError(f"Session {session_id} is in {session.status} status, expected 'pending' or 'queued'")
+        
+        # If queued, change to pending
+        if session.status == "queued":
+            logger.info(f"Session {session_id} is queued, changing to pending")
+            session.status = "pending"
+            db.commit()
+            db.refresh(session)
         
         # Get first step
         first_step = db.query(ExecutionStep).filter(
@@ -287,3 +298,101 @@ class ExecutionEngine:
                 "reason": f"Error during precheck analysis: {str(e)}, proceeding anyway",
                 "analysis_result": {}
             }
+    
+    async def store_execution_pattern(
+        self,
+        db: Session,
+        session: ExecutionSession
+    ) -> None:
+        """
+        Store execution pattern after session completion
+        
+        Args:
+            db: Database session
+            session: ExecutionSession object
+        """
+        try:
+            # Only store patterns for completed sessions
+            if session.status not in ["completed", "completed_with_errors"]:
+                return
+            
+            # Get ticket and runbook for context
+            ticket = None
+            if session.ticket_id:
+                ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
+            
+            runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
+            if not runbook:
+                logger.warning(f"Runbook {session.runbook_id} not found for pattern storage")
+                return
+            
+            # Build issue signature from ticket or session
+            issue_signature = None
+            if ticket:
+                issue_signature = ticket.description or ticket.title
+            elif session.issue_description:
+                issue_signature = session.issue_description
+            
+            if not issue_signature:
+                logger.warning(f"No issue signature available for session {session.id}")
+                return
+            
+            # Build context
+            context = {}
+            if ticket:
+                context["environment"] = ticket.environment
+                context["service"] = ticket.service
+                context["severity"] = ticket.severity
+            if runbook:
+                context["runbook_service"] = getattr(runbook, "service", None)
+                context["runbook_env"] = getattr(runbook, "env", None)
+            
+            # Build pattern data from steps
+            steps_data = []
+            for step in session.steps:
+                step_data = {
+                    "step_number": step.step_number,
+                    "step_type": step.step_type,
+                    "command": step.command,
+                    "success": step.success,
+                    "completed": step.completed,
+                }
+                if step.output:
+                    step_data["output_preview"] = step.output[:200]  # Truncate for storage
+                if step.error:
+                    step_data["error_preview"] = step.error[:200]
+                steps_data.append(step_data)
+            
+            pattern_data = {
+                "steps": steps_data,
+                "total_steps": len(steps_data),
+                "successful_steps": sum(1 for s in steps_data if s.get("success")),
+                "failed_steps": sum(1 for s in steps_data if not s.get("success")),
+                "session_status": session.status,
+                "duration_minutes": session.total_duration_minutes,
+            }
+            
+            # Determine pattern type based on outcome
+            pattern_type = "execution"
+            if session.status == "completed":
+                pattern_type = "resolution"  # Successful resolution
+            
+            # Store pattern
+            self.pattern_storage_service.create_pattern(
+                db=db,
+                tenant_id=session.tenant_id,
+                pattern_type=pattern_type,
+                runbook_id=session.runbook_id,
+                ticket_id=session.ticket_id,
+                session_id=session.id,
+                issue_signature=issue_signature,
+                context=context,
+                pattern_data=pattern_data,
+                initial_success=(session.status == "completed")
+            )
+            
+            logger.info(f"Stored execution pattern for session {session.id}")
+        
+        except Exception as e:
+            logger.error(f"Error storing execution pattern for session {session.id}: {e}", exc_info=True)
+            # Don't raise - pattern storage failure shouldn't break execution

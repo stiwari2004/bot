@@ -67,13 +67,19 @@ class ServiceClassifier:
             'web': 1, 'http': 1, 'https': 1
         }
         
-        # Network keywords with weights
+        # Network keywords with weights (enhanced for network devices)
         network_patterns = {
             'network connectivity': 3, 'network issue': 3, 'connection lost': 3,
             'ping': 2, 'traceroute': 2, 'dns': 2, 'dns resolution': 2,
-            'firewall': 2, 'switch': 2, 'router': 2, 'cable': 2,
-            'ip address': 2, 'subnet': 2, 'vlan': 2, 'routing': 2,
-            'network': 1, 'connectivity': 1
+            'firewall': 3, 'switch': 3, 'router': 3, 'load balancer': 3, 'access point': 3,
+            'cisco': 2, 'juniper': 2, 'palo alto': 2, 'fortinet': 2, 'arista': 2,
+            'ios': 2, 'nx-os': 2, 'junos': 2, 'ios-xe': 2, 'ios-xr': 2,
+            'interface down': 3, 'port down': 3, 'interface error': 3, 'port error': 3,
+            'vlan': 2, 'vlan down': 3, 'vlan issue': 3, 'spanning tree': 2, 'stp': 2,
+            'routing': 2, 'bgp': 2, 'ospf': 2, 'eigrp': 2, 'static route': 2,
+            'cable': 2, 'link down': 3, 'link error': 3, 'duplex': 2, 'speed': 2,
+            'ip address': 2, 'subnet': 2, 'gateway': 2, 'default route': 2,
+            'network': 1, 'connectivity': 1, 'packet loss': 2, 'latency': 2
         }
         
         # Calculate scores

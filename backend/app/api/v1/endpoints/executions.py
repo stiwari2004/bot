@@ -3,6 +3,7 @@ Execution tracking and orchestration API endpoints
 """
 from typing import Any, Dict, List, Optional, Literal
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.database import SessionLocal, get_db
 from app.core.logging import get_logger
+from app.core.rate_limiting import rate_limit
 from app.models.execution_session import ExecutionSession
 from app.controllers.execution_controller import ExecutionController
 from app.services.execution_orchestrator import execution_orchestrator
@@ -110,6 +112,7 @@ class SessionControlRequest(BaseModel):
 
 
 @router.post("/demo/sessions", response_model=ExecutionSessionResponse)
+@rate_limit("100/minute")  # High limit for dev/test
 async def create_execution_session(data: ExecutionSessionCreate, db: Session = Depends(get_db)):
     """Create a new execution session for a runbook"""
     controller = ExecutionController(db, tenant_id=data.tenant_id or 1)
@@ -157,8 +160,9 @@ async def list_session_events(
             return []
         return [ExecutionEventResponse(**event) for event in events]
     except Exception as e:
+        from app.core.errors import handle_exception
         logger.error(f"Error listing events for session {session_id}: {e}", exc_info=True)
-        # Return empty list instead of crashing
+        # Return empty list instead of crashing for demo endpoint
         return []
 
 
@@ -204,6 +208,7 @@ async def submit_manual_command(
 
 
 @router.post("/demo/sessions/{session_id}/control", response_model=ExecutionSessionResponse)
+@rate_limit("200/minute")  # High limit for dev/test
 async def control_execution_session(
     session_id: int,
     payload: SessionControlRequest,
@@ -283,19 +288,52 @@ async def list_all_executions(
 
 @router.websocket("/ws/sessions/{session_id}")
 async def stream_execution_events(websocket: WebSocket, session_id: int):
-    """WebSocket stream for execution events."""
+    """WebSocket stream for execution events (MF-9: Optional authentication for demo)."""
+    # Security: Optional authentication for demo endpoints
+    token = websocket.query_params.get("token") or websocket.headers.get("Authorization", "").replace("Bearer ", "")
+    user_id = None
+    
+    # Try to authenticate if token is provided
+    if token:
+        db = None
+        try:
+            from app.models.user import User
+            from jose import JWTError, jwt
+            from app.core.config import settings
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            try:
+                # Validate token and get user
+                try:
+                    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                    email: str = payload.get("sub")
+                    if email:
+                        user = db.query(User).filter(User.email == email).first()
+                        if user:
+                            user_id = user.id
+                            logger.debug(f"WebSocket authenticated user: {email}")
+                except (JWTError, Exception) as e:
+                    logger.debug(f"WebSocket authentication optional, token invalid: {e}")
+                    # Don't fail - allow connection without auth for demo
+            finally:
+                db.close()
+                db = None
+        except Exception as e:
+            logger.debug(f"WebSocket authentication optional, error: {e}")
+            # Don't fail - allow connection without auth for demo
+    
     await websocket.accept()
 
     session = None
+    initial_events = []
     db = SessionLocal()
     try:
         session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
         if session:
             initial_events = execution_orchestrator.list_events(db, session_id, limit=50)
-        else:
-            initial_events = []
     finally:
         db.close()
+        db = None
 
     if not session:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -306,30 +344,61 @@ async def stream_execution_events(websocket: WebSocket, session_id: int):
         last_id = initial_events[-1].get("stream_id") or "0-0"
         await websocket.send_json({"events": initial_events})
 
+    # WebSocket timeout configuration
+    WEBSOCKET_IDLE_TIMEOUT = 30 * 60  # 30 minutes
+    HEARTBEAT_INTERVAL = 60  # 1 minute
+    last_activity = datetime.now(timezone.utc)
+    
     try:
         while True:
-            messages = await queue_client.read_stream(
-                settings.REDIS_STREAM_EVENTS,
-                last_id=last_id,
-                count=25,
-                block=5_000,
-            )
+            try:
+                # Read messages with timeout
+                messages = await asyncio.wait_for(
+                    queue_client.read_stream(
+                        settings.REDIS_STREAM_EVENTS,
+                        last_id=last_id,
+                        count=25,
+                        block=5_000,
+                    ),
+                    timeout=HEARTBEAT_INTERVAL
+                )
 
-            batch: List[Dict[str, Any]] = []
-            for message_id, payload in messages:
-                last_id = message_id
-                if payload.get("session_id") == session_id:
-                    payload["stream_id"] = message_id
-                    batch.append(payload)
+                batch: List[Dict[str, Any]] = []
+                for message_id, payload in messages:
+                    last_id = message_id
+                    if payload.get("session_id") == session_id:
+                        payload["stream_id"] = message_id
+                        batch.append(payload)
 
-            if batch:
-                await websocket.send_json({"events": batch})
-            else:
-                await asyncio.sleep(0.1)
+                if batch:
+                    await websocket.send_json({"events": batch})
+                    last_activity = datetime.now(timezone.utc)
+                else:
+                    await asyncio.sleep(0.1)
+                    
+                # Check for idle timeout
+                idle_time = (datetime.now(timezone.utc) - last_activity).total_seconds()
+                if idle_time > WEBSOCKET_IDLE_TIMEOUT:
+                    logger.info(f"Closing idle WebSocket connection for session {session_id} (idle for {idle_time:.0f}s)")
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Connection timeout")
+                    break
+                    
+            except asyncio.TimeoutError:
+                # Send heartbeat ping
+                try:
+                    await websocket.send_json({"type": "ping"})
+                    last_activity = datetime.now(timezone.utc)
+                except Exception:
+                    # Connection is dead, break the loop
+                    break
+                    
     except WebSocketDisconnect:
         logger.info("Execution event stream disconnected session=%s", session_id)
     except Exception as exc:
         logger.exception("WebSocket error session=%s: %s", session_id, exc)
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        try:
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        except Exception:
+            pass  # Connection may already be closed
 
 

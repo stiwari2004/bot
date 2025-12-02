@@ -116,7 +116,8 @@ class ConnectionService:
                 if isinstance(ticket_meta, str):
                     try:
                         ticket_meta = json.loads(ticket_meta)
-                    except:
+                    except (json.JSONDecodeError, ValueError, TypeError) as e:
+                        logger.debug(f"Failed to parse ticket meta_data as JSON: {e}")
                         ticket_meta = {}
                 
                 if ticket_meta.get("connection_config"):

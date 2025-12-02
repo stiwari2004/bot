@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiConfig } from '@/lib/api-config';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Ticket, TicketDetail } from '../types';
 
 interface UseTicketsDataProps {
@@ -9,6 +10,7 @@ interface UseTicketsDataProps {
 }
 
 export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) {
+  const { token } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -21,9 +23,16 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
 
   const fetchTickets = useCallback(async () => {
     try {
-      const response = await fetch(
-        apiConfig.endpoints.tickets.list({ limit: 100 })
-      );
+      const url = apiConfig.endpoints.tickets.list({ limit: 100 });
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(url, { headers });
       if (!response.ok) {
         let errorMessage = `Failed to fetch tickets: ${response.status}`;
         try {
@@ -58,13 +67,22 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]);
 
   const fetchTicketDetail = useCallback(async (ticketId: number) => {
     setLoadingDetail(true);
     setTicketDetail(null);
     try {
-      const response = await fetch(apiConfig.endpoints.tickets.detail(ticketId));
+      const url = apiConfig.endpoints.tickets.detail(ticketId);
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(url, { headers });
       if (!response.ok) {
         throw new Error(`Failed to fetch ticket detail: ${response.status}`);
       }
@@ -76,7 +94,7 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
     } finally {
       setLoadingDetail(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     fetchTickets();
