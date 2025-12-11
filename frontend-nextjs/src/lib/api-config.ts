@@ -1,49 +1,4 @@
 'use client';
-
-// Simple API config helper to build endpoint URLs based on NEXT_PUBLIC_API_BASE_URL.
-// If NEXT_PUBLIC_API_BASE_URL is not set, it defaults to relative `/api`.
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '') || '/api';
-
-export const apiConfig = {
-  baseUrl: API_BASE,
-  endpoints: {
-    settings: {
-      executionMode: () => `${API_BASE}/v1/settings/execution-mode`,
-      ticketingConnections: () => `${API_BASE}/v1/settings/ticketing-connections`,
-      ticketingTools: () => `${API_BASE}/v1/settings/ticketing-tools`,
-    },
-    connectors: {
-      credentials: () => `${API_BASE}/v1/connectors/credentials`,
-      infrastructureConnections: () => `${API_BASE}/v1/connectors/infrastructure-connections`,
-      monitoringConnections: () => `${API_BASE}/v1/connectors/monitoring-connections`,
-      testCommand: () => `${API_BASE}/v1/connectors/test-command`,
-    },
-    tickets: {
-      list: ({ limit = 100 }: { limit?: number } = {}) =>
-        `${API_BASE}/v1/tickets/demo/tickets?limit=${limit}`,
-      detail: (ticketId: number | string) =>
-        `${API_BASE}/v1/tickets/${ticketId}`,
-    },
-    executions: {
-      createSession: () => `${API_BASE}/v1/agent/execution/start`,
-    },
-    superAdmin: {
-      overview: () => `${API_BASE}/v1/super-admin/overview`,
-      tenants: () => `${API_BASE}/v1/super-admin/tenants`,
-      tenantUsers: (tenantId: number | string) =>
-        `${API_BASE}/v1/super-admin/tenants/${tenantId}/users`,
-      createTenant: () => `${API_BASE}/v1/super-admin/tenants`,
-      updateTenant: (tenantId: number | string) =>
-        `${API_BASE}/v1/super-admin/tenants/${tenantId}`,
-    },
-    tenantAdmin: {
-      overview: () => `${API_BASE}/v1/tenant-admin/overview`,
-    },
-  },
-};
-
-export default apiConfig;
 /**
  * Base URL for browser-facing API calls.
  *

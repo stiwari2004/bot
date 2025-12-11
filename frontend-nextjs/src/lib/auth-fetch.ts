@@ -1,28 +1,4 @@
 'use client';
-
-// Wrapper around fetch to automatically include the Authorization header
-// using the token from localStorage. Falls back to unauthenticated fetch.
-export async function authFetch(
-  input: RequestInfo | URL,
-  init: RequestInit = {}
-): Promise<Response> {
-  let token: string | null = null;
-  if (typeof window !== 'undefined') {
-    token = localStorage.getItem('token');
-  }
-
-  const headers = new Headers(init.headers || {});
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  return fetch(input, {
-    ...init,
-    headers,
-  });
-}
-
-export default authFetch;
 /**
  * Helper function to make authenticated fetch requests
  * Automatically includes Authorization header with token from localStorage
