@@ -63,3 +63,7 @@ logs/
 *.tmp
 *.temp
 
+# Allow frontend lib utilities to be tracked
+!frontend-nextjs/src/lib/
+!frontend-nextjs/src/lib/**
+
