@@ -44,7 +44,7 @@ services:
       dockerfile: Dockerfile
     # Backend port - change if 8000 is in use by other apps
     ports:
-      - "8000:8000"  # Change to "8001:8000" if port 8000 is in use
+      - "8000:8000"  # Change to "8005:8000" if port 8000 is in use
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -101,7 +101,7 @@ services:
         - NODE_ENV=production
     # Frontend port - change if 3000 is in use by other apps
     ports:
-      - "3000:3000"  # Change to "3001:3000" if port 3000 is in use
+      - "3004:3000"  # Host 3004 to match nginx upstream; change if needed
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
