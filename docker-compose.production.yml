@@ -8,8 +8,11 @@ services:
       POSTGRES_DB: troubleshooting_ai
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_STRONG_PASSWORD}
-    ports:
-      - "5432:5432"
+    # Postgres is only needed by backend/worker inside the Docker network.
+    # Remove host port exposure to avoid conflicts with any host Postgres.
+    # If you need host access, change to a non-conflicting port like "5433:5432".
+    # ports:
+    #   - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
