@@ -104,7 +104,9 @@ services:
       - "3004:3000"  # Host 3004 to match nginx upstream; change if needed
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      # Leave empty to use same-origin (nginx proxies /api to backend)
+      # Or set to https://demo.resolvify.tech if you want explicit domain
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
     restart: unless-stopped
     depends_on:
       - backend
