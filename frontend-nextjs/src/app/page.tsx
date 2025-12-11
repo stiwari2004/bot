@@ -62,6 +62,18 @@ export default function Home() {
 
   const workspaceEnabled = process.env.NEXT_PUBLIC_AGENT_WORKSPACE_ENABLED !== 'false';
 
+  // Redirect admin.resolvify.tech to super admin login
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Check if we're on admin.resolvify.tech
+    const hostname = window.location.hostname;
+    if (hostname === 'admin.resolvify.tech' && window.location.pathname === '/') {
+      window.location.href = '/super-admin/login';
+      return;
+    }
+  }, []);
+
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   useEffect(() => {
     if (typeof window === 'undefined') return;
