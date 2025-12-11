@@ -8,8 +8,10 @@ services:
       POSTGRES_DB: troubleshooting_ai_dev
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_change_me}
-    ports:
-      - "5433:5432"  # Different port to avoid conflict with production
+    # Postgres is only needed by backend/worker inside the Docker network.
+    # Remove host port exposure to avoid conflicts with any host Postgres.
+    # ports:
+    #   - "5433:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
       - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -25,8 +27,10 @@ services:
   redis:
     image: redis:7.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6380:6379"  # Different port to avoid conflict with production
+    # Redis is only needed by backend/worker inside the Docker network.
+    # Remove host port exposure to avoid conflicts with any host Redis.
+    # ports:
+    #   - "6380:6379"
     volumes:
       - redis_dev_data:/data
     restart: unless-stopped
@@ -41,7 +45,7 @@ services:
     ports:
       - "8001:8000"  # Different port for dev
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -95,10 +99,11 @@ services:
       args:
         - NODE_ENV=development
     ports:
-      - "3001:3000"  # Different port for dev
+      - "3005:3000"  # Host 3005 to match nginx upstream for dev.resolvify.tech
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8001}
+      # Leave empty to use same-origin (nginx proxies /api to backend)
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
     restart: unless-stopped
     depends_on:
       - backend
