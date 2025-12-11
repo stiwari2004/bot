@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Alert, AlertDetail } from '../types';
+import { apiConfig } from '@/lib/api-config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+// Use centralized API config (empty string = same-origin)
+const API_BASE_URL = apiConfig.baseUrl || '';
 
 interface UseAlertsDataProps {
   // No props needed for now
