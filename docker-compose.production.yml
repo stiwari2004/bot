@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL with pgvector extension
   postgres:
@@ -28,8 +26,11 @@ services:
   redis:
     image: redis:7.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
+    # Redis is only needed by backend/worker inside the Docker network.
+    # Remove host port exposure to avoid conflicts with any host Redis.
+    # If you need host access, change to a non-conflicting port like "6380:6379".
+    # ports:
+    #   - "6380:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -41,8 +42,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Backend port - change if 8000 is in use by other apps
     ports:
-      - "8000:8000"
+      - "8000:8000"  # Change to "8001:8000" if port 8000 is in use
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -97,8 +99,9 @@ services:
       dockerfile: Dockerfile
       args:
         - NODE_ENV=production
+    # Frontend port - change if 3000 is in use by other apps
     ports:
-      - "3000:3000"
+      - "3000:3000"  # Change to "3001:3000" if port 3000 is in use
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
