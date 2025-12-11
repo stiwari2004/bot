@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension (dev instance)
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: troubleshooting_ai_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_change_me}
+    ports:
+      - "5433:5432"  # Different port to avoid conflict with production
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - app-dev-network
+
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"  # Different port to avoid conflict with production
+    volumes:
+      - redis_dev_data:/data
+    restart: unless-stopped
+    networks:
+      - app-dev-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"  # Different port for dev
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/troubleshooting_ai_dev
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_ORCHESTRATION_ENABLED=true
+      - ENABLE_TICKETING_POLLER=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # Reload enabled for dev
+    restart: unless-stopped
+    networks:
+      - app-dev-network
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - BACKEND_BASE_URL=http://backend:8000
+      - WORKER_ID=worker-dev
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_ENVIRONMENT=development
+      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY:-}
+    env_file:
+      - ./backend/.env
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - app-dev-network
+    command: python -m worker.main
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend-nextjs
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=development
+    ports:
+      - "3001:3000"  # Different port for dev
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8001}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend-nextjs:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - app-dev-network
+    command: npm run dev  # Dev mode with hot reload
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+
+networks:
+  app-dev-network:
+    driver: bridge
+
