@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
+import re
 
 from app.core.database import get_db
 from app.models.tenant import Tenant
@@ -19,6 +20,21 @@ from decimal import Decimal
 
 router = APIRouter()
 logger = get_logger(__name__)
+# Helpers
+def slugify(name: str) -> str:
+    """Generate a URL-friendly slug from a tenant name."""
+    slug = re.sub(r'[^a-zA-Z0-9]+', '-', name.strip().lower()).strip('-')
+    return slug or 'tenant'
+
+def ensure_unique_slug(db: Session, base_slug: str) -> str:
+    """Ensure the slug is unique; append numeric suffix if needed."""
+    candidate = base_slug
+    suffix = 1
+    while db.query(Tenant).filter(Tenant.subdomain_slug == candidate).first():
+        candidate = f"{base_slug}-{suffix}"
+        suffix += 1
+    return candidate
+
 
 
 # Schemas
@@ -192,6 +208,11 @@ async def create_tenant(
         existing_slug = db.query(Tenant).filter(Tenant.subdomain_slug == tenant_data.subdomain_slug).first()
         if existing_slug:
             raise HTTPException(status_code=400, detail=f"Tenant with subdomain '{tenant_data.subdomain_slug}' already exists")
+        final_slug = tenant_data.subdomain_slug
+    else:
+        # Auto-generate slug from name if not provided
+        base_slug = slugify(tenant_data.name)
+        final_slug = ensure_unique_slug(db, base_slug)
     
     # Validate parent_tenant_id if provided
     if tenant_data.parent_tenant_id:
@@ -204,7 +225,7 @@ async def create_tenant(
     # Create tenant
     tenant = Tenant(
         name=tenant_data.name,
-        subdomain_slug=tenant_data.subdomain_slug,
+            subdomain_slug=final_slug,
         description=tenant_data.description,
         deployment_type=tenant_data.deployment_type,
         platform_managed=(tenant_data.deployment_type == "saas"),
