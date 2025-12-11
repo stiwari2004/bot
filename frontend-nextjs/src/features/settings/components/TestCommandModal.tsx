@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 import type { InfrastructureConnection } from '../types';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 
 interface TestCommandModalProps {
   connection: InfrastructureConnection;
@@ -68,150 +71,153 @@ export function TestCommandModal({ connection, discoveredVMs, onClose }: TestCom
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Test Command Execution</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
-
-          {discoveredVMs.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-600 mb-4">No VMs discovered. Please click "Discover" first.</p>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-              >
-                Close
-              </button>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+      >
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-neutral-900">Test Command Execution</h2>
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                <XMarkIcon className="h-6 w-6" />
+              </Button>
             </div>
-          ) : (
-            <>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Select VM
-                  </label>
-                  <select
-                    value={selectedVM}
-                    onChange={(e) => setSelectedVM(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">-- Select a VM --</option>
-                    {discoveredVMs.map((vm) => (
-                      <option key={vm.resource_id} value={vm.resource_id}>
-                        {vm.name} ({vm.resource_group}) - {vm.os_type || 'Unknown OS'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Shell Type
-                  </label>
-                  <select
-                    value={shell}
-                    onChange={(e) => setShell(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="powershell">PowerShell (Windows)</option>
-                    <option value="bash">Bash (Linux)</option>
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Auto-detected from VM OS if not specified
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Command
-                  </label>
-                  <textarea
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    placeholder={shell === 'powershell' ? 'Write-Host "Hello from Azure VM"' : 'echo "Hello from Azure VM"'}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                    rows={4}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Example commands: {shell === 'powershell' 
-                      ? 'Write-Host "Test", Get-ComputerInfo, Get-Service | Select-Object -First 5'
-                      : 'echo "Test", hostname, df -h'}
-                  </p>
-                </div>
-
-                {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                    {error}
-                  </div>
-                )}
-
-                {result && (
-                  <div className="border border-gray-300 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold">Execution Result</h3>
-                      <span className={`px-2 py-1 rounded text-sm ${
-                        result.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}>
-                        {result.success ? 'Success' : 'Failed'}
-                      </span>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="font-medium">VM:</span> {result.vm_name} ({result.resource_group})
-                      </div>
-                      <div>
-                        <span className="font-medium">Shell:</span> {result.shell}
-                      </div>
-                      <div>
-                        <span className="font-medium">Exit Code:</span> {result.exit_code}
-                      </div>
-                      {result.output && (
-                        <div>
-                          <span className="font-medium">Output:</span>
-                          <pre className="mt-1 p-2 bg-gray-50 border border-gray-200 rounded text-xs overflow-x-auto">
-                            {result.output}
-                          </pre>
-                        </div>
-                      )}
-                      {result.error && (
-                        <div>
-                          <span className="font-medium">Error:</span>
-                          <pre className="mt-1 p-2 bg-red-50 border border-red-200 rounded text-xs overflow-x-auto text-red-700">
-                            {result.error}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={onClose}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-                  >
-                    Close
-                  </button>
-                  <button
-                    onClick={handleExecute}
-                    disabled={loading || !selectedVM || !command.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Executing...' : 'Execute Command'}
-                  </button>
-                </div>
+          </CardHeader>
+          <CardContent padding="md">
+            {discoveredVMs.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-neutral-600 mb-4 font-medium">No VMs discovered. Please click "Discover" first.</p>
+                <Button variant="secondary" onClick={onClose}>
+                  Close
+                </Button>
               </div>
-            </>
-          )}
-        </div>
+            ) : (
+              <>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                      Select VM
+                    </label>
+                    <select
+                      value={selectedVM}
+                      onChange={(e) => setSelectedVM(e.target.value)}
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                    >
+                      <option value="">-- Select a VM --</option>
+                      {discoveredVMs.map((vm) => (
+                        <option key={vm.resource_id} value={vm.resource_id}>
+                          {vm.name} ({vm.resource_group}) - {vm.os_type || 'Unknown OS'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                      Shell Type
+                    </label>
+                    <select
+                      value={shell}
+                      onChange={(e) => setShell(e.target.value)}
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                    >
+                      <option value="powershell">PowerShell (Windows)</option>
+                      <option value="bash">Bash (Linux)</option>
+                    </select>
+                    <p className="text-xs text-neutral-500 mt-1">
+                      Auto-detected from VM OS if not specified
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                      Command
+                    </label>
+                    <textarea
+                      value={command}
+                      onChange={(e) => setCommand(e.target.value)}
+                      placeholder={shell === 'powershell' ? 'Write-Host "Hello from Azure VM"' : 'echo "Hello from Azure VM"'}
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm text-neutral-900 transition-all"
+                      rows={4}
+                    />
+                    <p className="text-xs text-neutral-500 mt-1">
+                      Example commands: {shell === 'powershell' 
+                        ? 'Write-Host "Test", Get-ComputerInfo, Get-Service | Select-Object -First 5'
+                        : 'echo "Test", hostname, df -h'}
+                    </p>
+                  </div>
+
+                  {error && (
+                    <Card variant="outlined" className="border-error-200 bg-error-50">
+                      <CardContent padding="sm">
+                        <p className="text-sm text-error-800 font-medium">{error}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {result && (
+                    <Card variant="default">
+                      <CardContent padding="md">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-semibold text-neutral-900">Execution Result</h3>
+                          <Badge variant={result.success ? 'success' : 'error'} size="sm">
+                            {result.success ? 'Success' : 'Failed'}
+                          </Badge>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div>
+                            <span className="font-semibold text-neutral-700">VM:</span> <span className="text-neutral-900">{result.vm_name} ({result.resource_group})</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-neutral-700">Shell:</span> <span className="text-neutral-900">{result.shell}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-neutral-700">Exit Code:</span> <span className="text-neutral-900">{result.exit_code}</span>
+                          </div>
+                          {result.output && (
+                            <div>
+                              <span className="font-semibold text-neutral-700">Output:</span>
+                              <pre className="mt-2 p-3 bg-neutral-50 border-2 border-neutral-200 rounded-lg text-xs overflow-x-auto text-neutral-900">
+                                {result.output}
+                              </pre>
+                            </div>
+                          )}
+                          {result.error && (
+                            <div>
+                              <span className="font-semibold text-error-700">Error:</span>
+                              <pre className="mt-2 p-3 bg-error-50 border-2 border-error-200 rounded-lg text-xs overflow-x-auto text-error-800">
+                                {result.error}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={onClose}
+                    >
+                      Close
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleExecute}
+                      disabled={loading || !selectedVM || !command.trim()}
+                      isLoading={loading}
+                    >
+                      {loading ? 'Executing...' : 'Execute Command'}
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

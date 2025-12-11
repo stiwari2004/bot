@@ -8,6 +8,9 @@ import type { TicketDetail } from '@/features/tickets/types';
 import { DecisionRecommendationPanel } from './DecisionRecommendationPanel';
 import { PatternMatchView } from './PatternMatchView';
 import { ContextCorrelationView } from './ContextCorrelationView';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 interface TicketDetailModalProps {
   ticket: TicketDetail | null;
@@ -45,14 +48,16 @@ export function TicketDetailModal({
   const renderModal = (content: ReactNode) =>
     createPortal(
       <div
-        className="fixed inset-0 z-[9999] overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center p-4"
+        className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
         onClick={onClose}
       >
         <div
-          className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
+          className="max-w-4xl w-full max-h-[90vh] overflow-y-auto"
         >
-          {content}
+          <Card variant="elevated">
+            {content}
+          </Card>
         </div>
       </div>,
       document.body
@@ -60,35 +65,32 @@ export function TicketDetailModal({
 
   if (loading) {
     return renderModal(
-      <div className="p-6">
+      <CardContent padding="lg">
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-          <span className="ml-4 text-gray-600 text-lg">Loading ticket details...</span>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+          <span className="ml-4 text-neutral-600 text-lg font-medium">Loading ticket details...</span>
         </div>
-      </div>
+      </CardContent>
     );
   }
 
   if (!ticket) {
     return renderModal(
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-semibold text-gray-900">Ticket Details</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+      <CardContent padding="lg">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-2xl font-bold text-neutral-900">Ticket Details</h3>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             <XMarkIcon className="h-6 w-6" />
-          </button>
+          </Button>
         </div>
         <div className="text-center py-10">
-          <p className="text-red-600 text-lg">Failed to load ticket details</p>
-          <p className="text-sm text-gray-600 mt-2">Please try again.</p>
-          <button
-            onClick={onClose}
-            className="mt-6 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-          >
+          <p className="text-error-600 text-lg font-semibold mb-2">Failed to load ticket details</p>
+          <p className="text-sm text-neutral-600 mb-6">Please try again.</p>
+          <Button variant="secondary" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
-      </div>
+      </CardContent>
     );
   }
 
@@ -97,65 +99,64 @@ export function TicketDetailModal({
   const recommendation = (ticket as any).recommendation || null;
 
   return renderModal(
-    <div className="p-6 space-y-6">
+    <CardContent padding="lg" className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-xl font-semibold text-gray-900">Ticket Details</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+        <h3 className="text-2xl font-bold text-neutral-900">Ticket Details</h3>
+        <Button variant="ghost" size="sm" onClick={onClose}>
           <XMarkIcon className="h-6 w-6" />
-        </button>
+        </Button>
       </div>
 
-      <div>
-        <h4 className="font-medium text-gray-900 mb-2">Ticket Information</h4>
-        <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Title:</span>
-            <span className="text-sm font-medium">{ticket.title || 'N/A'}</span>
-          </div>
-          {ticket.description && (
-            <div>
-              <span className="text-sm text-gray-600">Description:</span>
-              <p className="text-sm mt-1 whitespace-pre-wrap">{ticket.description}</p>
+      <Card variant="elevated">
+        <CardHeader>
+          <h4 className="font-semibold text-neutral-900">Ticket Information</h4>
+        </CardHeader>
+        <CardContent padding="md">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-neutral-600 font-semibold">Title:</span>
+              <span className="text-sm font-bold text-neutral-900">{ticket.title || 'N/A'}</span>
             </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Status:</span>
-            <span className={`text-sm px-2 py-1 rounded ${getStatusColorForModal(ticket.status || 'unknown')}`}>
-              {ticket.status || 'Unknown'}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Severity:</span>
-            <span className={`text-sm px-2 py-1 rounded ${getSeverityColorForModal(ticket.severity || 'unknown')}`}>
-              {ticket.severity || 'Unknown'}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Source:</span>
-            <span className="text-sm">{ticket.source || 'N/A'}</span>
-          </div>
-          {ticket.classification && (
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Classification:</span>
-              <span
-                className={`text-sm px-2 py-1 rounded ${
-                  ticket.classification === 'false_positive'
-                    ? 'bg-yellow-100 text-yellow-800'
-                    : ticket.classification === 'true_positive'
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-gray-100 text-gray-800'
-                }`}
-              >
-                {ticket.classification}
-              </span>
+            {ticket.description && (
+              <div>
+                <span className="text-sm text-neutral-600 font-semibold block mb-1">Description:</span>
+                <p className="text-sm mt-1 whitespace-pre-wrap text-neutral-700 bg-neutral-50 p-3 rounded-lg">{ticket.description}</p>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-neutral-600 font-semibold">Status:</span>
+              <Badge variant="status" status={ticket.status as any} size="sm">
+                {ticket.status || 'Unknown'}
+              </Badge>
             </div>
-          )}
-        </div>
-      </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-neutral-600 font-semibold">Severity:</span>
+              <Badge variant="severity" severity={ticket.severity as any} size="sm">
+                {ticket.severity || 'Unknown'}
+              </Badge>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-neutral-600 font-semibold">Source:</span>
+              <span className="text-sm font-medium text-neutral-900">{ticket.source || 'N/A'}</span>
+            </div>
+            {ticket.classification && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-neutral-600 font-semibold">Classification:</span>
+                <Badge
+                  variant={ticket.classification === 'false_positive' ? 'warning' : ticket.classification === 'true_positive' ? 'success' : 'secondary'}
+                  size="sm"
+                >
+                  {ticket.classification}
+                </Badge>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Decision Making Section */}
       <div className="space-y-4">
-        <h4 className="font-medium text-gray-900">AI Decision Support</h4>
+        <h4 className="font-semibold text-neutral-900 text-lg">AI Decision Support</h4>
         <DecisionRecommendationPanel
           ticketId={ticket.id}
           onExecute={recommendation?.runbook_id ? () => onExecute(ticket.id, recommendation.runbook_id!) : undefined}
@@ -164,120 +165,99 @@ export function TicketDetailModal({
         <ContextCorrelationView ticketId={ticket.id} />
       </div>
 
-      <div>
-        <h4 className="font-medium text-gray-900 mb-2">Matched Runbooks</h4>
-        {matchedRunbooks.length > 0 ? (
-          <div className="space-y-3">
-            {matchedRunbooks.map((runbook: any) => (
-              <div key={runbook.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-start justify-between mb-2">
-                  <h5 className="font-medium text-gray-900">{runbook.title}</h5>
-                  <span className="text-sm font-medium text-blue-600">
-                    {((runbook.confidence_score || 0) * 100).toFixed(0)}% match
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 mb-3">{runbook.reasoning || 'No reasoning provided'}</p>
-                <button
-                  onClick={() => onExecute(ticket.id, runbook.id)}
-                  disabled={executing === runbook.id}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+      <Card variant="elevated">
+        <CardHeader>
+          <h4 className="font-semibold text-neutral-900">Matched Runbooks</h4>
+        </CardHeader>
+        <CardContent padding="md">
+          {matchedRunbooks.length > 0 ? (
+            <div className="space-y-4">
+              {matchedRunbooks.map((runbook: any) => (
+                <Card key={runbook.id} variant="default">
+                  <CardContent padding="md">
+                    <div className="flex items-start justify-between mb-3">
+                      <h5 className="font-semibold text-neutral-900">{runbook.title}</h5>
+                      <Badge variant="primary" size="sm">
+                        {((runbook.confidence_score || 0) * 100).toFixed(0)}% match
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-neutral-600 mb-4">{runbook.reasoning || 'No reasoning provided'}</p>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => onExecute(ticket.id, runbook.id)}
+                      disabled={executing === runbook.id}
+                      isLoading={executing === runbook.id}
+                      leftIcon={<PlayIcon className="h-4 w-4" />}
+                    >
+                      {executing === runbook.id ? 'Executing...' : 'Execute Runbook'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Card variant="outlined" className="border-warning-200 bg-warning-50">
+              <CardContent padding="md">
+                <p className="text-sm text-warning-800 mb-4 font-medium">No matching runbooks found for this ticket.</p>
+                <Button
+                  variant="warning"
+                  onClick={onGenerateRunbook}
+                  leftIcon={<PlusIcon className="h-4 w-4" />}
                 >
-                  {executing === runbook.id ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      Executing...
-                    </>
-                  ) : (
-                    <>
-                      <PlayIcon className="h-4 w-4" />
-                      Execute Runbook
-                    </>
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="text-sm text-yellow-800 mb-3">No matching runbooks found for this ticket.</p>
-            <button
-              onClick={onGenerateRunbook}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
-            >
-              <PlusIcon className="h-4 w-4" />
-              Generate New Runbook
-            </button>
-          </div>
-        )}
-      </div>
+                  Generate New Runbook
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </CardContent>
+      </Card>
 
       {executionSessions.length > 0 && (
-        <div>
-          <h4 className="font-medium text-gray-900 mb-2">Execution History</h4>
-          <div className="space-y-2">
-            {executionSessions.map((session: any) => (
-              <div key={session.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">Session #{session.id}</span>
-                  <span className={`text-xs px-2 py-1 rounded ${getStatusColorForModal(session.status || 'unknown')}`}>
-                    {session.status || 'Unknown'}
-                  </span>
-                  {session.status === 'waiting_approval' && (
-                    <span className="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">
-                      ⚠️ Needs Approval
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    if (onSessionLaunched) {
-                      onSessionLaunched(session.id);
-                    }
-                  }}
-                  className="text-sm px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  View Execution
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Card variant="elevated">
+          <CardHeader>
+            <h4 className="font-semibold text-neutral-900">Execution History</h4>
+          </CardHeader>
+          <CardContent padding="md">
+            <div className="space-y-3">
+              {executionSessions.map((session: any) => (
+                <Card key={session.id} variant="default">
+                  <CardContent padding="sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-neutral-900">Session #{session.id}</span>
+                        <Badge variant="status" status={session.status as any} size="sm">
+                          {session.status || 'Unknown'}
+                        </Badge>
+                        {session.status === 'waiting_approval' && (
+                          <Badge variant="warning" size="sm">
+                            ⚠️ Needs Approval
+                          </Badge>
+                        )}
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => {
+                          if (onSessionLaunched) {
+                            onSessionLaunched(session.id);
+                          }
+                        }}
+                      >
+                        View Execution
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
-    </div>
+    </CardContent>
   );
 }
 
-function getStatusColorForModal(status: string) {
-  switch (status) {
-    case 'resolved':
-      return 'bg-green-100 text-green-800';
-    case 'closed':
-      return 'bg-gray-100 text-gray-800';
-    case 'escalated':
-      return 'bg-red-100 text-red-800';
-    case 'in_progress':
-      return 'bg-blue-100 text-blue-800';
-    case 'analyzing':
-      return 'bg-yellow-100 text-yellow-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
-}
-
-function getSeverityColorForModal(severity: string) {
-  switch (severity) {
-    case 'critical':
-      return 'bg-red-100 text-red-800';
-    case 'high':
-      return 'bg-orange-100 text-orange-800';
-    case 'medium':
-      return 'bg-yellow-100 text-yellow-800';
-    case 'low':
-      return 'bg-blue-100 text-blue-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
-}
 
 
 

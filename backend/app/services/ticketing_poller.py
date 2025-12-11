@@ -301,8 +301,17 @@ class TicketingPoller:
                             received_at=datetime.now(timezone.utc)
                         )
                         db.add(new_ticket)
+                        db.flush()  # Flush to get ticket ID
                         created_count += 1
                         logger.info(f"✅ Created ticket: {external_id} - {title[:50]}")
+                        
+                        # Track billing: ticket received
+                        try:
+                            from app.services.billing.billing_tracker import BillingTracker
+                            tracker = BillingTracker(db)
+                            tracker.track_ticket_received(connection.tenant_id, new_ticket.id)
+                        except Exception as e:
+                            logger.warning(f"Failed to track ticket received for billing: {e}")
                         
                 except Exception as e:
                     error_count += 1

@@ -11,6 +11,8 @@ import {
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface Session {
   id: number;
@@ -152,17 +154,17 @@ export function SessionManager() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-success-100 text-success-800';
       case 'failed':
       case 'abandoned':
-        return 'bg-red-100 text-red-800';
+        return 'bg-error-100 text-error-800';
       case 'in_progress':
       case 'waiting_approval':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-primary-100 text-primary-800';
       case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-warning-100 text-warning-800';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-neutral-100 text-neutral-800';
     }
   };
 
@@ -196,223 +198,252 @@ export function SessionManager() {
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Execution Sessions</h2>
-          <p className="text-sm text-gray-600 mt-1">Monitor and manage running commands and sessions</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="all">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="in_progress">In Progress</option>
-            <option value="waiting_approval">Waiting Approval</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-            <option value="abandoned">Abandoned</option>
-          </select>
-          <button
-            onClick={fetchSessions}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <Card variant="elevated">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center mb-2">
+                <div className="p-1.5 rounded-lg bg-secondary-100 mr-3">
+                  <PlayIcon className="h-6 w-6 text-secondary-600" />
+                </div>
+                <h2 className="text-2xl font-semibold text-neutral-900">Execution Sessions</h2>
+              </div>
+              <p className="text-sm text-neutral-600">Monitor and manage running commands and sessions</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-4 py-2 border-2 border-neutral-300 rounded-lg text-sm font-medium text-neutral-900 bg-white hover:border-primary-300 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="waiting_approval">Waiting Approval</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="abandoned">Abandoned</option>
+              </select>
+              <Button variant="primary" size="sm" onClick={fetchSessions}>
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />
-          <span className="text-red-800">{error}</span>
-        </div>
+        <Card variant="elevated">
+          <CardContent padding="md">
+            <div className="flex items-center gap-2">
+              <ExclamationTriangleIcon className="h-5 w-5 text-error-600" />
+              <span className="text-error-800">{error}</span>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-600">Loading sessions...</p>
-        </div>
+        <Card variant="elevated">
+          <CardContent padding="lg">
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              <span className="ml-3 text-neutral-600 font-medium">Loading sessions...</span>
+            </div>
+          </CardContent>
+        </Card>
       ) : sessions.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <p className="text-gray-600">No sessions found</p>
-        </div>
+        <Card variant="elevated">
+          <CardContent padding="lg">
+            <div className="text-center py-12">
+              <p className="text-neutral-600">No sessions found</p>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Sessions List */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900">Sessions ({sessions.length})</h3>
+            <h3 className="text-lg font-semibold text-neutral-900">Sessions ({sessions.length})</h3>
             <div className="space-y-3">
               {sessions.map((session) => (
-                <div
+                <Card
                   key={session.id}
-                  className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                  variant={selectedSession === session.id ? "default" : "default"}
+                  className={`cursor-pointer transition-all ${
                     selectedSession === session.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'hover:border-primary-300'
                   }`}
                   onClick={() => setSelectedSession(session.id)}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        {getStatusIcon(session.status)}
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(session.status)}`}>
-                          {session.status}
-                        </span>
-                        {session.waiting_for_approval && (
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-                            Needs Approval
+                  <CardContent padding="md">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          {getStatusIcon(session.status)}
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(session.status)}`}>
+                            {session.status}
                           </span>
-                        )}
+                          {session.waiting_for_approval && (
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-warning-100 text-warning-800">
+                              Needs Approval
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-semibold text-neutral-900">{session.runbook_title}</h4>
+                        <p className="text-sm text-neutral-600 mt-1">
+                          Session #{session.id} • Step {session.current_step}
+                          {session.ticket_id && ` • Ticket #${session.ticket_id}`}
+                        </p>
+                        <div className="mt-2 text-xs text-neutral-500">
+                          <div>Created: {formatDate(session.created_at)}</div>
+                          {session.started_at && <div>Started: {formatDate(session.started_at)}</div>}
+                          {session.completed_at && <div>Completed: {formatDate(session.completed_at)}</div>}
+                          {session.total_duration_minutes && (
+                            <div>Duration: {formatDuration(session.total_duration_minutes)}</div>
+                          )}
+                        </div>
                       </div>
-                      <h4 className="font-semibold text-gray-900">{session.runbook_title}</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Session #{session.id} • Step {session.current_step}
-                        {session.ticket_id && ` • Ticket #${session.ticket_id}`}
-                      </p>
-                      <div className="mt-2 text-xs text-gray-500">
-                        <div>Created: {formatDate(session.created_at)}</div>
-                        {session.started_at && <div>Started: {formatDate(session.started_at)}</div>}
-                        {session.completed_at && <div>Completed: {formatDate(session.completed_at)}</div>}
-                        {session.total_duration_minutes && (
-                          <div>Duration: {formatDuration(session.total_duration_minutes)}</div>
+                      <div className="flex gap-2 ml-4">
+                        {(session.status === 'in_progress' || session.status === 'pending' || session.status === 'waiting_approval') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancel(session.id);
+                            }}
+                            disabled={actionLoading === session.id}
+                            title="Cancel session"
+                          >
+                            <XCircleIcon className="h-5 w-5" />
+                          </Button>
+                        )}
+                        {(session.status === 'completed' || session.status === 'failed' || session.status === 'abandoned') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(session.id);
+                            }}
+                            disabled={actionLoading === session.id}
+                            title="Delete session"
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </Button>
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2 ml-4">
-                      {(session.status === 'in_progress' || session.status === 'pending' || session.status === 'waiting_approval') && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCancel(session.id);
-                          }}
-                          disabled={actionLoading === session.id}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                          title="Cancel session"
-                        >
-                          <XCircleIcon className="h-5 w-5" />
-                        </button>
-                      )}
-                      {(session.status === 'completed' || session.status === 'failed' || session.status === 'abandoned') && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(session.id);
-                          }}
-                          disabled={actionLoading === session.id}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                          title="Delete session"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </div>
 
           {/* Session Details */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Session Details</h3>
-              {selectedSession && (
-                <button
-                  onClick={() => {
-                    setSelectedSession(null);
-                    setSessionSteps([]);
-                  }}
-                  className="p-1 text-gray-400 hover:text-gray-600"
-                >
-                  <XMarkIcon className="h-5 w-5" />
-                </button>
-              )}
-            </div>
-            {selectedSession ? (
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="mb-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">Steps ({sessionSteps.length})</h4>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {sessionSteps.length === 0 ? (
-                      <p className="text-sm text-gray-500">No steps found</p>
-                    ) : (
-                      sessionSteps.map((step) => (
-                        <div
-                          key={step.id}
-                          className="p-3 border border-gray-200 rounded-lg bg-white"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-gray-700">
-                                Step {step.step_number} ({step.step_type})
-                              </span>
-                              {step.completed && (
-                                <span className={`px-2 py-0.5 rounded text-xs ${
-                                  step.success
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-red-100 text-red-800'
-                                }`}>
-                                  {step.success ? 'Success' : 'Failed'}
-                                </span>
-                              )}
-                              {!step.completed && (
-                                <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-800">
-                                  {step.approved === null && step.requires_approval
-                                    ? 'Pending Approval'
-                                    : 'Running'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {step.command && (
-                            <div className="mb-2">
-                              <p className="text-xs text-gray-500 mb-1">Command:</p>
-                              <code className="text-xs bg-gray-50 p-2 rounded block font-mono">
-                                {step.command}
-                              </code>
-                            </div>
-                          )}
-                          {step.notes && (
-                            <p className="text-xs text-gray-600 mb-2">{step.notes}</p>
-                          )}
-                          {step.output && (
-                            <div className="mb-2">
-                              <p className="text-xs text-gray-500 mb-1">Output:</p>
-                              <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto max-h-32">
-                                {step.output}
-                              </pre>
-                            </div>
-                          )}
-                          {step.error && (
-                            <div className="mb-2">
-                              <p className="text-xs text-red-500 mb-1">Error:</p>
-                              <pre className="text-xs bg-red-50 p-2 rounded overflow-x-auto max-h-32 text-red-800">
-                                {step.error}
-                              </pre>
-                            </div>
-                          )}
-                          {step.completed_at && (
-                            <p className="text-xs text-gray-500">
-                              Completed: {formatDate(step.completed_at)}
-                            </p>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
+            <Card variant="elevated">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-neutral-900">Session Details</h3>
+                  {selectedSession && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedSession(null);
+                        setSessionSteps([]);
+                      }}
+                    >
+                      <XMarkIcon className="h-5 w-5" />
+                    </Button>
+                  )}
                 </div>
-              </div>
-            ) : (
-              <div className="border border-gray-200 rounded-lg p-12 text-center bg-gray-50">
-                <p className="text-gray-500">Select a session to view details</p>
-              </div>
-            )}
+              </CardHeader>
+              <CardContent padding="md">
+                {selectedSession ? (
+                  <div>
+                    <div className="mb-4">
+                      <h4 className="font-semibold text-neutral-900 mb-2">Steps ({sessionSteps.length})</h4>
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {sessionSteps.length === 0 ? (
+                          <p className="text-sm text-neutral-500">No steps found</p>
+                        ) : (
+                          sessionSteps.map((step) => (
+                            <Card key={step.id} variant="default" className="mb-2">
+                              <CardContent padding="sm">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-semibold text-neutral-700">
+                                      Step {step.step_number} ({step.step_type})
+                                    </span>
+                                    {step.completed && (
+                                      <span className={`px-2 py-0.5 rounded text-xs ${
+                                        step.success
+                                          ? 'bg-success-100 text-success-800'
+                                          : 'bg-error-100 text-error-800'
+                                      }`}>
+                                        {step.success ? 'Success' : 'Failed'}
+                                      </span>
+                                    )}
+                                    {!step.completed && (
+                                      <span className="px-2 py-0.5 rounded text-xs bg-warning-100 text-warning-800">
+                                        {step.approved === null && step.requires_approval
+                                          ? 'Pending Approval'
+                                          : 'Running'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {step.command && (
+                                  <div className="mb-2">
+                                    <p className="text-xs text-neutral-500 mb-1">Command:</p>
+                                    <code className="text-xs bg-neutral-50 p-2 rounded block font-mono">
+                                      {step.command}
+                                    </code>
+                                  </div>
+                                )}
+                                {step.notes && (
+                                  <p className="text-xs text-neutral-600 mb-2">{step.notes}</p>
+                                )}
+                                {step.output && (
+                                  <div className="mb-2">
+                                    <p className="text-xs text-neutral-500 mb-1">Output:</p>
+                                    <pre className="text-xs bg-neutral-50 p-2 rounded overflow-x-auto max-h-32">
+                                      {step.output}
+                                    </pre>
+                                  </div>
+                                )}
+                                {step.error && (
+                                  <div className="mb-2">
+                                    <p className="text-xs text-error-500 mb-1">Error:</p>
+                                    <pre className="text-xs bg-error-50 p-2 rounded overflow-x-auto max-h-32 text-error-800">
+                                      {step.error}
+                                    </pre>
+                                  </div>
+                                )}
+                                {step.completed_at && (
+                                  <p className="text-xs text-neutral-500">
+                                    Completed: {formatDate(step.completed_at)}
+                                  </p>
+                                )}
+                              </CardContent>
+                            </Card>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-neutral-500">Select a session to view details</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       )}

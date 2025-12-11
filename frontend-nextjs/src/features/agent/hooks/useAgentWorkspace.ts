@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import apiConfig from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import { useExecutionEvents, ExecutionEventRecord } from './useExecutionEvents';
 import type {
   ExecutionSessionSummary,
@@ -285,7 +286,7 @@ export function useAgentWorkspace(
     setLoadingSessions(true);
     setSessionError(null);
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_BASE}/api/v1/executions/demo/executions?limit=50`
       );
       if (!response.ok) {
@@ -377,7 +378,7 @@ export function useAgentWorkspace(
   const loadRunbooks = useCallback(async () => {
     setRunbooksLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/runbooks/demo`);
+      const response = await authFetch(`${API_BASE}/api/v1/runbooks/demo`);
       if (!response.ok) {
         throw new Error(`Failed to load runbooks (${response.status})`);
       }

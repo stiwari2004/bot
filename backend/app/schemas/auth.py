@@ -12,12 +12,23 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
 
 
+class TenantInfo(BaseModel):
+    id: int
+    name: str
+    is_msp: bool
+    
+    class Config:
+        from_attributes = True
+
+
 class UserResponse(BaseModel):
     id: int
     email: str
     full_name: Optional[str]
     role: str
     is_active: bool
+    tenant_id: int
+    tenant: Optional[TenantInfo] = None
     created_at: datetime
     
     class Config:

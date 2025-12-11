@@ -124,7 +124,9 @@ class RunbookSearchService:
         if hasattr(search_result, 'meta_data') and search_result.meta_data:
             import json
             try:
-                meta = json.loads(search_result.meta_data) if isinstance(search_result.meta_data, str) else search_result.meta_data
+                # Convert to string if it's not already
+                meta_data = str(search_result.meta_data) if not isinstance(search_result.meta_data, str) else search_result.meta_data
+                meta = json.loads(meta_data) if isinstance(meta_data, str) else meta_data
                 if 'runbook_id' in meta:
                     return int(meta['runbook_id'])
             except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
@@ -135,7 +137,9 @@ class RunbookSearchService:
         if hasattr(search_result, 'title') and search_result.title:
             # Title format might be like "Runbook: Fix Server Issue #42"
             import re
-            match = re.search(r'#(\d+)', search_result.title)
+            # Convert title to string if it's a SQLAlchemy TextClause or other object
+            title_str = str(search_result.title) if not isinstance(search_result.title, str) else search_result.title
+            match = re.search(r'#(\d+)', title_str)
             if match:
                 return int(match.group(1))
         

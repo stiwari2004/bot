@@ -3,6 +3,8 @@
 import { FormEvent } from 'react';
 import type { ConnectionInfo } from '../types';
 import { formatShortDuration } from '../services/utils';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface ManualCommandPanelProps {
   connectionInfo: ConnectionInfo;
@@ -72,76 +74,72 @@ export function ManualCommandPanel({
   })();
 
   return (
-    <div className="border border-gray-200 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-gray-800 mb-2">
-        {commandConsoleLabel}
-      </h3>
-      <p className="text-xs text-gray-500 mb-3">
-        {helpText}
-      </p>
-      <form
-        onSubmit={(event: FormEvent<HTMLFormElement>) => {
-          event.preventDefault();
-          void onSubmit();
-        }}
-        className="space-y-3"
-      >
-        <div>
-          <label
-            htmlFor="workspace-command"
-            className="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wide"
-          >
-            Command
-          </label>
-          <textarea
-            id="workspace-command"
-            value={commandInput}
-            onChange={(event) => setCommandInput(event.target.value)}
-            disabled={commandSubmitting || disabled}
-            rows={3}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm text-gray-800 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
-            placeholder={commandPlaceholder}
-            onKeyDown={(event) => {
-              if (
-                (event.metaKey || event.ctrlKey) &&
-                event.key === 'Enter'
-              ) {
-                event.preventDefault();
-                void onSubmit();
-              }
-            }}
-          />
-        </div>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input
-            type="text"
-            placeholder="Reason (optional)"
-            value={commandReason}
-            onChange={(event) => setCommandReason(event.target.value)}
-            disabled={commandSubmitting}
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
-          />
-          <button
-            type="submit"
-            disabled={
-              commandSubmitting ||
-              !commandInput.trim() ||
-              disabled
-            }
-            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium text-white ${
-              commandSubmitting
-                ? 'bg-blue-400'
-                : 'bg-blue-600 hover:bg-blue-700'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            {commandSubmitting ? 'Queueing…' : 'Queue Command'}
-          </button>
-        </div>
-      </form>
-      {commandError && (
-        <p className="mt-2 text-xs text-red-600">{commandError}</p>
-      )}
-    </div>
+    <Card variant="outlined">
+      <CardContent padding="md">
+        <h3 className="text-sm font-semibold text-neutral-800 mb-2">
+          {commandConsoleLabel}
+        </h3>
+        <p className="text-xs text-neutral-600 mb-4">
+          {helpText}
+        </p>
+        <form
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            void onSubmit();
+          }}
+          className="space-y-3"
+        >
+          <div>
+            <label
+              htmlFor="workspace-command"
+              className="block text-xs font-semibold text-neutral-700 mb-2 uppercase tracking-wide"
+            >
+              Command
+            </label>
+            <textarea
+              id="workspace-command"
+              value={commandInput}
+              onChange={(event) => setCommandInput(event.target.value)}
+              disabled={commandSubmitting || disabled}
+              rows={3}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 font-mono text-sm text-neutral-900 shadow-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-100 disabled:text-neutral-400 transition-all"
+              placeholder={commandPlaceholder}
+              onKeyDown={(event) => {
+                if (
+                  (event.metaKey || event.ctrlKey) &&
+                  event.key === 'Enter'
+                ) {
+                  event.preventDefault();
+                  void onSubmit();
+                }
+              }}
+            />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              placeholder="Reason (optional)"
+              value={commandReason}
+              onChange={(event) => setCommandReason(event.target.value)}
+              disabled={commandSubmitting}
+              className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500 disabled:bg-neutral-100 disabled:text-neutral-400 text-neutral-900 transition-all"
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={commandSubmitting || !commandInput.trim() || disabled}
+              isLoading={commandSubmitting}
+            >
+              {commandSubmitting ? 'Queueing…' : 'Queue Command'}
+            </Button>
+          </div>
+        </form>
+        {commandError && (
+          <p className="mt-3 text-xs text-error-600 font-medium">{commandError}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

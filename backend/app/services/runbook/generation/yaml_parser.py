@@ -170,3 +170,10 @@ class YamlParser:
         
         logger.error(f"YAML content causing error (first 1000 chars): {repr(yaml_content[:1000])}")
 
+
+
+
+
+
+
+

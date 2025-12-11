@@ -342,7 +342,9 @@ class RunbookGeneratorService:
             spec = self._detect_and_flag_diagnostic_only(spec)
             
             # Validate runbook structure and content (Phase 1: Structure enforcement)
+            logger.info("Running runbook validation (structure, inputs, branching)...")
             is_valid, validation_errors = self._validate_generated_runbook(spec, issue_description)
+            logger.info(f"Validation complete: is_valid={is_valid}, error_count={len(validation_errors)}")
             if not is_valid:
                 # Check for CRITICAL errors that should cause regeneration
                 critical_errors = [e for e in validation_errors if "CRITICAL" in e.upper()]
@@ -401,9 +403,12 @@ class RunbookGeneratorService:
                         "Consider regenerating for better results."
                     )
                 else:
-                    logger.warning(f"Runbook validation warnings (non-critical): {validation_errors}")
+                    logger.warning(f"Runbook validation warnings (non-critical): {len(validation_errors)} error(s)")
                     for error in validation_errors:
                         logger.warning(f"  - {error}")
+                        # Log input validation errors prominently
+                        if "undefined input" in error.lower() or "references undefined" in error.lower():
+                            logger.error(f"  ⚠️ INPUT VALIDATION ERROR: {error}")
             
             # Phase 2: Command grounding via web search (NEW - critical for relevance)
             logger.info("Validating runbook commands via web search for grounding...")
@@ -531,7 +536,26 @@ class RunbookGeneratorService:
             except Exception as e:
                 logger.warning(f"Runbook validation failed but continuing: {type(e).__name__}: {e}")
             
-            runbook_yaml = yaml.safe_dump(spec, sort_keys=False, default_flow_style=False, width=120)
+            # Ensure correct section order: prechecks → steps → postchecks
+            from collections import OrderedDict
+            ordered_spec = OrderedDict()
+            
+            # Add all fields in correct order
+            for key in ['runbook_id', 'version', 'title', 'service', 'env', 'risk', 'description', 
+                       'owner', 'last_tested', 'review_required', 'inputs', 'prechecks', 'steps', 'postchecks']:
+                if key in spec:
+                    ordered_spec[key] = spec[key]
+            
+            # Add any remaining fields
+            for key, value in spec.items():
+                if key not in ordered_spec:
+                    ordered_spec[key] = value
+            
+            # Convert OrderedDict to regular dict for YAML serialization
+            # (yaml.safe_dump can't serialize OrderedDict directly)
+            spec_dict = dict(ordered_spec)
+            
+            runbook_yaml = yaml.safe_dump(spec_dict, sort_keys=False, default_flow_style=False, width=120)
             
             generation_mode = "ai"
         except Exception as e:
@@ -571,7 +595,26 @@ class RunbookGeneratorService:
                 except Exception as ve:
                     logger.warning(f"Validation after autofix failed but continuing: {type(ve).__name__}: {ve}")
 
-                runbook_yaml = yaml.safe_dump(spec, sort_keys=False, default_flow_style=False, width=120)
+                # Ensure correct section order: prechecks → steps → postchecks
+                from collections import OrderedDict
+                ordered_spec = OrderedDict()
+                
+                # Add all fields in correct order
+                for key in ['runbook_id', 'version', 'title', 'service', 'env', 'risk', 'description', 
+                           'owner', 'last_tested', 'review_required', 'inputs', 'prechecks', 'steps', 'postchecks']:
+                    if key in spec:
+                        ordered_spec[key] = spec[key]
+                
+                # Add any remaining fields
+                for key, value in spec.items():
+                    if key not in ordered_spec:
+                        ordered_spec[key] = value
+                
+                # Convert OrderedDict to regular dict for YAML serialization
+                # (yaml.safe_dump can't serialize OrderedDict directly)
+                spec_dict = dict(ordered_spec)
+                
+                runbook_yaml = yaml.safe_dump(spec_dict, sort_keys=False, default_flow_style=False, width=120)
                 generation_mode = "ai-autofix"
                 logger.info("YAML auto-fix succeeded")
             except Exception as e2:

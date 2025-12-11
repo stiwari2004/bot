@@ -52,3 +52,10 @@ class Alert(Base):
         return f"<Alert(id={self.id}, source='{self.source}', title='{self.title[:50]}...', status='{self.status}')>"
 
 
+
+
+
+
+
+
+

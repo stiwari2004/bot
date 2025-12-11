@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import apiConfig from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 
 export type ExecutionSession = {
   id: number;
@@ -28,20 +29,42 @@ export function useExecutionSessions(limit = 100): ExecutionSessionsHook {
   const [error, setError] = useState<string | null>(null);
 
   const fetchSessions = useCallback(async () => {
+    // Check if user is authenticated before fetching
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token) {
+      setSessions([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(
+      const response = await authFetch(
         apiConfig.buildUrl(`/api/v1/executions/demo/executions?limit=${limit}`)
       );
       if (!response.ok) {
+        // Handle 401 gracefully
+        if (response.status === 401) {
+          setSessions([]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
         throw new Error('Failed to load execution sessions');
       }
       const data = await response.json();
       setSessions(data.sessions || []);
     } catch (err) {
       console.error('[useExecutionSessions] Failed to fetch sessions:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch execution sessions');
+      // Don't set error for 401
+      if (!(err instanceof Error && err.message.includes('401'))) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch execution sessions');
+      } else {
+        setSessions([]);
+        setError(null);
+      }
     } finally {
       setLoading(false);
     }

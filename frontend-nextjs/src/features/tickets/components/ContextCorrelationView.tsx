@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { apiConfig } from '@/lib/api-config';
 import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
 
 interface ContextCorrelationViewProps {
   ticketId: number;
@@ -39,7 +41,14 @@ export function ContextCorrelationView({ ticketId, timeWindowHours = 24 }: Conte
           },
         });
         if (!response.ok) {
-          throw new Error(`Failed to fetch context: ${response.status}`);
+          if (response.status === 401 || response.status === 403) {
+            throw new Error('Authentication required. Please log in again.');
+          } else if (response.status === 404) {
+            throw new Error('Ticket not found or access denied.');
+          } else {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`Failed to fetch context: ${response.status} ${errorText || ''}`);
+          }
         }
         const data = await response.json();
         setContext(data);
@@ -58,75 +67,89 @@ export function ContextCorrelationView({ ticketId, timeWindowHours = 24 }: Conte
 
   if (loading) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-          <span className="text-sm text-gray-600">Loading context...</span>
-        </div>
-      </div>
+      <Card variant="default">
+        <CardContent padding="md">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>
+            <span className="text-sm text-neutral-600 font-medium">Loading context...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-sm text-red-800">Error: {error}</p>
-      </div>
+      <Card variant="outlined" className="border-error-200 bg-error-50">
+        <CardContent padding="md">
+          <p className="text-sm text-error-800 font-medium">Error: {error}</p>
+        </CardContent>
+      </Card>
     );
   }
 
   if (!context) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <p className="text-sm text-gray-600">No context data available</p>
-      </div>
+      <Card variant="outlined" className="bg-neutral-50">
+        <CardContent padding="md">
+          <p className="text-sm text-neutral-600">No context data available</p>
+        </CardContent>
+      </Card>
     );
   }
 
   const signals = context.signals || {};
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-      <h4 className="font-medium text-gray-900">Correlated Context</h4>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <span className="text-gray-600">Alerts:</span>
-          <span className="ml-2 font-medium">{context.alert_count || 0}</span>
-        </div>
-        <div>
-          <span className="text-gray-600">Executions:</span>
-          <span className="ml-2 font-medium">{context.execution_count || 0}</span>
-        </div>
-        {signals.has_active_alerts !== undefined && (
+    <Card variant="elevated">
+      <CardHeader>
+        <h4 className="font-semibold text-neutral-900">Correlated Context</h4>
+      </CardHeader>
+      <CardContent padding="md">
+        <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span className="text-gray-600">Active Alerts:</span>
-            <span className={`ml-2 font-medium ${signals.has_active_alerts ? 'text-red-600' : 'text-green-600'}`}>
-              {signals.has_active_alerts ? 'Yes' : 'No'}
-            </span>
+            <span className="text-neutral-600 font-semibold">Alerts:</span>
+            <span className="ml-2 font-bold text-neutral-900">{context.alert_count || 0}</span>
           </div>
-        )}
-        {signals.recent_execution_success_rate !== null && (
           <div>
-            <span className="text-gray-600">Success Rate:</span>
-            <span className="ml-2 font-medium">
-              {(signals.recent_execution_success_rate * 100).toFixed(0)}%
-            </span>
+            <span className="text-neutral-600 font-semibold">Executions:</span>
+            <span className="ml-2 font-bold text-neutral-900">{context.execution_count || 0}</span>
           </div>
-        )}
-        {signals.affected_services && signals.affected_services.length > 0 && (
-          <div className="col-span-2">
-            <span className="text-gray-600">Affected Services:</span>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {signals.affected_services.map((service: string, idx: number) => (
-                <span key={idx} className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">
-                  {service}
-                </span>
-              ))}
+          {signals.has_active_alerts !== undefined && (
+            <div>
+              <span className="text-neutral-600 font-semibold">Active Alerts:</span>
+              <Badge
+                variant={signals.has_active_alerts ? 'error' : 'success'}
+                size="sm"
+                className="ml-2"
+              >
+                {signals.has_active_alerts ? 'Yes' : 'No'}
+              </Badge>
             </div>
-          </div>
-        )}
-      </div>
-    </div>
+          )}
+          {signals.recent_execution_success_rate !== null && (
+            <div>
+              <span className="text-neutral-600 font-semibold">Success Rate:</span>
+              <span className="ml-2 font-bold text-neutral-900">
+                {(signals.recent_execution_success_rate * 100).toFixed(0)}%
+              </span>
+            </div>
+          )}
+          {signals.affected_services && signals.affected_services.length > 0 && (
+            <div className="col-span-2">
+              <span className="text-neutral-600 font-semibold mb-2 block">Affected Services:</span>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {signals.affected_services.map((service: string, idx: number) => (
+                  <Badge key={idx} variant="primary" size="sm">
+                    {service}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

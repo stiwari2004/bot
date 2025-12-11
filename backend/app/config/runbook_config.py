@@ -18,13 +18,14 @@ class RunbookStructureConfig:
     
     # Required counts
     PRECHECKS_COUNT: int = 3
-    STEPS_MIN: int = 5
-    STEPS_MAX: int = 6
+    STEPS_MIN: int = 3  # Minimum for basic issues
+    STEPS_MAX: int = 30  # Increased to support branching scenarios (was 6)
     POSTCHECKS_COUNT: int = 1
     
-    # Remediation requirements
-    MIN_REMEDIATION_STEPS: int = 4
-    MAX_DIAGNOSTIC_ONLY_STEPS: int = 2
+    # Remediation requirements (relaxed for iterative troubleshooting)
+    MIN_REMEDIATION_STEPS: int = 2  # At least 2 fixes required (was 4)
+    MAX_DIAGNOSTIC_ONLY_STEPS: int = None  # No hard limit, but ensure remediation ratio
+    REMEDIATION_RATIO: float = 0.4  # At least 40% of steps must be remediation
 
 
 @dataclass

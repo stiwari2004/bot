@@ -141,3 +141,10 @@ class PatternFeedbackController(BaseController):
             logger.error(f"Error getting ticket feedback: {e}")
             raise self.handle_error(e, "Failed to get ticket feedback")
 
+
+
+
+
+
+
+

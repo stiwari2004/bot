@@ -123,3 +123,10 @@ class AlertRepository(BaseRepository[Alert]):
             self.db.refresh(alert)
         return alert
 
+
+
+
+
+
+
+

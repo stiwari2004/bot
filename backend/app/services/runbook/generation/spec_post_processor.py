@@ -55,6 +55,17 @@ class SpecPostProcessor:
         # Ensure database_name is in inputs if commands use it
         spec = self._ensure_database_name_input(spec)
         
+        # Auto-fix: Add any missing inputs that are referenced in commands
+        spec = self._auto_add_missing_inputs(spec)
+        
+        # Auto-fix: Correct step purposes FIRST (based on command keywords)
+        # This must run before step ordering so purposes are correct when we reorder
+        spec = self._auto_fix_step_purposes(spec)
+        
+        # Auto-fix: Reorder steps to follow correct phase order (diagnose → remediate → verify)
+        # This runs after purpose correction so steps are ordered by their corrected purposes
+        spec = self._auto_fix_step_ordering(spec)
+        
         # Ensure all inputs have proper description fields
         spec = self._fix_input_descriptions(spec)
         
@@ -240,6 +251,388 @@ class SpecPostProcessor:
         
         return spec
     
+    def _auto_add_missing_inputs(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-fix: Automatically add missing inputs that are referenced in commands.
+        This prevents validation errors by adding inputs before validation runs.
+        """
+        import re
+        
+        if "inputs" not in spec:
+            spec["inputs"] = []
+        if not isinstance(spec["inputs"], list):
+            return spec
+        
+        # Get all defined input names
+        defined_input_names = {inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict) and inp.get("name")}
+        
+        # Pattern to match {{variable_name}} placeholders
+        placeholder_pattern = re.compile(r'\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}')
+        
+        # Collect all referenced placeholders from all commands
+        referenced_placeholders: set = set()
+        
+        # Check prechecks, steps, and postchecks
+        for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
+            if section in spec and isinstance(spec[section], list):
+                for item in spec[section]:
+                    if isinstance(item, dict):
+                        command = item.get("command", "")
+                        if command:
+                            placeholders = placeholder_pattern.findall(command)
+                            referenced_placeholders.update(placeholders)
+        
+        # Find missing inputs
+        missing_inputs = referenced_placeholders - defined_input_names
+        
+        if missing_inputs:
+            logger.info(f"Auto-fixing: Adding {len(missing_inputs)} missing input(s): {sorted(missing_inputs)}")
+            
+            # Common input descriptions based on name patterns
+            input_descriptions = {
+                "server_name": "Target server hostname or IP address",
+                "database_name": "Database name",
+                "vpn_service_name": "Name of the VPN service (e.g., openvpn, strongswan)",
+                "vpn_server_ip": "IP address of the VPN server",
+                "vpn_server_hostname": "Hostname of the VPN server",
+                "host_ip": "Target host IP address",
+                "gateway_ip": "Gateway or router IP address",
+                "interface": "Network interface name (e.g., eth0, ens33)",
+                "client_interface": "Client network interface name",
+                "firewall_tool": "Firewall management tool (e.g., ufw, iptables)",
+                "app_url": "Application URL",
+                "mount_point": "File system mount point",
+                "storage_server": "Storage server hostname or IP",
+                "share_name": "Network share name",
+                "username": "Username for authentication",
+                "password": "Password for authentication",
+            }
+            
+            # Add missing inputs with sensible defaults
+            for missing_input in sorted(missing_inputs):
+                # Skip if it's a common variable that shouldn't be an input
+                if missing_input in ["SERVER_NAME", "DATABASE_NAME"]:  # Legacy placeholders
+                    continue
+                
+                description = input_descriptions.get(
+                    missing_input,
+                    f"{missing_input.replace('_', ' ').title()} parameter"
+                )
+                
+                # Determine if required based on common patterns
+                required = missing_input not in ["interface", "client_interface", "firewall_tool", "username", "password"]
+                
+                # Add default values for common optional inputs
+                default_value = None
+                if missing_input in ["interface", "client_interface"]:
+                    default_value = "eth0"
+                elif missing_input == "firewall_tool":
+                    default_value = "ufw"
+                
+                new_input = {
+                    "name": missing_input,
+                    "type": "string",
+                    "required": required,
+                    "description": description
+                }
+                
+                if default_value:
+                    new_input["default"] = default_value
+                
+                spec["inputs"].append(new_input)
+                logger.info(f"  ✓ Added input: {missing_input} (required={required}, description='{description}')")
+        
+        return spec
+    
+    def _auto_fix_step_ordering(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-fix: Reorder steps to follow correct phase order (diagnose → remediate → verify).
+        Also handles logical dependencies (e.g., "After Firewall Change" should come after firewall remediation).
+        Preserves branching logic by updating step_number and on_success/on_failure references.
+        """
+        from app.config import runbook_validation
+        
+        if "steps" not in spec or not isinstance(spec["steps"], list):
+            return spec
+        
+        steps = spec["steps"]
+        if not steps:
+            return spec
+        
+        phase_order = runbook_validation.PHASE_ORDER
+        
+        # Group steps by purpose
+        diagnose_steps = []
+        remediate_steps = []
+        verify_steps = []
+        other_steps = []
+        
+        for step in steps:
+            if not isinstance(step, dict):
+                other_steps.append(step)
+                continue
+            
+            purpose = str(step.get("purpose", "")).strip().lower()
+            phase = phase_order.get(purpose, 1)  # Default to remediate if unknown
+            
+            if phase == 0:  # diagnose
+                diagnose_steps.append(step)
+            elif phase == 1:  # remediate
+                remediate_steps.append(step)
+            elif phase == 2:  # verify
+                verify_steps.append(step)
+            else:
+                other_steps.append(step)
+        
+        # Detect logical dependencies: steps that reference other steps by name/description
+        # Example: "Re-ping VPN Server After Firewall Change" should come after "Temporarily Disable Local Firewall"
+        diagnose_with_deps = []  # Diagnose steps that depend on remediate steps
+        diagnose_standalone = []  # Diagnose steps that don't depend on remediate steps
+        
+        for diag_step in diagnose_steps:
+            if not isinstance(diag_step, dict):
+                diagnose_standalone.append(diag_step)
+                continue
+            
+            # Check if this diagnose step references a remediate step
+            step_name = str(diag_step.get("name", "")).lower()
+            step_desc = str(diag_step.get("description", "")).lower()
+            step_text = f"{step_name} {step_desc}"
+            
+            # Look for dependency keywords: "after", "following", "post-", "re-", etc.
+            has_dependency = False
+            dependency_keywords = ["after", "following", "post-", "re-", "recheck", "retest", "verify after"]
+            
+            for keyword in dependency_keywords:
+                if keyword in step_text:
+                    # Check if any remediate step matches the referenced action
+                    for rem_step in remediate_steps:
+                        if not isinstance(rem_step, dict):
+                            continue
+                        rem_name = str(rem_step.get("name", "")).lower()
+                        rem_desc = str(rem_step.get("description", "")).lower()
+                        rem_text = f"{rem_name} {rem_desc}"
+                        
+                        # Extract the action being referenced (e.g., "firewall change", "restart")
+                        # Common patterns: "after [action]", "re-[action]", "post-[action]"
+                        if "firewall" in step_text and "firewall" in rem_text:
+                            has_dependency = True
+                            break
+                        elif "restart" in step_text and "restart" in rem_text:
+                            has_dependency = True
+                            break
+                        elif "service" in step_text and "service" in rem_text:
+                            has_dependency = True
+                            break
+                        elif "network" in step_text and "network" in rem_text:
+                            has_dependency = True
+                            break
+                        elif "dns" in step_text and "dns" in rem_text:
+                            has_dependency = True
+                            break
+                    
+                    if has_dependency:
+                        break
+            
+            if has_dependency:
+                diagnose_with_deps.append(diag_step)
+            else:
+                diagnose_standalone.append(diag_step)
+        
+        # Check if reordering is needed
+        original_order = [step.get("purpose", "").lower() for step in steps if isinstance(step, dict)]
+        expected_order = ["diagnose"] * len(diagnose_steps) + ["remediate"] * len(remediate_steps) + ["verify"] * len(verify_steps)
+        
+        # Only reorder if there's a mismatch
+        needs_reordering = False
+        if len(original_order) == len(expected_order):
+            for i, (orig, exp) in enumerate(zip(original_order, expected_order)):
+                if orig != exp:
+                    needs_reordering = True
+                    break
+        
+        # Also check if we have diagnose steps with dependencies that need reordering
+        if diagnose_with_deps:
+            needs_reordering = True
+        
+        if not needs_reordering and len(diagnose_steps) + len(remediate_steps) + len(verify_steps) == len([s for s in steps if isinstance(s, dict)]):
+            # Already in correct order
+            return spec
+        
+        # Reorder: standalone diagnose → remediate → diagnose-with-deps → verify → other
+        # This ensures diagnostic steps that depend on remediation come after the remediation
+        reordered_steps = diagnose_standalone + remediate_steps + diagnose_with_deps + verify_steps + other_steps
+        
+        # Build mapping from old step_number to new step_number
+        old_to_new_map = {}
+        for new_idx, step in enumerate(reordered_steps, 1):
+            if not isinstance(step, dict):
+                continue
+            
+            old_step_num = step.get("step_number")
+            if old_step_num is None:
+                # If no explicit step_number, use original index
+                try:
+                    old_idx = steps.index(step) + 1
+                    old_to_new_map[old_idx] = new_idx
+                except ValueError:
+                    # Step not found in original list, skip mapping
+                    pass
+            else:
+                old_to_new_map[old_step_num] = new_idx
+            
+            # Update step_number to new sequential number
+            step["step_number"] = new_idx
+        
+        # Update on_success and on_failure references
+        for step in reordered_steps:
+            if not isinstance(step, dict):
+                continue
+            
+            # Update on_success
+            if "on_success" in step and step["on_success"] is not None:
+                old_target = step["on_success"]
+                if old_target in old_to_new_map:
+                    new_target = old_to_new_map[old_target]
+                    if new_target != step["on_success"]:
+                        logger.info(
+                            f"Auto-fix: Updated on_success from step {step.get('step_number')} "
+                            f"(old target: {old_target} → new target: {new_target})"
+                        )
+                        step["on_success"] = new_target
+                else:
+                    logger.warning(
+                        f"Auto-fix: Could not map on_success target {old_target} for step {step.get('step_number')}"
+                    )
+            
+            # Update on_failure (and legacy on_fail)
+            for key in ["on_failure", "on_fail"]:
+                if key in step and step[key] is not None:
+                    old_target = step[key]
+                    if old_target in old_to_new_map:
+                        new_target = old_to_new_map[old_target]
+                        if new_target != step[key]:
+                            logger.info(
+                                f"Auto-fix: Updated {key} from step {step.get('step_number')} "
+                                f"(old target: {old_target} → new target: {new_target})"
+                            )
+                            step[key] = new_target
+                    else:
+                        logger.warning(
+                            f"Auto-fix: Could not map {key} target {old_target} for step {step.get('step_number')}"
+                        )
+        
+        # Update spec with reordered steps
+        spec["steps"] = reordered_steps
+        
+        if needs_reordering:
+            logger.info(
+                f"Auto-fix: Reordered {len(steps)} steps. "
+                f"New order: {len(diagnose_standalone)} standalone diagnose → "
+                f"{len(remediate_steps)} remediate → {len(diagnose_with_deps)} diagnose-with-deps → "
+                f"{len(verify_steps)} verify"
+            )
+        
+        return spec
+    
+    def _auto_fix_step_purposes(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-fix: Correct step purposes based on command and name keywords.
+        Detects mismatches like:
+        - purpose="diagnose" but command has "restart", "kill" → change to "remediate"
+        - purpose="remediate" but command has only "get", "show", "list" → change to "diagnose"
+        """
+        from app.config import runbook_validation
+        
+        if "steps" not in spec or not isinstance(spec["steps"], list):
+            return spec
+        
+        steps = spec["steps"]
+        if not steps:
+            return spec
+        
+        remediation_keywords = runbook_validation.REMEDIATION_KEYWORDS
+        diagnostic_keywords = runbook_validation.DIAGNOSTIC_KEYWORDS
+        
+        corrections_made = 0
+        
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            
+            purpose = str(step.get("purpose", "")).strip().lower()
+            if not purpose or purpose not in ["diagnose", "remediate", "verify"]:
+                continue
+            
+            # Fix escalation steps: if step name/description contains "escalate" but purpose is "verify",
+            # keep it as "verify" (since "escalate" is not a valid purpose) but log it
+            step_name = str(step.get("name", "")).lower()
+            step_desc = str(step.get("description", "")).lower()
+            if "escalate" in step_name or "escalate" in step_desc:
+                if purpose == "verify":
+                    # This is correct - escalation is a verification/final action
+                    # But we can add a note in the description if needed
+                    logger.debug(f"Step '{step.get('name')}' is an escalation step with purpose 'verify' (correct)")
+            
+            command = str(step.get("command", "")).lower()
+            name = str(step.get("name", "")).lower()
+            combined_text = f"{command} {name}"
+            
+            # Check for remediation keywords
+            has_remediation_keywords = any(
+                keyword in combined_text for keyword in remediation_keywords
+            )
+            
+            # Check for diagnostic keywords
+            has_diagnostic_keywords = any(
+                keyword in combined_text for keyword in diagnostic_keywords
+            )
+            
+            # Also check for common command patterns
+            # "status" is diagnostic, "restart", "kill", "stop", "start" are remediation
+            if "status" in combined_text or "is-active" in combined_text or "is-enabled" in combined_text:
+                has_diagnostic_keywords = True
+            if "truncate" in combined_text or "rm " in combined_text or "rm -" in combined_text:
+                has_remediation_keywords = True
+            
+            # Determine what the purpose should be based on keywords
+            # If both are present, prioritize remediation (action over observation)
+            should_be_remediate = has_remediation_keywords
+            should_be_diagnose = has_diagnostic_keywords and not has_remediation_keywords
+            
+            # Auto-correct mismatches
+            corrected_purpose = None
+            
+            if purpose == "diagnose" and should_be_remediate:
+                # Marked as diagnose but has remediation keywords → should be remediate
+                corrected_purpose = "remediate"
+            elif purpose == "remediate" and should_be_diagnose:
+                # Marked as remediate but has only diagnostic keywords → should be diagnose
+                corrected_purpose = "diagnose"
+            elif purpose == "verify" and should_be_remediate:
+                # Marked as verify but has remediation keywords → could be remediate or verify
+                # Be conservative: only change if it's clearly a remediation action
+                # (e.g., "restart" in verify step might be intentional, but "kill" should be remediate)
+                strong_remediation = any(kw in combined_text for kw in ["kill", "delete", "remove", "clear", "fix", "repair"])
+                if strong_remediation:
+                    corrected_purpose = "remediate"
+            
+            if corrected_purpose:
+                old_purpose = purpose
+                step["purpose"] = corrected_purpose
+                corrections_made += 1
+                step_name = step.get("name", "Unknown")
+                logger.info(
+                    f"Auto-fix: Corrected purpose for step '{step_name[:50]}': "
+                    f"{old_purpose} → {corrected_purpose} "
+                    f"(command: {command[:60] if command else 'N/A'})"
+                )
+        
+        if corrections_made > 0:
+            logger.info(f"Auto-fix: Corrected {corrections_made} step purpose(s) based on command keywords")
+        
+        return spec
+    
     def _fix_input_descriptions(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """Ensure all inputs have proper description fields"""
         if "inputs" in spec and isinstance(spec["inputs"], list):
@@ -267,4 +660,8 @@ class SpecPostProcessor:
             logger.warning(f"Fixed runbook_id format: {spec['runbook_id']}")
         
         return spec
+
+
+
+
 

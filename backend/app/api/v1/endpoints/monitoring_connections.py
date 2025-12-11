@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.monitoring_tool_connection import MonitoringToolConnection
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.core.logging import get_logger
 
 
@@ -39,9 +41,12 @@ class MonitoringConnectionUpdate(BaseModel):
 
 
 @router.get("/monitoring-connections")
-async def list_monitoring_connections(db: Session = Depends(get_db)):
-    """List monitoring tool connections"""
-    tenant_id = 1  # Demo tenant
+async def list_monitoring_connections(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List monitoring tool connections for the current tenant"""
+    tenant_id = current_user.tenant_id
     connections = (
         db.query(MonitoringToolConnection)
         .filter(MonitoringToolConnection.tenant_id == tenant_id)
@@ -69,11 +74,13 @@ async def list_monitoring_connections(db: Session = Depends(get_db)):
 
 @router.post("/monitoring-connections")
 async def create_monitoring_connection(
-    connection: MonitoringConnectionCreate, db: Session = Depends(get_db)
+    connection: MonitoringConnectionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new monitoring tool connection"""
     try:
-        tenant_id = 1  # Demo tenant
+        tenant_id = current_user.tenant_id
 
         db_connection = MonitoringToolConnection(
             tenant_id=tenant_id,
@@ -115,9 +122,10 @@ async def update_monitoring_connection(
     connection_id: int,
     update: MonitoringConnectionUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update an existing monitoring tool connection"""
-    tenant_id = 1  # Demo tenant
+    tenant_id = current_user.tenant_id
 
     db_connection = (
         db.query(MonitoringToolConnection)
@@ -161,10 +169,12 @@ async def update_monitoring_connection(
 
 @router.delete("/monitoring-connections/{connection_id}")
 async def delete_monitoring_connection(
-    connection_id: int, db: Session = Depends(get_db)
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Delete (deactivate) a monitoring tool connection"""
-    tenant_id = 1  # Demo tenant
+    tenant_id = current_user.tenant_id
 
     db_connection = (
         db.query(MonitoringToolConnection)
@@ -182,6 +192,13 @@ async def delete_monitoring_connection(
     db.commit()
 
     return {"message": "Monitoring tool connection deleted successfully"}
+
+
+
+
+
+
+
 
 
 

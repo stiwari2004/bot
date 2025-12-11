@@ -55,3 +55,10 @@ class DecisionAnalyticsRepository(BaseRepository[DecisionAnalytics]):
             DecisionAnalytics.period_type == period_type
         ).order_by(DecisionAnalytics.period_start.desc()).first()
 
+
+
+
+
+
+
+

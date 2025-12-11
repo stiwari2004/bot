@@ -6,6 +6,8 @@ import { XMarkIcon } from '@heroicons/react/24/outline';
 
 import { apiConfig } from '@/lib/api-config';
 import type { Ticket, TicketDetail } from '@/features/tickets/types';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface GenerateRunbookModalProps {
   ticket: TicketDetail | Ticket | null;
@@ -173,22 +175,42 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                   if (runbookResponse.ok) {
                     const existingRunbook = await runbookResponse.json();
                     setRunbook(existingRunbook);
-                    setError(null);
+                    // Show an informational message (not an error) that we found an existing runbook
+                    setError(`ℹ️ A similar runbook already exists: "${existingRunbook.title || errorData.detail.existing_runbook_title}" (ID: ${existingRunbookId}). It has been loaded for you.`);
                     setLoading(false);
-                    return;
+                    return; // Exit early - we successfully loaded the existing runbook
+                  } else {
+                    // If fetch fails, show the duplicate message with the ID
+                    const detail =
+                      typeof errorData.detail === 'string'
+                        ? errorData.detail
+                        : errorData.detail.message || JSON.stringify(errorData.detail);
+                    errorMessage = `Duplicate runbook detected: ${detail}`;
+                    if (existingRunbookId) {
+                      errorMessage += `\n\nExisting runbook ID: ${existingRunbookId}`;
+                      errorMessage += `\nTitle: ${errorData.detail.existing_runbook_title || 'N/A'}`;
+                    }
                   }
                 } catch (fetchErr) {
                   console.error('Failed to fetch existing runbook:', fetchErr);
+                  // Show error but include the runbook ID so user can find it
+                  const detail =
+                    typeof errorData.detail === 'string'
+                      ? errorData.detail
+                      : errorData.detail.message || JSON.stringify(errorData.detail);
+                  errorMessage = `Duplicate runbook detected: ${detail}`;
+                  if (existingRunbookId) {
+                    errorMessage += `\n\nExisting runbook ID: ${existingRunbookId}`;
+                    errorMessage += `\nTitle: ${errorData.detail.existing_runbook_title || 'N/A'}`;
+                  }
                 }
-              }
-              const detail =
-                typeof errorData.detail === 'string'
-                  ? errorData.detail
-                  : errorData.detail.message || JSON.stringify(errorData.detail);
-              errorMessage = `Duplicate runbook detected: ${detail}`;
-              if (existingRunbookId) {
-                errorMessage += `\n\nExisting runbook ID: ${existingRunbookId}`;
-                errorMessage += `\nTitle: ${errorData.detail.existing_runbook_title || 'N/A'}`;
+              } else {
+                // No existing runbook ID provided
+                const detail =
+                  typeof errorData.detail === 'string'
+                    ? errorData.detail
+                    : errorData.detail.message || JSON.stringify(errorData.detail);
+                errorMessage = `Duplicate runbook detected: ${detail}`;
               }
             } else {
               errorMessage = errorData?.detail || errorData?.message || errorMessage;
@@ -201,7 +223,9 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
         } catch (parseErr) {
           console.error('Error parsing error response:', parseErr);
         }
-        throw new Error(errorMessage);
+        setError(errorMessage);
+        setLoading(false);
+        return;
       }
 
       const contentType = response.headers.get('content-type');
@@ -223,30 +247,33 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
+        className="max-w-4xl w-full max-h-[90vh] overflow-y-auto"
       >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-semibold text-gray-900">Generate Runbook from Ticket</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-neutral-900">Generate Runbook from Ticket</h3>
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                <XMarkIcon className="h-6 w-6" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent padding="md">
 
           {!runbook ? (
             <form onSubmit={handleGenerate} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Issue Description *</label>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">Issue Description *</label>
                 <textarea
                   value={issueDescription}
                   onChange={(e) => setIssueDescription(e.target.value)}
                   rows={6}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                   placeholder="Describe the issue..."
                   required
                 />
@@ -254,7 +281,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">CI Type *</label>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">CI Type *</label>
                   <select
                     value={ciType}
                     onChange={(e) => {
@@ -273,11 +300,11 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                     <option value="storage">Storage</option>
                     <option value="network">Network</option>
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">CI Type: server, router, switch, storage, etc.</p>
+                  <p className="mt-1 text-xs text-neutral-500">CI Type: server, router, switch, storage, etc.</p>
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     OS Type {ciType === 'server' || ciType === 'auto' ? '*' : '(N/A)'}
                   </label>
                   <select
@@ -290,7 +317,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                     <option value="Windows">Windows</option>
                     <option value="Linux">Linux</option>
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-neutral-500">
                     {ciType === 'server' || ciType === 'auto' 
                       ? 'OS Type: Windows or Linux (only for servers)'
                       : 'OS Type not applicable for this CI type'}
@@ -300,7 +327,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     Environment
                   </label>
                   <select
@@ -315,7 +342,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Risk Level</label>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">Risk Level</label>
                   <select
                     value={riskLevel}
                     onChange={(e) => setRiskLevel(e.target.value)}
@@ -329,57 +356,67 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
               </div>
 
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
+                <Card variant="outlined" className="border-error-200 bg-error-50">
+                  <CardContent padding="sm">
+                    <p className="text-sm text-error-800 font-medium">{error}</p>
+                  </CardContent>
+                </Card>
               )}
 
               <div className="flex items-center justify-end gap-3 pt-4">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
+                  variant="primary"
                   disabled={loading || !issueDescription.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  isLoading={loading}
                 >
                   {loading ? 'Generating...' : 'Generate Runbook'}
-                </button>
+                </Button>
               </div>
             </form>
           ) : (
             <div className="space-y-4">
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-green-800 font-medium">Runbook generated successfully!</p>
-                <p className="text-sm text-green-700 mt-1">Runbook ID: {runbook.id}</p>
-              </div>
-              <div className="border border-gray-200 rounded-lg p-4">
-                <h4 className="font-medium text-gray-900 mb-2">{runbook.title}</h4>
-                <div className="prose max-w-none text-sm">
-                  <pre className="whitespace-pre-wrap bg-gray-50 p-4 rounded border overflow-x-auto">{runbook.body_md}</pre>
-                </div>
-              </div>
+              <Card variant="outlined" className="border-success-200 bg-success-50">
+                <CardContent padding="md">
+                  <p className="text-success-800 font-semibold">Runbook generated successfully!</p>
+                  <p className="text-sm text-success-700 mt-1">Runbook ID: {runbook.id}</p>
+                </CardContent>
+              </Card>
+              <Card variant="default">
+                <CardContent padding="md">
+                  <h4 className="font-semibold text-neutral-900 mb-3">{runbook.title}</h4>
+                  <div className="prose max-w-none text-sm">
+                    <pre className="whitespace-pre-wrap bg-neutral-50 p-4 rounded-lg border-2 border-neutral-200 overflow-x-auto text-neutral-900">{runbook.body_md}</pre>
+                  </div>
+                </CardContent>
+              </Card>
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
+                <Card variant="outlined" className="border-error-200 bg-error-50">
+                  <CardContent padding="sm">
+                    <p className="text-sm text-error-800 font-medium">{error}</p>
+                  </CardContent>
+                </Card>
               )}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t">
-                <button
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-neutral-200">
+                <Button
+                  variant="outline"
                   onClick={async () => {
                     setRunbook(null);
                     setError(null);
                     await handleGenerate({ preventDefault: () => {} } as React.FormEvent);
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Recreate
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="success"
                   onClick={async () => {
                     try {
                       // Include ticket_id in approve request if available
@@ -400,17 +437,17 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                       setError(err instanceof Error ? err.message : 'Failed to approve runbook');
                     }
                   }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Approve
-                </button>
-                <button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                </Button>
+                <Button variant="primary" onClick={onClose}>
                   Close
-                </button>
+                </Button>
               </div>
             </div>
           )}
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </div>,
     document.body

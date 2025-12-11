@@ -7,6 +7,9 @@ import {
   ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline';
 import type { RunbookStep, StepUpdatePayload } from '../types';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 interface StepCardProps {
   step: RunbookStep;
@@ -29,35 +32,28 @@ export function StepCard({ step, isUpdating, onUpdate, onCopy }: StepCardProps) 
       ? 'changes'
       : 'pending';
 
-  const approvalBadgeClass =
-    approvalStatus === 'approved'
-      ? 'bg-green-100 text-green-800'
-      : approvalStatus === 'changes'
-      ? 'bg-red-100 text-red-800'
-      : approvalStatus === 'pending'
-      ? 'bg-yellow-100 text-yellow-800'
-      : 'bg-gray-100 text-gray-800';
-
-  const getSeverityColor = (severity?: string) => {
-    switch (severity?.toLowerCase()) {
-      case 'critical':
-        return 'bg-red-100 text-red-800';
-      case 'high':
-        return 'bg-orange-100 text-orange-800';
-      case 'medium':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'low':
-        return 'bg-blue-100 text-blue-800';
+  const getApprovalBadgeVariant = () => {
+    switch (approvalStatus) {
+      case 'approved':
+        return 'success';
+      case 'changes':
+        return 'error';
+      case 'pending':
+        return 'warning';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'secondary';
     }
   };
 
   const statusIcon = isCompleted ? (
     step.success === true ? (
-      <CheckIcon className="h-6 w-6 text-green-600" />
+      <div className="p-2 rounded-lg bg-success-100">
+        <CheckIcon className="h-6 w-6 text-success-600" />
+      </div>
     ) : step.success === false ? (
-      <XMarkIcon className="h-6 w-6 text-red-600" />
+      <div className="p-2 rounded-lg bg-error-100">
+        <XMarkIcon className="h-6 w-6 text-error-600" />
+      </div>
     ) : null
   ) : null;
 
@@ -74,147 +70,154 @@ export function StepCard({ step, isUpdating, onUpdate, onCopy }: StepCardProps) 
   };
 
   return (
-    <div className={`border rounded-lg p-4 shadow-sm ${isCompleted ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-100'}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-gray-900">Step {step.step_number}</span>
-            {step.severity && (
-              <span className={`px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${getSeverityColor(step.severity)}`}>
-                {step.severity}
-              </span>
-            )}
-            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${approvalBadgeClass}`}>
-              {approvalStatus === 'approved'
-                ? 'Approved'
-                : approvalStatus === 'changes'
-                ? 'Changes Requested'
-                : approvalStatus === 'pending'
-                ? 'Awaiting Approval'
-                : 'Approval Not Required'}
-            </span>
+    <Card variant={isCompleted ? 'default' : 'elevated'} className={isCompleted ? 'bg-neutral-50' : ''}>
+      <CardContent padding="md">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="space-y-2 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-neutral-900">Step {step.step_number}</span>
+              {step.severity && (
+                <Badge variant="severity" severity={step.severity as any} size="sm">
+                  {step.severity}
+                </Badge>
+              )}
+              <Badge variant={getApprovalBadgeVariant()} size="sm">
+                {approvalStatus === 'approved'
+                  ? 'Approved'
+                  : approvalStatus === 'changes'
+                  ? 'Changes Requested'
+                  : approvalStatus === 'pending'
+                  ? 'Awaiting Approval'
+                  : 'Approval Not Required'}
+              </Badge>
+            </div>
+            {step.description && <p className="text-sm text-neutral-600">{step.description}</p>}
           </div>
-          {step.description && <p className="text-sm text-gray-600">{step.description}</p>}
+          {statusIcon && <div className="flex items-center flex-shrink-0">{statusIcon}</div>}
         </div>
-        {statusIcon && <div className="flex items-center">{statusIcon}</div>}
-      </div>
 
-      {step.command && (
-        <div className="mt-3 bg-gray-900 text-green-400 p-3 rounded font-mono text-sm relative">
-          <pre className="overflow-x-auto whitespace-pre-wrap">{step.command}</pre>
-          <button
-            onClick={onCopy}
-            className="absolute top-2 right-2 text-gray-400 hover:text-white"
-            title="Copy command"
-          >
-            <ClipboardDocumentIcon className="h-5 w-5" />
-          </button>
-        </div>
-      )}
-
-      {step.rollback_command && step.rollback_command.trim() !== '' && (
-        <div className="mt-3 bg-orange-50 border border-orange-100 rounded-lg p-3">
-          <p className="text-xs font-semibold text-orange-700 mb-1">Rollback Command</p>
-          <pre className="text-xs text-orange-800 whitespace-pre-wrap">{step.rollback_command}</pre>
-        </div>
-      )}
-
-      {step.requires_approval && (
-        <div className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-3 space-y-2">
-          <p className="text-xs text-blue-700">
-            {approvalStatus === 'pending'
-              ? 'Approve this step before marking it complete.'
-              : approvalStatus === 'approved'
-              ? 'Approved. You can proceed with execution.'
-              : 'Changes requested. Please review before proceeding.'}
-          </p>
-          <div className="flex gap-2">
+        {step.command && (
+          <div className="mb-4 bg-neutral-900 text-accent-400 p-4 rounded-lg font-mono text-sm relative">
+            <pre className="overflow-x-auto whitespace-pre-wrap">{step.command}</pre>
             <button
-              onClick={() => handleApprove(true)}
-              disabled={isUpdating}
-              className={`flex-1 px-3 py-2 text-xs font-semibold rounded-md transition-colors ${
-                approvalStatus === 'approved'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-white border border-green-300 text-green-700 hover:bg-green-50'
-              }`}
+              onClick={onCopy}
+              className="absolute top-2 right-2 text-neutral-400 hover:text-white transition-colors p-1 rounded hover:bg-neutral-800"
+              title="Copy command"
             >
-              Approve Step
-            </button>
-            <button
-              onClick={() => handleApprove(false)}
-              disabled={isUpdating}
-              className={`flex-1 px-3 py-2 text-xs font-semibold rounded-md transition-colors ${
-                approvalStatus === 'changes'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white border border-red-300 text-red-700 hover:bg-red-50'
-              }`}
-            >
-              Request Changes
+              <ClipboardDocumentIcon className="h-5 w-5" />
             </button>
           </div>
-        </div>
-      )}
-
-      <div className="mt-4 space-y-3">
-        {!isCompleted ? (
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => handleMarkSuccess(true)}
-              disabled={isUpdating}
-              className="flex-1 min-w-[140px] bg-blue-600 text-white px-3 py-2 text-sm font-semibold rounded-md hover:bg-blue-700 transition"
-            >
-              Mark Step Successful
-            </button>
-            <button
-              onClick={() => handleMarkSuccess(false)}
-              disabled={isUpdating}
-              className="flex-1 min-w-[140px] bg-red-100 text-red-700 px-3 py-2 text-sm font-semibold rounded-md hover:bg-red-200 transition"
-            >
-              Mark Step Failed
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={handleReopen}
-            disabled={isUpdating}
-            className="bg-gray-100 text-gray-700 px-3 py-2 text-sm font-semibold rounded-md hover:bg-gray-200 transition"
-          >
-            Reopen Step
-          </button>
         )}
 
-        <div className="space-y-2">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Output
-            </label>
-            <textarea
-              value={outputValue}
-              onChange={(e) => setOutputValue(e.target.value)}
-              onBlur={handleSaveOutput}
+        {step.rollback_command && step.rollback_command.trim() !== '' && (
+          <Card variant="outlined" className="mb-4 bg-warning-50 border-warning-200">
+            <CardContent padding="sm">
+              <p className="text-xs font-semibold text-warning-700 mb-2">Rollback Command</p>
+              <pre className="text-xs text-warning-800 whitespace-pre-wrap font-mono">{step.rollback_command}</pre>
+            </CardContent>
+          </Card>
+        )}
+
+        {step.requires_approval && (
+          <Card variant="outlined" className="mb-4 bg-primary-50 border-primary-200">
+            <CardContent padding="sm">
+              <p className="text-xs text-primary-700 mb-3">
+                {approvalStatus === 'pending'
+                  ? 'Approve this step before marking it complete.'
+                  : approvalStatus === 'approved'
+                  ? 'Approved. You can proceed with execution.'
+                  : 'Changes requested. Please review before proceeding.'}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant={approvalStatus === 'approved' ? 'success' : 'outline'}
+                  size="sm"
+                  onClick={() => handleApprove(true)}
+                  disabled={isUpdating}
+                  className="flex-1"
+                >
+                  Approve Step
+                </Button>
+                <Button
+                  variant={approvalStatus === 'changes' ? 'danger' : 'outline'}
+                  size="sm"
+                  onClick={() => handleApprove(false)}
+                  disabled={isUpdating}
+                  className="flex-1"
+                >
+                  Request Changes
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="space-y-4">
+          {!isCompleted ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleMarkSuccess(true)}
+                disabled={isUpdating}
+                className="flex-1 min-w-[140px]"
+              >
+                Mark Step Successful
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => handleMarkSuccess(false)}
+                disabled={isUpdating}
+                className="flex-1 min-w-[140px]"
+              >
+                Mark Step Failed
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleReopen}
               disabled={isUpdating}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
-              placeholder="Step output..."
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Notes
-            </label>
-            <textarea
-              value={notesValue}
-              onChange={(e) => setNotesValue(e.target.value)}
-              onBlur={handleSaveNotes}
-              disabled={isUpdating}
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
-              placeholder="Add notes..."
-            />
+            >
+              Reopen Step
+            </Button>
+          )}
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-neutral-700 mb-2">
+                Output
+              </label>
+              <textarea
+                value={outputValue}
+                onChange={(e) => setOutputValue(e.target.value)}
+                onBlur={handleSaveOutput}
+                disabled={isUpdating}
+                rows={4}
+                className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-neutral-50 text-neutral-900 transition-all"
+                placeholder="Step output..."
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-neutral-700 mb-2">
+                Notes
+              </label>
+              <textarea
+                value={notesValue}
+                onChange={(e) => setNotesValue(e.target.value)}
+                onBlur={handleSaveNotes}
+                disabled={isUpdating}
+                rows={2}
+                className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-neutral-50 text-neutral-900 transition-all"
+                placeholder="Add notes..."
+              />
+            </div>
           </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 

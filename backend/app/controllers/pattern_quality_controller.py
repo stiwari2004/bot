@@ -191,3 +191,10 @@ class PatternQualityController(BaseController):
             logger.error(f"Error pruning patterns: {e}")
             raise self.handle_error(e, "Failed to prune patterns")
 
+
+
+
+
+
+
+

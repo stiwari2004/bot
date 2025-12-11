@@ -15,7 +15,7 @@ class User(Base):
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
-    role = Column(String(50), default="user")  # admin, user, viewer
+    role = Column(String(50), default="user")  # user, viewer, tenant_admin, msp_admin, super_admin (legacy: admin)
     is_active = Column(Boolean, default=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

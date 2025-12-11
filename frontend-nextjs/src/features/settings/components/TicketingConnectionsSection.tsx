@@ -3,6 +3,9 @@
 import { PlusIcon, LinkIcon } from '@heroicons/react/24/outline';
 import type { TicketingConnection, TicketingTool } from '../types';
 import { useTicketingConnections } from '../hooks/useTicketingConnections';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 interface TicketingConnectionsSectionProps {
   connections: TicketingConnection[];
@@ -14,17 +17,6 @@ interface TicketingConnectionsSectionProps {
   editingConnection: TicketingConnection | null;
   onShowEditModal: (connection: TicketingConnection) => void;
 }
-
-const getStatusColor = (status: string | null) => {
-  switch (status) {
-    case 'success':
-      return 'bg-green-100 text-green-800';
-    case 'failed':
-      return 'bg-red-100 text-red-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
-};
 
 export function TicketingConnectionsSection({
   connections,
@@ -44,154 +36,151 @@ export function TicketingConnectionsSection({
   } = useTicketingConnections(onRefresh, onSuccess, onError);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
+    <Card variant="elevated">
+      <CardHeader>
+        <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-xl font-semibold text-neutral-900 mb-1">
               Ticketing Tool Connections
             </h3>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-neutral-600">
               Connect to external ticketing tools to receive tickets automatically
             </p>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={onShowAddModal}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            leftIcon={<PlusIcon className="h-5 w-5" />}
           >
-            <PlusIcon className="h-5 w-5" />
             Add Connection
-          </button>
+          </Button>
         </div>
-
+      </CardHeader>
+      <CardContent padding="md">
         {connections.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <LinkIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p>No ticketing tool connections configured</p>
-            <p className="text-sm mt-2">Click "Add Connection" to connect to ServiceNow, Zendesk, Jira, etc.</p>
+          <div className="text-center py-12">
+            <div className="mx-auto w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+              <LinkIcon className="h-8 w-8 text-neutral-400" />
+            </div>
+            <p className="text-neutral-700 font-medium mb-1">No ticketing tool connections configured</p>
+            <p className="text-sm text-neutral-500">Click "Add Connection" to connect to ServiceNow, Zendesk, Jira, etc.</p>
           </div>
         ) : (
           <div className="space-y-4">
             {connections.map((connection) => (
-              <div
-                key={connection.id}
-                className="border border-gray-200 rounded-lg p-4"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h4 className="font-medium text-gray-900 capitalize">
-                        {connection.tool_name.replace('_', ' ')}
-                      </h4>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        connection.is_active
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {connection.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {connection.connection_type}
-                      </span>
-                      {connection.last_sync_status && (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(connection.last_sync_status)}`}>
-                          {connection.last_sync_status}
-                        </span>
+              <Card key={connection.id} variant="default">
+                <CardContent padding="md">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-3 flex-wrap">
+                        <h4 className="font-semibold text-neutral-900 capitalize">
+                          {connection.tool_name.replace('_', ' ')}
+                        </h4>
+                        <Badge variant={connection.is_active ? 'success' : 'secondary'} size="sm">
+                          {connection.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                        <Badge variant="primary" size="sm">
+                          {connection.connection_type}
+                        </Badge>
+                        {connection.last_sync_status && (
+                          <Badge 
+                            variant={connection.last_sync_status === 'success' ? 'success' : connection.last_sync_status === 'failed' ? 'error' : 'secondary'} 
+                            size="sm"
+                          >
+                            {connection.last_sync_status}
+                          </Badge>
+                        )}
+                      </div>
+                      {connection.webhook_url && (
+                        <p className="text-sm text-neutral-600 mb-2">
+                          Webhook: <code className="bg-neutral-100 px-2 py-1 rounded text-xs font-mono">{connection.webhook_url}</code>
+                        </p>
+                      )}
+                      {connection.api_base_url && (
+                        <p className="text-sm text-neutral-600 mb-2">
+                          API: <code className="bg-neutral-100 px-2 py-1 rounded text-xs font-mono">{connection.api_base_url}</code>
+                        </p>
+                      )}
+                      {connection.last_sync_at && (
+                        <p className="text-xs text-neutral-500 mt-2">
+                          Last sync: {new Date(connection.last_sync_at).toLocaleString()}
+                        </p>
+                      )}
+                      {connection.last_error && (
+                        <p className="text-xs text-error-600 mt-2 font-medium">
+                          Error: {connection.last_error}
+                        </p>
                       )}
                     </div>
-                    {connection.webhook_url && (
-                      <p className="text-sm text-gray-600 mb-1">
-                        Webhook: <code className="bg-gray-100 px-2 py-1 rounded text-xs">{connection.webhook_url}</code>
-                      </p>
-                    )}
-                    {connection.api_base_url && (
-                      <p className="text-sm text-gray-600 mb-1">
-                        API: <code className="bg-gray-100 px-2 py-1 rounded text-xs">{connection.api_base_url}</code>
-                      </p>
-                    )}
-                    {connection.last_sync_at && (
-                      <p className="text-xs text-gray-500 mt-2">
-                        Last sync: {new Date(connection.last_sync_at).toLocaleString()}
-                      </p>
-                    )}
-                    {connection.last_error && (
-                      <p className="text-xs text-red-600 mt-1">
-                        Error: {connection.last_error}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* OAuth tools (Zoho, ManageEngine) - show Authorize button */}
+                      {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') && connection.connection_type === 'api_poll' && (
+                        <>
+                          {connection.oauth_authorized ? (
+                            <Badge variant="success" size="sm">✓ Authorized</Badge>
+                          ) : (
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => handleAuthorizeConnection(connection.id, connection.tool_name)}
+                              title={connection.tool_name === 'zoho' ? 'Authorize Zoho OAuth' : 'Authorize ManageEngine OAuth'}
+                            >
+                              Authorize
+                            </Button>
+                          )}
+                        </>
+                      )}
+                      {/* ServiceNow (Basic Auth) - show authorization status */}
+                      {connection.tool_name === 'servicenow' && connection.connection_type === 'api_poll' && (
+                        <>
+                          {connection.oauth_authorized ? (
+                            <Badge variant="success" size="sm">✓ Authorized</Badge>
+                          ) : (
+                            <Badge variant="warning" size="sm">⚠ Not Authorized</Badge>
+                          )}
+                        </>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTestConnection(connection.id)}
+                        title="Test Connection"
+                      >
+                        Test
+                      </Button>
+                      <Button
+                        variant={connection.is_active ? 'danger' : 'success'}
+                        size="sm"
+                        onClick={() => handleToggleConnection(connection.id, connection.is_active)}
+                      >
+                        {connection.is_active ? 'Disable' : 'Enable'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowEditModal(connection)}
+                        title="Edit Connection"
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleDeleteConnection(connection.id)}
+                        title="Delete Connection"
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 ml-4">
-                    {/* OAuth tools (Zoho, ManageEngine) - show Authorize button */}
-                    {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') && connection.connection_type === 'api_poll' && (
-                      <>
-                        {connection.oauth_authorized ? (
-                          <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-lg">
-                            ✓ Authorized
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleAuthorizeConnection(connection.id, connection.tool_name)}
-                            className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                            title={connection.tool_name === 'zoho' ? 'Authorize Zoho OAuth' : 'Authorize ManageEngine OAuth'}
-                          >
-                            Authorize
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {/* ServiceNow (Basic Auth) - show authorization status */}
-                    {connection.tool_name === 'servicenow' && connection.connection_type === 'api_poll' && (
-                      <>
-                        {connection.oauth_authorized ? (
-                          <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-lg">
-                            ✓ Authorized
-                          </span>
-                        ) : (
-                          <span className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-lg">
-                            ⚠ Not Authorized
-                          </span>
-                        )}
-                      </>
-                    )}
-                    <button
-                      onClick={() => handleTestConnection(connection.id)}
-                      className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      title="Test Connection"
-                    >
-                      Test
-                    </button>
-                    <button
-                      onClick={() => handleToggleConnection(connection.id, connection.is_active)}
-                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                        connection.is_active
-                          ? 'bg-red-100 text-red-800 hover:bg-red-200'
-                          : 'bg-green-100 text-green-800 hover:bg-green-200'
-                      }`}
-                    >
-                      {connection.is_active ? 'Disable' : 'Enable'}
-                    </button>
-                    <button
-                      onClick={() => onShowEditModal(connection)}
-                      className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 transition-colors"
-                      title="Edit Connection"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDeleteConnection(connection.id)}
-                      className="px-3 py-1 text-sm bg-red-100 text-red-800 rounded-lg hover:bg-red-200 transition-colors"
-                      title="Delete Connection"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import apiConfig from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 
 export type AgentVitals = {
   totalDocuments: number;
@@ -28,16 +29,34 @@ export function useAgentVitals(): AgentVitalsHook {
   const [error, setError] = useState<string | null>(null);
 
   const fetchVitals = useCallback(async () => {
+    // Check if user is authenticated before fetching
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token) {
+      // Not authenticated - set empty state
+      setVitals({
+        totalDocuments: 0,
+        totalChunks: 0,
+        totalRunbooks: 0,
+        activeTickets: 0,
+        pendingApprovals: 0,
+        executionsToday: 0,
+        successRate: 0,
+      });
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
       // Fetch all endpoints, but handle failures gracefully
       const [statsRes, ticketsRes, approvalsRes, executionsRes] = await Promise.allSettled([
-        fetch(`${API_BASE}/api/v1/demo/stats`),
-        fetch(`${API_BASE}/api/v1/tickets/demo/tickets?limit=100&status=open,in_progress,analyzing`),
-        fetch(`${API_BASE}/api/v1/agent/pending-approvals`),
-        fetch(`${API_BASE}/api/v1/executions/demo/executions?limit=100`),
+        authFetch(`${API_BASE}/api/v1/demo/stats`),
+        authFetch(`${API_BASE}/api/v1/tickets/demo/tickets?limit=100&status=open,in_progress,analyzing`),
+        authFetch(`${API_BASE}/api/v1/agent/pending-approvals`),
+        authFetch(`${API_BASE}/api/v1/executions/demo/executions?limit=100`),
       ]);
 
       // Parse responses with error handling
@@ -78,17 +97,17 @@ export function useAgentVitals(): AgentVitalsHook {
         console.warn('[useAgentVitals] Failed to parse executions:', e);
       }
 
-      // Log any failures for debugging
-      if (statsRes.status === 'rejected' || (statsRes.status === 'fulfilled' && !statsRes.value.ok)) {
+      // Log any failures for debugging (but only if not 401 - 401 is expected when not authenticated)
+      if (statsRes.status === 'rejected' || (statsRes.status === 'fulfilled' && !statsRes.value.ok && statsRes.value.status !== 401)) {
         console.warn('[useAgentVitals] Failed to fetch stats:', statsRes.status === 'rejected' ? statsRes.reason : statsRes.value.status);
       }
-      if (ticketsRes.status === 'rejected' || (ticketsRes.status === 'fulfilled' && !ticketsRes.value.ok)) {
+      if (ticketsRes.status === 'rejected' || (ticketsRes.status === 'fulfilled' && !ticketsRes.value.ok && ticketsRes.value.status !== 401)) {
         console.warn('[useAgentVitals] Failed to fetch tickets:', ticketsRes.status === 'rejected' ? ticketsRes.reason : ticketsRes.value.status);
       }
-      if (approvalsRes.status === 'rejected' || (approvalsRes.status === 'fulfilled' && !approvalsRes.value.ok)) {
+      if (approvalsRes.status === 'rejected' || (approvalsRes.status === 'fulfilled' && !approvalsRes.value.ok && approvalsRes.value.status !== 401)) {
         console.warn('[useAgentVitals] Failed to fetch pending approvals:', approvalsRes.status === 'rejected' ? approvalsRes.reason : approvalsRes.value.status);
       }
-      if (executionsRes.status === 'rejected' || (executionsRes.status === 'fulfilled' && !executionsRes.value.ok)) {
+      if (executionsRes.status === 'rejected' || (executionsRes.status === 'fulfilled' && !executionsRes.value.ok && executionsRes.value.status !== 401)) {
         console.warn('[useAgentVitals] Failed to fetch executions:', executionsRes.status === 'rejected' ? executionsRes.reason : executionsRes.value.status);
       }
 

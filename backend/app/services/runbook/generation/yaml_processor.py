@@ -16,15 +16,27 @@ class YamlProcessor:
     def preprocess_yaml_structure(self, ai_yaml: str) -> str:
         """Pre-process YAML to fix structural issues before parsing.
         Handles cases where list items appear in the middle of mappings.
+        Fixes misindented fields that appear after list items (e.g., description at column 0).
         """
         lines = ai_yaml.splitlines()
         fixed_lines = []
         in_mapping = False
         seen_inputs = False
         seen_steps = False
+        current_section = None
+        last_list_item_indent = None
+        in_list_item = False
         
-        for i, line in enumerate(lines):
+        i = 0
+        while i < len(lines):
+            line = lines[i]
             stripped = line.strip()
+            
+            if not stripped:
+                fixed_lines.append(line)
+                in_list_item = False
+                i += 1
+                continue
             
             # Detect section headers
             if stripped.endswith(':') and not stripped.startswith('-'):
@@ -32,45 +44,102 @@ class YamlProcessor:
                 if section_name in [runbook_structure.SECTION_INPUTS, runbook_structure.SECTION_STEPS, 
                                      runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_POSTCHECKS]:
                     in_mapping = False
+                    current_section = section_name
                     fixed_lines.append(line)
                     if section_name == 'inputs':
                         seen_inputs = True
                     elif section_name == 'steps':
                         seen_steps = True
+                    last_list_item_indent = None
+                    in_list_item = False
+                    i += 1
                     continue
             
-            # Detect key-value pairs (mappings)
+            # Detect key-value pairs (mappings) at top level
             if re.match(r"^[A-Za-z_][A-Za-z0-9_\-]*:\s+", stripped) and not stripped.startswith('-'):
+                # Check if this is a misindented field that should be part of the previous list item
+                if in_list_item and last_list_item_indent is not None:
+                    # This field is misindented - it should be part of the list item
+                    # Fix it by adding proper indentation
+                    indent = ' ' * (last_list_item_indent + 2)  # List items are typically indented 2 spaces
+                    fixed_lines.append(indent + stripped)
+                    logger.info(f"Fixed misindented field on line {i+1}: '{stripped}' -> '{indent + stripped}' (was at column 0, should be indented {last_list_item_indent + 2} spaces)")
+                    i += 1
+                    continue
+                
                 in_mapping = True
                 fixed_lines.append(line)
+                last_list_item_indent = None
+                in_list_item = False
+                i += 1
                 continue
             
             # Detect list items
             if stripped.startswith('-'):
+                # Calculate indentation of this list item
+                indent_level = len(line) - len(line.lstrip())
+                last_list_item_indent = indent_level
+                in_list_item = True
+                
                 # If we're in a mapping and hit a list item, we need to insert a section header
                 if in_mapping:
-                    # Determine which section to insert
-                    if not seen_inputs and re.match(r"^-\s+name:\s+", stripped):
+                    # Determine which section to insert based on content
+                    if not seen_inputs and (re.match(r"^-\s+name:\s+", stripped) or 'type:' in lines[i+1] if i+1 < len(lines) else False):
                         fixed_lines.append("inputs:")
                         seen_inputs = True
+                        current_section = 'inputs'
                         in_mapping = False
                     elif not seen_steps:
                         fixed_lines.append("steps:")
                         seen_steps = True
+                        current_section = 'steps'
                         in_mapping = False
                     else:
                         # Default to steps if we don't know
                         if not seen_steps:
                             fixed_lines.append("steps:")
                             seen_steps = True
+                            current_section = 'steps'
                         in_mapping = False
+                
+                # Check if this list item in 'steps' section looks like an input (has type, required fields)
+                if current_section == 'steps' and i+1 < len(lines):
+                    # Look ahead to see if this has input-like structure
+                    next_few_lines = '\n'.join(lines[i:min(i+5, len(lines))])
+                    if 'type:' in next_few_lines and 'required:' in next_few_lines:
+                        # This is an input, not a step - move it to inputs section
+                        if not seen_inputs:
+                            fixed_lines.append("inputs:")
+                            seen_inputs = True
+                        current_section = 'inputs'
+                        logger.info(f"Detected input-like item in steps section on line {i+1}, moving to inputs")
+                
                 fixed_lines.append(line)
+                i += 1
             else:
-                # Regular line
+                # Regular line - check if it's a misindented field that should be part of previous list item
+                if in_list_item and last_list_item_indent is not None:
+                    # Check if this line looks like a field (has colon) but is not properly indented
+                    if ':' in stripped:
+                        # Check if it's at column 0 (definitely misindented) or has wrong indentation
+                        line_indent = len(line) - len(line.lstrip())
+                        expected_indent = last_list_item_indent + 2
+                        
+                        if line_indent == 0 or (line_indent < expected_indent and line_indent <= last_list_item_indent):
+                            # Field is misindented - fix it
+                            indent = ' ' * expected_indent
+                            fixed_lines.append(indent + stripped)
+                            logger.info(f"Fixed misindented field on line {i+1}: '{stripped}' -> '{indent + stripped}' (was indented {line_indent}, should be {expected_indent})")
+                            i += 1
+                            continue
+                
                 fixed_lines.append(line)
                 # Reset mapping state if we hit a blank line or comment
                 if not stripped or stripped.startswith('#'):
                     in_mapping = False
+                    last_list_item_indent = None
+                    in_list_item = False
+                i += 1
         
         return "\n".join(fixed_lines)
     
@@ -383,7 +452,7 @@ class YamlProcessor:
         return "\n".join(fixed_lines)
     
     def sanitize_expected_output_field(self, yaml_content: str) -> str:
-        """Quote expected_output values that start with > or < or contain % to prevent YAML parsing errors."""
+        """Quote expected_output values that start with > or <, contain %, or end with : to prevent YAML parsing errors."""
         if not yaml_content:
             return yaml_content
         
@@ -408,11 +477,15 @@ class YamlProcessor:
                     # Check if it's a comparison like ">50%" or "<20%"
                     if re.match(r'^[<>]=?\s*\d+%', value) or re.match(r'^\d+%', value):
                         needs_quoting = True
+                # Values ending with : can be interpreted as YAML mapping separator (e.g., "Address:")
+                elif value.endswith(':') and not (value.startswith('"') or value.startswith("'")):
+                    needs_quoting = True
                 
                 if needs_quoting and not (value.startswith('"') or value.startswith("'")):
                     # Escape any existing quotes
                     escaped_value = value.replace('"', '\\"')
                     sanitized_lines.append(f"{indent}expected_output: \"{escaped_value}\"")
+                    logger.info(f"Auto-fix: Quoted expected_output value ending with colon: '{value}' -> '\"{escaped_value}\"'")
                 else:
                     sanitized_lines.append(line)
             else:

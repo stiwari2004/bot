@@ -140,3 +140,10 @@ If the state doesn't change:
 - Verify `close_code` value matches your ServiceNow instance's enumeration values
 
 
+
+
+
+
+
+
+

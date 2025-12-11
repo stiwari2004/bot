@@ -20,7 +20,8 @@ class RunbookNormalizer:
     def normalize_runbook_for_ticket(
         runbook: Runbook,
         ticket: Ticket,
-        db: Session
+        db: Session,
+        extracted_inputs: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Normalize a generic runbook with ticket-specific details.
@@ -29,13 +30,20 @@ class RunbookNormalizer:
         - Server/CI name from ticket
         - Service name from ticket
         - Environment from ticket
+        - All runbook inputs from ticket metadata (if extracted_inputs provided)
         
         Replaces placeholders in runbook commands with actual values.
+        
+        Args:
+            runbook: Runbook object
+            ticket: Ticket object
+            db: Database session
+            extracted_inputs: Optional pre-extracted inputs from RunbookInputExtractor
         
         Returns normalized runbook structure with substituted commands.
         """
         try:
-            # Extract CI/server name from ticket
+            # Extract CI/server name from ticket (legacy method)
             ticket_dict = {
                 'id': ticket.id,
                 'meta_data': ticket.meta_data,
@@ -54,7 +62,7 @@ class RunbookNormalizer:
             parser = RunbookParser()
             parsed = parser.parse_runbook(runbook.body_md)
             
-            # Normalize commands in all steps
+            # Start with basic substitutions
             substitutions = {
                 'server_name': ci_name or service_name,
                 'ci_name': ci_name or service_name,
@@ -62,6 +70,11 @@ class RunbookNormalizer:
                 'service': service_name,
                 'environment': environment,
             }
+            
+            # Add extracted inputs if provided (from RunbookInputExtractor)
+            if extracted_inputs:
+                substitutions.update(extracted_inputs)
+                logger.info(f"Using {len(extracted_inputs)} extracted inputs for normalization")
             
             # Remove None values
             substitutions = {k: v for k, v in substitutions.items() if v}

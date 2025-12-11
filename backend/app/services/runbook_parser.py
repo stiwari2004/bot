@@ -71,7 +71,12 @@ class RunbookParser:
                     "type": step.get("type", "command"),
                     "severity": step.get("severity", "safe"),
                     "expected_output": step.get("expected_output", ""),
-                    "timeout": step.get("timeout")
+                    "timeout": step.get("timeout"),
+                    # Branching support
+                    "step_number": step.get("step_number"),
+                    "on_success": step.get("on_success"),
+                    "on_failure": step.get("on_failure"),
+                    "on_fail": step.get("on_fail")  # Legacy support
                 })
         
         # Parse postchecks

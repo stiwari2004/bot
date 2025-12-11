@@ -165,3 +165,10 @@ class ConfidenceController(BaseController):
             logger.error(f"Error calculating confidence breakdown: {e}")
             raise self.handle_error(e, "Failed to calculate confidence breakdown")
 
+
+
+
+
+
+
+

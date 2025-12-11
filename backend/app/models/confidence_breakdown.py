@@ -74,3 +74,10 @@ class ConfidenceBreakdown(Base):
             f"overall_confidence={self.overall_confidence})>"
         )
 
+
+
+
+
+
+
+

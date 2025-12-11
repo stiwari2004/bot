@@ -7,6 +7,8 @@ import {
   XCircleIcon,
   EyeIcon
 } from '@heroicons/react/24/outline';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface ExecutionSession {
   id: number;
@@ -71,15 +73,15 @@ export function ExecutionHistory() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-success-100 text-success-800';
       case 'failed':
-        return 'bg-red-100 text-red-800';
+        return 'bg-error-100 text-error-800';
       case 'in_progress':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-primary-100 text-primary-800';
       case 'abandoned':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-neutral-100 text-neutral-800';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-neutral-100 text-neutral-800';
     }
   };
 
@@ -101,43 +103,64 @@ export function ExecutionHistory() {
 
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-2 text-gray-600">Loading execution history...</span>
-        </div>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="lg">
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-neutral-600 font-medium">Loading execution history...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Execution History</h2>
-        <p className="text-gray-600">View past runbook executions and their outcomes</p>
-      </div>
+    <div className="space-y-6">
+      <Card variant="elevated">
+        <CardHeader>
+          <div className="flex items-center mb-2">
+            <div className="p-1.5 rounded-lg bg-secondary-100 mr-3">
+              <ClockIcon className="h-6 w-6 text-secondary-600" />
+            </div>
+            <h2 className="text-2xl font-semibold text-neutral-900">Execution History</h2>
+          </div>
+          <p className="text-sm text-neutral-600">View past runbook executions and their outcomes</p>
+        </CardHeader>
+      </Card>
 
       {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800">{error}</p>
-        </div>
+        <Card variant="elevated">
+          <CardContent padding="md">
+            <div className="flex items-center gap-2">
+              <p className="text-error-800">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {sessions.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <ClockIcon className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-4 text-lg font-medium text-gray-900">No executions yet</h3>
-          <p className="mt-2 text-gray-600">
-            Start executing runbooks to see your history here
-          </p>
-        </div>
+        <Card variant="elevated">
+          <CardContent padding="lg">
+            <div className="text-center py-12">
+              <div className="p-1.5 rounded-lg bg-neutral-100 mx-auto mb-4 w-fit">
+                <ClockIcon className="h-12 w-12 text-neutral-400" />
+              </div>
+              <h3 className="mt-4 text-lg font-semibold text-neutral-900">No executions yet</h3>
+              <p className="mt-2 text-neutral-600">
+                Start executing runbooks to see your history here
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-4">
           {sessions.map((session) => (
-            <div
+            <Card
               key={session.id}
-              className="border border-gray-200 rounded-lg p-6 hover:border-blue-300 transition-colors"
+              variant="elevated"
+              className="hover:border-primary-300 transition-colors"
             >
+              <CardContent padding="md">
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-4 flex-1">
                   {getStatusIcon(session.status)}
@@ -239,19 +262,21 @@ export function ExecutionHistory() {
 
                 {/* Action Button */}
                 <div className="ml-4">
-                  <button
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       // Could navigate to detailed view in the future
                       alert(`View details for execution #${session.id}`);
                     }}
-                    className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                    leftIcon={<EyeIcon className="h-5 w-5" />}
                   >
-                    <EyeIcon className="h-5 w-5 text-gray-600" />
-                    <span className="text-sm font-medium text-gray-700">View</span>
-                  </button>
+                    View
+                  </Button>
                 </div>
               </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

@@ -5,6 +5,9 @@ import type { MonitoringConnection } from '../types';
 import { useState, useEffect } from 'react';
 import { apiConfig } from '@/lib/api-config';
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 interface MonitoringConnectionsSectionProps {
   connections: MonitoringConnection[];
@@ -21,9 +24,6 @@ interface MonitoringToolInfo {
   webhook_supported?: boolean;
   api_supported?: boolean;
 }
-
-const statusColor = (isActive: boolean) =>
-  isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
 
 export function MonitoringConnectionsSection({
   connections,
@@ -173,208 +173,214 @@ export function MonitoringConnectionsSection({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
+    <Card variant="elevated">
+      <CardHeader>
+        <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
-              <SignalIcon className="h-5 w-5 text-blue-600" />
+            <h3 className="text-xl font-semibold text-neutral-900 mb-1 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-primary-100">
+                <SignalIcon className="h-5 w-5 text-primary-600" />
+              </div>
               Monitoring Connections
             </h3>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-neutral-600">
               Configure connections to monitoring tools (Datadog, Prometheus, Azure Monitor, Splunk) for two-way alert updates.
             </p>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            leftIcon={<PlusIcon className="h-5 w-5" />}
           >
-            <PlusIcon className="h-5 w-5" />
             Add Monitoring Connection
-          </button>
+          </Button>
         </div>
-
+      </CardHeader>
+      <CardContent padding="md">
         {connections.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <LinkIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p>No monitoring connections configured</p>
-            <p className="text-sm mt-2">
+          <div className="text-center py-12">
+            <div className="mx-auto w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+              <LinkIcon className="h-8 w-8 text-neutral-400" />
+            </div>
+            <p className="text-neutral-700 font-medium mb-1">No monitoring connections configured</p>
+            <p className="text-sm text-neutral-500">
               Click &quot;Add Monitoring Connection&quot; to connect Datadog and other monitoring tools.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
             {connections.map((conn) => (
-              <div
-                key={conn.id}
-                className="border border-gray-200 rounded-lg p-4 flex items-start justify-between"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h4 className="font-medium text-gray-900 capitalize">
-                      {conn.tool_name.replace('_', ' ')}
-                    </h4>
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor(
-                        conn.is_active
-                      )}`}
-                    >
-                      {conn.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {conn.connection_type}
-                    </span>
+              <Card key={conn.id} variant="default">
+                <CardContent padding="md">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-3 flex-wrap">
+                        <h4 className="font-semibold text-neutral-900 capitalize">
+                          {conn.tool_name.replace('_', ' ')}
+                        </h4>
+                        <Badge variant={conn.is_active ? 'success' : 'secondary'} size="sm">
+                          {conn.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                        <Badge variant="primary" size="sm">
+                          {conn.connection_type}
+                        </Badge>
+                      </div>
+                      {conn.api_base_url && (
+                        <p className="text-sm text-neutral-600 mb-2">
+                          API:{' '}
+                          <code className="bg-neutral-100 px-2 py-1 rounded text-xs font-mono">
+                            {conn.api_base_url}
+                          </code>
+                        </p>
+                      )}
+                      {conn.last_sync_status && (
+                        <p className="text-xs text-neutral-500 mt-2">
+                          Last sync status: {conn.last_sync_status}
+                        </p>
+                      )}
+                      {conn.last_error && (
+                        <p className="text-xs text-error-600 mt-2 font-medium">
+                          Error: {conn.last_error}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startEdit(conn)}
+                        leftIcon={<PencilIcon className="h-4 w-4" />}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleDelete(conn.id)}
+                        leftIcon={<TrashIcon className="h-4 w-4" />}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </div>
-                  {conn.api_base_url && (
-                    <p className="text-sm text-gray-600 mb-1">
-                      API:{' '}
-                      <code className="bg-gray-100 px-2 py-1 rounded text-xs">
-                        {conn.api_base_url}
-                      </code>
-                    </p>
-                  )}
-                  {conn.last_sync_status && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Last sync status: {conn.last_sync_status}
-                    </p>
-                  )}
-                  {conn.last_error && (
-                    <p className="text-xs text-red-600 mt-1">
-                      Error: {conn.last_error}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-2 ml-4">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(conn)}
-                    className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
-                  >
-                    <PencilIcon className="h-4 w-4" />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(conn.id)}
-                    className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md border border-red-300 text-red-700 hover:bg-red-50"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                    Delete
-                  </button>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         )}
 
         {showAdd && (
-          <div className="mt-6 border-t border-gray-200 pt-4">
-            <h4 className="text-md font-semibold text-gray-900 mb-3">
-              New Monitoring Connection
-            </h4>
-            <div className="space-y-4">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Monitoring Tool
-                  </label>
-                  <select
-                    value={toolName}
-                    onChange={(e) => setToolName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {availableMonitoringTools.map((tool) => (
-                      <option key={tool.type} value={tool.type}>
-                        {tool.name}
-                      </option>
-                    ))}
-                    {availableMonitoringTools.length === 0 && (
-                      <option value="datadog">Datadog</option>
-                    )}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    API Base URL
-                  </label>
-                  <input
-                    type="text"
-                    value={apiBaseUrl}
-                    onChange={(e) => setApiBaseUrl(e.target.value)}
-                    placeholder={
-                      toolName === 'datadog'
-                        ? 'https://api.datadoghq.com'
-                        : toolName === 'prometheus'
-                        ? 'http://alertmanager:9093'
-                        : toolName === 'azure_monitor'
-                        ? 'https://management.azure.com'
-                        : 'https://splunk.example.com:8089'
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {toolName === 'datadog' && (
+          <Card variant="outlined" className="mt-6 border-t-2 border-neutral-200">
+            <CardHeader>
+              <h4 className="text-lg font-semibold text-neutral-900">
+                {editingId !== null ? 'Edit Monitoring Connection' : 'New Monitoring Connection'}
+              </h4>
+            </CardHeader>
+            <CardContent padding="md">
+              <div className="space-y-4">
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      API Key
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                      Monitoring Tool
                     </label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <select
+                      value={toolName}
+                      onChange={(e) => setToolName(e.target.value)}
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                    >
+                      {availableMonitoringTools.map((tool) => (
+                        <option key={tool.type} value={tool.type}>
+                          {tool.name}
+                        </option>
+                      ))}
+                      {availableMonitoringTools.length === 0 && (
+                        <option value="datadog">Datadog</option>
+                      )}
+                    </select>
                   </div>
                   <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Application Key
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                      API Base URL
                     </label>
                     <input
-                      type="password"
-                      value={applicationKey}
-                      onChange={(e) => setApplicationKey(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                      type="text"
+                      value={apiBaseUrl}
+                      onChange={(e) => setApiBaseUrl(e.target.value)}
+                      placeholder={
+                        toolName === 'datadog'
+                          ? 'https://api.datadoghq.com'
+                          : toolName === 'prometheus'
+                          ? 'http://alertmanager:9093'
+                          : toolName === 'azure_monitor'
+                          ? 'https://management.azure.com'
+                          : 'https://splunk.example.com:8089'
+                      }
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                     />
                   </div>
                 </div>
-              )}
 
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAdd(false);
-                    setEditingId(null);
-                    setApiBaseUrl('');
-                    setApiKey('');
-                    setApplicationKey('');
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  disabled={saving}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {saving
-                    ? 'Saving...'
-                    : editingId !== null
-                    ? 'Update Connection'
-                    : 'Save Connection'}
-                </button>
+                {toolName === 'datadog' && (
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="flex-1">
+                      <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                        API Key
+                      </label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                        Application Key
+                      </label>
+                      <input
+                        type="password"
+                        value={applicationKey}
+                        onChange={(e) => setApplicationKey(e.target.value)}
+                        className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowAdd(false);
+                      setEditingId(null);
+                      setApiBaseUrl('');
+                      setApiKey('');
+                      setApplicationKey('');
+                    }}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleCreate}
+                    disabled={saving}
+                    isLoading={saving}
+                  >
+                    {saving
+                      ? 'Saving...'
+                      : editingId !== null
+                      ? 'Update Connection'
+                      : 'Save Connection'}
+                  </Button>
+                </div>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -4,6 +4,7 @@ Simple, minimal implementation for executing individual runbook steps
 """
 import asyncio
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.services.infrastructure import get_connector
@@ -20,6 +21,69 @@ from app.services.execution.step_precheck_handler import StepPrecheckHandler
 from app.services.execution.step_session_finalizer import StepSessionFinalizer
 
 logger = get_logger(__name__)
+
+
+def _get_next_step_with_branching(
+    db: Session,
+    session: ExecutionSession,
+    current_step: ExecutionStep,
+    step_succeeded: bool
+) -> Optional[ExecutionStep]:
+    """
+    Get the next step to execute based on branching logic.
+    
+    Args:
+        db: Database session
+        session: Execution session
+        current_step: Current step that just completed
+        step_succeeded: Whether the current step succeeded
+        
+    Returns:
+        Next ExecutionStep to execute, or None if no next step
+    """
+    # Check for branching logic in command_payload
+    branching = current_step.command_payload or {}
+    target_step_number = None
+    
+    if step_succeeded and branching.get("on_success") is not None:
+        # Jump to on_success step
+        target_step_number = branching.get("on_success")
+        logger.info(
+            f"Step {current_step.step_number} succeeded, branching to step {target_step_number} "
+            f"(on_success)"
+        )
+    elif not step_succeeded and branching.get("on_failure") is not None:
+        # Jump to on_failure step
+        target_step_number = branching.get("on_failure")
+        logger.info(
+            f"Step {current_step.step_number} failed, branching to step {target_step_number} "
+            f"(on_failure)"
+        )
+    
+    if target_step_number is not None:
+        # Find step by explicit step_number
+        next_step = db.query(ExecutionStep).filter(
+            ExecutionStep.session_id == session.id,
+            ExecutionStep.step_number == target_step_number,
+            ExecutionStep.completed == False
+        ).first()
+        
+        if next_step:
+            return next_step
+        else:
+            logger.warning(
+                f"Branching target step {target_step_number} not found or already completed. "
+                f"Falling back to sequential execution."
+            )
+    
+    # Fall back to sequential execution (next step_number)
+    next_step = db.query(ExecutionStep).filter(
+        ExecutionStep.session_id == session.id,
+        ExecutionStep.step_number == current_step.step_number + 1,
+        ExecutionStep.completed == False
+    ).first()
+    
+    return next_step
 
 
 class StepExecutionService:
@@ -67,7 +131,27 @@ class StepExecutionService:
         
         try:
             # Get connection configuration
-            connection_config = await self.connection_service.get_connection_config(db, session, step)
+            # This will raise ValueError if node is not in InfrastructureConnection
+            try:
+                connection_config = await self.connection_service.get_connection_config(db, session, step)
+            except ValueError as ve:
+                # Node not found - fail the step with clear error message
+                error_msg = str(ve)
+                logger.warning(f"Step {step.step_number}: {error_msg}")
+                step.completed = True
+                step.success = False
+                step.output = ""
+                step.error = error_msg
+                step.completed_at = datetime.now(timezone.utc)
+                session.status = "failed"
+                db.commit()
+                
+                # Publish step failed event
+                await self.event_publisher.publish_step_failed(
+                    db, session, step, error_msg
+                )
+                return  # Stop execution
+            
             connector_type = connection_config.get("connector_type", "local")
             
             # Get connector
@@ -462,12 +546,10 @@ class StepExecutionService:
                         except Exception as e:
                             logger.warning(f"Failed to publish step.failed_continued event: {e}")
                     
-                    # Continue to next step (same logic as success path)
-                    next_step = db.query(ExecutionStep).filter(
-                        ExecutionStep.session_id == session.id,
-                        ExecutionStep.step_number == step.step_number + 1,
-                        ExecutionStep.completed == False
-                    ).first()
+                    # Continue to next step (with branching support)
+                    next_step = _get_next_step_with_branching(
+                        db, session, step, step_succeeded=False
+                    )
                     
                     if next_step:
                         if next_step.requires_approval:
@@ -509,12 +591,10 @@ class StepExecutionService:
                             db, session.ticket_id, "failed", issue_resolved=False
                         )
             else:
-                # Step succeeded - check for next step
-                next_step = db.query(ExecutionStep).filter(
-                    ExecutionStep.session_id == session.id,
-                    ExecutionStep.step_number == step.step_number + 1,
-                    ExecutionStep.completed == False
-                ).first()
+                # Step succeeded - check for next step (with branching support)
+                next_step = _get_next_step_with_branching(
+                    db, session, step, step_succeeded=True
+                )
                 
                 if next_step:
                     if next_step.requires_approval:

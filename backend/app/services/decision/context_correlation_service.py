@@ -247,3 +247,10 @@ class ContextCorrelationService:
         logger.info(f"Found {len(similar_tickets)} similar tickets for ticket {ticket.id}")
         return similar_tickets
 
+
+
+
+
+
+
+

@@ -65,3 +65,10 @@ class ConfidenceBreakdownRepository(BaseRepository[ConfidenceBreakdown]):
             ConfidenceBreakdown.tenant_id == tenant_id
         ).order_by(ConfidenceBreakdown.created_at.desc()).limit(limit).all()
 
+
+
+
+
+
+
+

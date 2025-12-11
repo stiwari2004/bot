@@ -16,6 +16,8 @@ from app.controllers.runbook_version_controller import RunbookVersionController
 from app.controllers.citation_controller import CitationController
 from app.services.cloud_discovery import CloudDiscoveryService
 from app.services.ci_extraction_service import CIExtractionService
+from app.services.runbook.input_extractor import RunbookInputExtractor
+from app.services.runbook.input_learning_service import InputLearningService
 from app.core.rate_limiting import rate_limit
 
 router = APIRouter()
@@ -344,11 +346,12 @@ async def debug_yaml_generation(
 async def list_runbooks_demo(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List runbooks for demo tenant"""
+    """List runbooks for the authenticated user's tenant"""
     try:
-        controller = RunbookController(db, tenant_id=1)  # Demo tenant
+        controller = RunbookController(db, tenant_id=current_user.tenant_id)
         result = controller.list_runbooks(skip, limit)
         # Ensure result is a list
         if not isinstance(result, list):
@@ -368,20 +371,22 @@ async def list_runbooks_demo(
 @router.get("/demo/{runbook_id}", response_model=RunbookResponse)
 async def get_runbook_demo(
     runbook_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get a specific runbook by ID for demo tenant"""
-    controller = RunbookController(db, tenant_id=1)  # Demo tenant
+    """Get a specific runbook by ID for the authenticated user's tenant"""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
     return controller.get_runbook(runbook_id)
 
 
 @router.delete("/demo/{runbook_id}")
 async def delete_runbook_demo(
     runbook_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Delete a runbook for demo tenant (soft delete)"""
-    controller = RunbookController(db, tenant_id=1)  # Demo tenant
+    """Delete a runbook for the authenticated user's tenant (soft delete)"""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
     return controller.delete_runbook(runbook_id)
 
 
@@ -390,20 +395,22 @@ async def approve_runbook_demo(
     runbook_id: int,
     force_approval: bool = False,
     ticket_id: Optional[int] = Query(None, description="Optional ticket ID to associate runbook with"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Approve and publish a draft runbook for demo tenant with duplicate detection"""
-    controller = RunbookController(db, tenant_id=1)  # Demo tenant
+    """Approve and publish a draft runbook for the authenticated user's tenant with duplicate detection"""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
     return await controller.approve_runbook(runbook_id, force_approval, ticket_id)
 
 
 @router.post("/demo/{runbook_id}/reindex")
 async def reindex_runbook_demo(
     runbook_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Manually reindex an already approved runbook (for fixing missing indexes)"""
-    controller = RunbookController(db, tenant_id=1)  # Demo tenant
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
     return await controller.reindex_runbook(runbook_id)
 
 
@@ -411,10 +418,11 @@ async def reindex_runbook_demo(
 async def associate_runbook_with_ticket_demo(
     runbook_id: int,
     ticket_id: int = Query(..., description="Ticket ID to associate with"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Manually associate a runbook with a ticket (for fixing missing associations)"""
-    controller = RunbookController(db, tenant_id=1)  # Demo tenant
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
     success = controller._associate_with_ticket(runbook_id, ticket_id)
     if success:
         return {
@@ -433,7 +441,8 @@ async def associate_runbook_with_ticket_demo(
 @router.get("/demo/{runbook_id}/debug")
 async def debug_runbook_meta_data(
     runbook_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Debug endpoint to inspect runbook meta_data and ticket associations"""
     from app.models.runbook import Runbook
@@ -441,7 +450,7 @@ async def debug_runbook_meta_data(
     
     runbook = db.query(Runbook).filter(
         Runbook.id == runbook_id,
-        Runbook.tenant_id == 1
+        Runbook.tenant_id == current_user.tenant_id
     ).first()
     
     if not runbook:
@@ -507,6 +516,107 @@ async def delete_runbook(
     """Delete a runbook (soft delete)"""
     controller = RunbookController(db, current_user.tenant_id)
     return controller.delete_runbook(runbook_id)
+
+
+@router.post("/demo/cleanup-orphaned-references")
+async def cleanup_orphaned_runbook_references(
+    db: Session = Depends(get_db)
+):
+    """
+    Clean up orphaned runbook references from tickets.
+    Removes references to runbooks that no longer exist (deleted/archived).
+    """
+    from app.services.runbook.ticket_cleanup_service import TicketCleanupService
+    from app.models.runbook import Runbook
+    from app.models.ticket import Ticket
+    from sqlalchemy.orm.attributes import flag_modified
+    import json
+    from app.core.logging import get_logger
+    
+    logger = get_logger(__name__)
+    
+    try:
+        tenant_id = 1  # Demo tenant
+        cleanup_service = TicketCleanupService()
+        
+        # Get all tickets with runbook references
+        tickets = db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id,
+            Ticket.meta_data.isnot(None)
+        ).all()
+        
+        # Get all active runbook IDs
+        active_runbook_ids = {rb.id for rb in db.query(Runbook.id).filter(
+            Runbook.tenant_id == tenant_id,
+            Runbook.is_active == 'active'
+        ).all()}
+        
+        updated_count = 0
+        removed_count = 0
+        
+        for ticket in tickets:
+            if not ticket.meta_data:
+                continue
+                
+            # Parse meta_data
+            if isinstance(ticket.meta_data, str):
+                try:
+                    meta_data = json.loads(ticket.meta_data)
+                except json.JSONDecodeError:
+                    continue
+            elif isinstance(ticket.meta_data, dict):
+                meta_data = dict(ticket.meta_data)
+            else:
+                continue
+            
+            updated = False
+            
+            # Check matched_runbooks
+            if "matched_runbooks" in meta_data and isinstance(meta_data["matched_runbooks"], list):
+                original_count = len(meta_data["matched_runbooks"])
+                meta_data["matched_runbooks"] = [
+                    rb for rb in meta_data["matched_runbooks"]
+                    if isinstance(rb, dict) and rb.get("id") in active_runbook_ids
+                ]
+                removed = original_count - len(meta_data["matched_runbooks"])
+                if removed > 0:
+                    updated = True
+                    removed_count += removed
+                    logger.info(f"Ticket {ticket.id}: Removed {removed} orphaned runbook reference(s)")
+            
+            # Check direct runbook_id reference
+            if "runbook_id" in meta_data:
+                runbook_id = meta_data["runbook_id"]
+                if isinstance(runbook_id, int) and runbook_id not in active_runbook_ids:
+                    del meta_data["runbook_id"]
+                    updated = True
+                    removed_count += 1
+                    logger.info(f"Ticket {ticket.id}: Removed orphaned runbook_id {runbook_id}")
+            
+            if updated:
+                ticket.meta_data = meta_data
+                flag_modified(ticket, "meta_data")
+                updated_count += 1
+        
+        if updated_count > 0:
+            db.commit()
+            logger.info(f"Cleanup complete: Updated {updated_count} tickets, removed {removed_count} orphaned references")
+            return {
+                "message": f"Cleanup complete",
+                "tickets_updated": updated_count,
+                "references_removed": removed_count
+            }
+        else:
+            return {
+                "message": "No orphaned references found",
+                "tickets_updated": 0,
+                "references_removed": 0
+            }
+            
+    except Exception as e:
+        logger.error(f"Error cleaning up orphaned references: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup orphaned references: {str(e)}")
 
 
 # Module 3: Runbook Versioning Endpoints
@@ -608,3 +718,121 @@ async def verify_single_citation(
     """Verify a single citation"""
     controller = CitationController(db, current_user.tenant_id)
     return await controller.verify_single_citation(citation_id)
+
+
+# Module 6: Input Extraction and Learning Endpoints
+class UserInputsRequest(BaseModel):
+    """Request model for user-provided inputs"""
+    inputs: dict = Field(..., description="Dictionary of input names to values")
+
+
+@router.post("/demo/{runbook_id}/extract-inputs")
+@rate_limit("60/minute")
+async def extract_inputs(
+    runbook_id: int,
+    ticket_id: int = Query(..., description="Ticket ID to extract inputs from"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Extract runbook inputs from ticket metadata.
+    Returns auto-extracted inputs and list of missing required inputs.
+    """
+    from app.models.ticket import Ticket
+    from app.models.runbook import Runbook
+    
+    # Get ticket and runbook
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id,
+        Ticket.tenant_id == current_user.tenant_id
+    ).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    runbook = db.query(Runbook).filter(
+        Runbook.id == runbook_id,
+        Runbook.tenant_id == current_user.tenant_id
+    ).first()
+    
+    if not runbook:
+        raise HTTPException(status_code=404, detail="Runbook not found")
+    
+    # Extract inputs
+    extractor = RunbookInputExtractor()
+    result = await extractor.extract_inputs(ticket, runbook, db)
+    
+    return result
+
+
+@router.post("/demo/{runbook_id}/learn-inputs")
+@rate_limit("30/minute")
+async def learn_from_user_input(
+    runbook_id: int,
+    ticket_id: int = Query(..., description="Ticket ID"),
+    user_inputs: UserInputsRequest = ...,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Learn from user-provided inputs by matching them back to metadata.
+    Creates/updates metadata mappings for future automatic extraction.
+    """
+    from app.models.ticket import Ticket
+    from app.models.runbook import Runbook
+    
+    # Get ticket and runbook
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id,
+        Ticket.tenant_id == current_user.tenant_id
+    ).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    runbook = db.query(Runbook).filter(
+        Runbook.id == runbook_id,
+        Runbook.tenant_id == current_user.tenant_id
+    ).first()
+    
+    if not runbook:
+        raise HTTPException(status_code=404, detail="Runbook not found")
+    
+    # Learn from user inputs
+    learning_service = InputLearningService(db)
+    result = learning_service.learn_from_user_input(
+        ticket, user_inputs.inputs, runbook
+    )
+    
+    return result
+
+
+@router.get("/demo/metadata-mappings/flags")
+@rate_limit("60/minute")
+async def get_mapping_flags(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    min_confidence: float = Query(0.8, description="Minimum confidence threshold")
+):
+    """
+    Get flags for metadata mapping updates that need review.
+    Returns mappings with low confidence that should be reviewed.
+    """
+    from app.models.metadata_mapping import MetadataMapping
+    
+    flags = db.query(MetadataMapping).filter(
+        MetadataMapping.tenant_id == current_user.tenant_id,
+        MetadataMapping.confidence < min_confidence,
+        MetadataMapping.is_active == True
+    ).order_by(MetadataMapping.confidence.asc()).all()
+    
+    return [{
+        "id": f.id,
+        "input_name": f.input_name,
+        "source": f.source,
+        "metadata_path": f.metadata_path,
+        "confidence": f.confidence,
+        "usage_count": f.usage_count,
+        "last_used_at": f.last_used_at.isoformat() if f.last_used_at else None,
+        "created_at": f.created_at.isoformat() if f.created_at else None
+    } for f in flags]

@@ -191,7 +191,19 @@ class ServiceNowTicketFetcher:
                 logger.debug(f"ServiceNow API response status: {response.status_code}")
                 response.raise_for_status()
                 
-                data = response.json()
+                # Check if response has content before parsing JSON
+                response_text = response.text
+                if not response_text or not response_text.strip():
+                    logger.error(f"ServiceNow API returned empty response (status: {response.status_code})")
+                    raise Exception(f"ServiceNow API returned empty response (status: {response.status_code})")
+                
+                try:
+                    data = response.json()
+                except (ValueError, json.JSONDecodeError) as e:
+                    logger.error(f"Failed to parse ServiceNow JSON response: {e}")
+                    logger.error(f"Response text (first 500 chars): {response_text[:500]}")
+                    raise Exception(f"ServiceNow API returned invalid JSON: {str(e)}")
+                
                 incidents = data.get("result", [])
                 
                 logger.info(f"ServiceNow API returned {len(incidents)} incidents (offset={offset})")

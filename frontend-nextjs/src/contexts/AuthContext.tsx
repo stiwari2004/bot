@@ -3,10 +3,19 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { apiConfig } from '@/lib/api-config';
 
+interface Tenant {
+  id: number;
+  name: string;
+  is_msp: boolean;
+}
+
 interface User {
+  id: number;
   email: string;
   full_name: string;
   role: string;
+  tenant_id: number;
+  tenant?: Tenant;
 }
 
 interface AuthContextType {
@@ -31,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
 
-      const url = apiConfig.endpoints.auth.me();
+      const url: string = apiConfig.endpoints.auth.me();
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -89,25 +98,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     formData.append('username', email);
     formData.append('password', password);
 
-    const response = await fetch(apiConfig.endpoints.auth.login(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    });
+    const loginUrl = apiConfig.endpoints.auth.login();
+    
+    try {
+      const response = await fetch(loginUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Login failed' }));
-      throw new Error(error.detail || 'Login failed');
+      if (!response.ok) {
+        let errorMessage = 'Login failed';
+        try {
+          const error = await response.json();
+          errorMessage = error.detail || error.message || `Login failed (${response.status})`;
+        } catch (e) {
+          errorMessage = `Login failed: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      const authToken = data.access_token;
+
+      if (!authToken) {
+        throw new Error('No access token received from server');
+      }
+
+      localStorage.setItem('auth_token', authToken);
+      setToken(authToken);
+      await fetchUserInfo(authToken);
+    } catch (error) {
+      // Re-throw with more context if it's a network error
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(`Cannot connect to backend at ${loginUrl}. Make sure the backend is running on port 8000.`);
+      }
+      throw error;
     }
-
-    const data = await response.json();
-    const authToken = data.access_token;
-
-    localStorage.setItem('auth_token', authToken);
-    setToken(authToken);
-    await fetchUserInfo(authToken);
   };
 
   const logout = () => {

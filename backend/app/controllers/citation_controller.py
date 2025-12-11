@@ -111,3 +111,10 @@ class CitationController(BaseController):
             logger.error(f"Error verifying citation {citation_id}: {e}")
             raise self.handle_error(e, "Failed to verify citation")
 
+
+
+
+
+
+
+

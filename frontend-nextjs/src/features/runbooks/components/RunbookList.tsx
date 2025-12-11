@@ -7,6 +7,9 @@ import { RunbookMetrics } from '@/components/RunbookMetrics';
 import { useRunbooks } from '../hooks/useRunbooks';
 import { useRunbookActions } from '../hooks/useRunbookActions';
 import type { Runbook } from '../types';
+import { Card, CardHeader, CardContent } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 const formatMarkdown = (md: string) => {
   // Simple markdown to HTML conversion (basic)
@@ -48,12 +51,14 @@ export function RunbookList() {
   if (executingRunbook) {
     return (
       <div className="p-6">
-        <button
+        <Button
+          variant="ghost"
           onClick={() => setExecutingRunbook(null)}
-          className="mb-4 text-blue-600 hover:text-blue-800 flex items-center"
+          leftIcon={<span>←</span>}
+          className="mb-4"
         >
-          ← Back to Runbook List
-        </button>
+          Back to Runbook List
+        </Button>
         <RunbookExecutionViewer
           runbookId={executingRunbook.id}
           issueDescription={executingRunbook.meta_data.issue_description}
@@ -67,159 +72,177 @@ export function RunbookList() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-gray-600">Loading runbooks...</div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <div className="text-neutral-600 font-medium">Loading runbooks...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center">
-          <BookOpenIcon className="h-7 w-7 mr-2 text-blue-600" />
-          Runbooks
-        </h2>
-        <p className="text-gray-600">View and manage all generated runbooks</p>
+    <div className="p-6 space-y-6">
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="p-2 rounded-xl bg-gradient-to-br from-primary-100 to-secondary-200">
+            <BookOpenIcon className="h-6 w-6 text-primary-600" />
+          </div>
+          <div>
+            <h2 className="text-3xl font-bold text-neutral-900">Runbooks</h2>
+            <p className="text-sm text-neutral-600 mt-0.5">View and manage all generated runbooks</p>
+          </div>
+        </div>
       </div>
 
       {runbooks.length > 0 && (
-        <div className="mb-6">
-          <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search runbooks by title, issue, or content..."
-              className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
+        <Card>
+          <CardContent padding="md">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-neutral-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search runbooks by title, issue, or content..."
+                className="block w-full pl-10 pr-4 py-2.5 border border-neutral-300 rounded-lg leading-5 bg-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all text-neutral-900"
+              />
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
-          <button
-            onClick={() => setError(null)}
-            className="mt-2 text-sm text-red-600 hover:text-red-800"
-          >
-            Dismiss
-          </button>
-        </div>
+        <Card variant="outlined" className="border-error-200 bg-error-50">
+          <CardContent padding="md">
+            <div className="flex items-center justify-between">
+              <p className="text-error-800">{error}</p>
+              <Button variant="ghost" size="sm" onClick={() => setError(null)}>
+                Dismiss
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {runbooks.length === 0 ? (
-        <div className="text-center py-12">
-          <BookOpenIcon className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No runbooks</h3>
-          <p className="mt-1 text-sm text-gray-500">Get started by generating your first runbook.</p>
-        </div>
+        <Card>
+          <CardContent padding="lg">
+            <div className="text-center py-12">
+              <div className="mx-auto w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+                <BookOpenIcon className="h-8 w-8 text-neutral-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-neutral-900 mb-1">No runbooks</h3>
+              <p className="text-sm text-neutral-600">Get started by generating your first runbook.</p>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Runbook List */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium text-gray-900">
+            <h3 className="text-lg font-semibold text-neutral-900">
               {searchQuery ? `Search Results (${runbooks.length})` : `All Runbooks (${runbooks.length})`}
             </h3>
             {runbooks.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-sm text-gray-500">No runbooks found matching "{searchQuery}"</p>
-              </div>
+              <Card>
+                <CardContent padding="md">
+                  <div className="text-center py-8">
+                    <p className="text-sm text-neutral-600">No runbooks found matching "{searchQuery}"</p>
+                  </div>
+                </CardContent>
+              </Card>
             ) : (
               runbooks.map((runbook) => (
-                <div
+                <Card
                   key={runbook.id}
-                  className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                    selectedRunbook?.id === runbook.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  hover
                   onClick={() => setSelectedRunbook(runbook)}
+                  variant={selectedRunbook?.id === runbook.id ? 'elevated' : 'default'}
+                  className={selectedRunbook?.id === runbook.id ? 'border-primary-300 bg-primary-50' : ''}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <h4 className="font-medium text-gray-900">{runbook.title}</h4>
-                        {runbook.status && (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            runbook.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
-                            runbook.status === 'approved' ? 'bg-green-100 text-green-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {runbook.status.charAt(0).toUpperCase() + runbook.status.slice(1)}
-                          </span>
-                        )}
+                  <CardContent padding="md">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <h4 className="font-semibold text-neutral-900">{runbook.title}</h4>
+                          {runbook.status && (
+                            <Badge
+                              variant={runbook.status === 'approved' ? 'success' : runbook.status === 'draft' ? 'warning' : 'secondary'}
+                              size="sm"
+                            >
+                              {runbook.status.charAt(0).toUpperCase() + runbook.status.slice(1)}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-neutral-600 mb-3 line-clamp-2">
+                          {runbook.meta_data.issue_description}
+                        </p>
+                        <div className="flex items-center gap-4 text-xs text-neutral-500">
+                          <span className="font-medium">Confidence: {(runbook.confidence * 100).toFixed(0)}%</span>
+                          <span className="font-medium">Sources: {runbook.meta_data.sources_used}</span>
+                          <span>{new Date(runbook.created_at).toLocaleDateString()}</span>
+                        </div>
                       </div>
-                      <p className="text-sm text-gray-600 mb-2">
-                        {runbook.meta_data.issue_description}
-                      </p>
-                      <div className="flex items-center space-x-4 text-xs text-gray-500">
-                        <span>Confidence: {(runbook.confidence * 100).toFixed(0)}%</span>
-                        <span>Sources: {runbook.meta_data.sources_used}</span>
-                        <span>{new Date(runbook.created_at).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end space-y-2 ml-4">
-                      <div className="flex items-center space-x-2">
-                        {runbook.status === 'approved' && (
+                      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                          {runbook.status === 'approved' && (
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExecutingRunbook(runbook);
+                              }}
+                              leftIcon={<PlayIcon className="h-3 w-3" />}
+                            >
+                              Execute
+                            </Button>
+                          )}
+                          {runbook.status === 'draft' && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleApprove(runbook.id);
+                              }}
+                              disabled={approving === runbook.id}
+                              isLoading={approving === runbook.id}
+                              leftIcon={<CheckCircleIcon className="h-3 w-3" />}
+                            >
+                              Approve
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setExecutingRunbook(runbook);
+                              setSelectedRunbook(runbook);
                             }}
-                            className="flex items-center px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
-                            title="Execute Runbook"
+                            className="p-1.5 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                            title="View Details"
                           >
-                            <PlayIcon className="h-3 w-3 mr-1" />
-                            Execute
+                            <EyeIcon className="h-4 w-4" />
                           </button>
-                        )}
-                        {runbook.status === 'draft' && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleApprove(runbook.id);
+                              handleDelete(runbook.id, () => {
+                                if (selectedRunbook?.id === runbook.id) {
+                                  setSelectedRunbook(null);
+                                }
+                              });
                             }}
-                            disabled={approving === runbook.id}
-                            className="p-1 text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                            title="Approve & Publish"
+                            className="p-1.5 text-neutral-400 hover:text-error-600 hover:bg-error-50 rounded transition-colors"
+                            title="Delete Runbook"
                           >
-                            <CheckCircleIcon className="h-4 w-4" />
+                            <TrashIcon className="h-4 w-4" />
                           </button>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedRunbook(runbook);
-                          }}
-                          className="p-1 text-gray-400 hover:text-gray-600"
-                          title="View Details"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(runbook.id, () => {
-                              if (selectedRunbook?.id === runbook.id) {
-                                setSelectedRunbook(null);
-                              }
-                            });
-                          }}
-                          className="p-1 text-gray-400 hover:text-red-600"
-                          title="Delete Runbook"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               ))
             )}
           </div>
@@ -227,77 +250,88 @@ export function RunbookList() {
           {/* Runbook Viewer */}
           <div className="lg:sticky lg:top-6 lg:h-fit">
             {selectedRunbook ? (
-              <div className="border border-gray-200 rounded-lg p-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Runbook Details</h3>
-                  <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                      {(selectedRunbook.confidence * 100).toFixed(0)}% confidence
-                    </span>
-                    {selectedRunbook.status && (
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                        selectedRunbook.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
-                        selectedRunbook.status === 'approved' ? 'bg-green-100 text-green-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {selectedRunbook.status.charAt(0).toUpperCase() + selectedRunbook.status.slice(1)}
-                      </span>
+              <Card variant="elevated">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-neutral-900">Runbook Details</h3>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="success" size="sm">
+                        {(selectedRunbook.confidence * 100).toFixed(0)}% confidence
+                      </Badge>
+                      {selectedRunbook.status && (
+                        <Badge
+                          variant={selectedRunbook.status === 'approved' ? 'success' : selectedRunbook.status === 'draft' ? 'warning' : 'secondary'}
+                          size="sm"
+                        >
+                          {selectedRunbook.status.charAt(0).toUpperCase() + selectedRunbook.status.slice(1)}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent padding="md">
+                  <div className="prose max-w-none max-h-96 overflow-y-auto text-neutral-700">
+                    <div 
+                      dangerouslySetInnerHTML={{ 
+                        __html: formatMarkdown(selectedRunbook.body_md) 
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-neutral-200 text-sm text-neutral-500">
+                    <p className="font-medium">Generated: {new Date(selectedRunbook.created_at).toLocaleString()}</p>
+                    <p className="mt-1">Query: "{selectedRunbook.meta_data.search_query}"</p>
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    {selectedRunbook.status === 'approved' && (
+                      <Button
+                        variant="primary"
+                        onClick={() => setExecutingRunbook(selectedRunbook)}
+                        leftIcon={<PlayIcon className="h-4 w-4" />}
+                        className="flex-1"
+                      >
+                        Execute
+                      </Button>
+                    )}
+                    {selectedRunbook.status === 'draft' && (
+                      <>
+                        <Button
+                          variant="primary"
+                          onClick={() => handleApprove(selectedRunbook.id)}
+                          disabled={approving === selectedRunbook.id}
+                          isLoading={approving === selectedRunbook.id}
+                          leftIcon={<CheckCircleIcon className="h-4 w-4" />}
+                          className="flex-1"
+                        >
+                          Approve & Index
+                        </Button>
+                        {showForceApprove && approving !== selectedRunbook.id && (
+                          <Button
+                            variant="warning"
+                            onClick={() => handleApprove(selectedRunbook.id, true)}
+                            size="sm"
+                          >
+                            Force Approve
+                          </Button>
+                        )}
+                      </>
                     )}
                   </div>
-                </div>
-
-                <div className="prose max-w-none max-h-96 overflow-y-auto">
-                  <div 
-                    dangerouslySetInnerHTML={{ 
-                      __html: formatMarkdown(selectedRunbook.body_md) 
-                    }}
-                  />
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-500">
-                  <p>Generated: {new Date(selectedRunbook.created_at).toLocaleString()}</p>
-                  <p>Query: "{selectedRunbook.meta_data.search_query}"</p>
-                </div>
-
-                <div className="mt-4 flex space-x-2">
-                  {selectedRunbook.status === 'approved' && (
-                    <button
-                      onClick={() => setExecutingRunbook(selectedRunbook)}
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <PlayIcon className="h-4 w-4 mr-2" />
-                      Execute
-                    </button>
-                  )}
-                  {selectedRunbook.status === 'draft' && (
-                    <>
-                      <button
-                        onClick={() => handleApprove(selectedRunbook.id)}
-                        disabled={approving === selectedRunbook.id}
-                        className={`flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        <CheckCircleIcon className="h-4 w-4 mr-2" />
-                        {approving === selectedRunbook.id ? 'Approving...' : 'Approve & Index'}
-                      </button>
-                      {showForceApprove && approving !== selectedRunbook.id && (
-                        <button
-                          onClick={() => handleApprove(selectedRunbook.id, true)}
-                          className="flex items-center justify-center px-3 py-2 bg-orange-600 text-white text-xs font-medium rounded-lg hover:bg-orange-700 transition-colors"
-                          title="Force approve despite duplicates"
-                        >
-                          Force Approve
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             ) : (
-              <div className="border border-gray-200 rounded-lg p-6 text-center">
-                <BookOpenIcon className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">Select a runbook</h3>
-                <p className="mt-1 text-sm text-gray-500">Choose a runbook from the list to view its details.</p>
-              </div>
+              <Card>
+                <CardContent padding="lg">
+                  <div className="text-center py-12">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+                      <BookOpenIcon className="h-8 w-8 text-neutral-400" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-neutral-900 mb-1">Select a runbook</h3>
+                    <p className="text-sm text-neutral-600">Choose a runbook from the list to view its details.</p>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         </div>

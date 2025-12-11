@@ -65,3 +65,10 @@ class CitationVerificationRepository(BaseRepository[CitationVerification]):
         """Get all broken citations for a runbook"""
         return self.get_by_status(runbook_id, 'broken', tenant_id)
 
+
+
+
+
+
+
+

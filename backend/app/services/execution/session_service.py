@@ -49,6 +49,18 @@ class SessionService:
         )
         new_rank = max(session_profile_rank, PROFILE_RANK.get(profile, 0))
         
+        # Store branching information in command_payload JSON field
+        command_payload = {}
+        if step_data.get("step_number") is not None:
+            command_payload["step_number"] = step_data.get("step_number")
+        if step_data.get("on_success") is not None:
+            command_payload["on_success"] = step_data.get("on_success")
+        if step_data.get("on_failure") is not None:
+            command_payload["on_failure"] = step_data.get("on_failure")
+        elif step_data.get("on_fail") is not None:
+            # Support legacy on_fail field
+            command_payload["on_failure"] = step_data.get("on_fail")
+        
         step = ExecutionStep(
             session_id=session_id,
             step_number=step_number,
@@ -57,6 +69,7 @@ class SessionService:
             notes=step_data.get("description", ""),
             requires_approval=step_data.get("requires_approval", False),
             blast_radius=blast_radius,
+            command_payload=command_payload if command_payload else None,
         )
         db.add(step)
         return new_rank
@@ -85,6 +98,14 @@ class SessionService:
         db.commit()
         db.refresh(session)
         
+        # Track billing: execution session created
+        try:
+            from app.services.billing.billing_tracker import BillingTracker
+            tracker = BillingTracker(db)
+            tracker.track_execution_session(tenant_id, session.id)
+        except Exception as e:
+            logger.warning(f"Failed to track execution session for billing: {e}")
+        
         # Get runbook
         runbook = db.query(Runbook).filter(Runbook.id == runbook_id).first()
         if not runbook:
@@ -95,7 +116,32 @@ class SessionService:
             ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
             if ticket:
                 from app.services.runbook_normalizer import RunbookNormalizer
-                parsed = RunbookNormalizer.normalize_runbook_for_ticket(runbook, ticket, db)
+                # Try to get extracted inputs from ticket metadata
+                extracted_inputs = None
+                if ticket.meta_data and isinstance(ticket.meta_data, dict):
+                    extracted_inputs = ticket.meta_data.get("extracted_inputs")
+                
+                # If no extracted inputs in metadata, try to extract them now
+                if not extracted_inputs:
+                    try:
+                        from app.services.runbook.input_extractor import RunbookInputExtractor
+                        extractor = RunbookInputExtractor()
+                        extraction_result = await extractor.extract_inputs(ticket, runbook, db)
+                        extracted_inputs = extraction_result.get("extracted", {})
+                        # Store in ticket metadata for future use
+                        if ticket.meta_data is None:
+                            ticket.meta_data = {}
+                        if isinstance(ticket.meta_data, dict):
+                            ticket.meta_data["extracted_inputs"] = extracted_inputs
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(ticket, "meta_data")
+                            db.commit()
+                    except Exception as e:
+                        logger.warning(f"Failed to extract inputs from ticket {ticket_id}: {e}")
+                
+                parsed = RunbookNormalizer.normalize_runbook_for_ticket(
+                    runbook, ticket, db, extracted_inputs=extracted_inputs
+                )
             else:
                 parsed = self.parser.parse_runbook(runbook.body_md)
         else:

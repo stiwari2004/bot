@@ -184,19 +184,23 @@ async def create_sample_data(
 
 @router.get("/stats")
 async def get_stats(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get system statistics"""
+    """Get system statistics for the authenticated user's tenant"""
     try:
         from app.models.document import Document
         from app.models.chunk import Chunk
         from app.models.runbook import Runbook
         
-        # Count documents and chunks (using tenant_id = 1 for demo)
-        doc_count = db.query(Document).filter(Document.tenant_id == 1).count()
-        chunk_count = db.query(Chunk).join(Document).filter(Document.tenant_id == 1).count()
+        # Use authenticated user's tenant_id - authentication required
+        tenant_id = current_user.tenant_id
+        
+        # Count documents and chunks for the user's tenant
+        doc_count = db.query(Document).filter(Document.tenant_id == tenant_id).count()
+        chunk_count = db.query(Chunk).join(Document).filter(Document.tenant_id == tenant_id).count()
         runbook_count = db.query(Runbook).filter(
-            Runbook.tenant_id == 1,
+            Runbook.tenant_id == tenant_id,
             Runbook.is_active == "active"
         ).count()
         
@@ -204,7 +208,7 @@ async def get_stats(
         source_stats = {}
         for source_type in ["slack", "ticket", "log", "doc"]:
             count = db.query(Document).filter(
-                Document.tenant_id == 1,  # Demo tenant
+                Document.tenant_id == tenant_id,
                 Document.source_type == source_type
             ).count()
             source_stats[source_type] = count

@@ -7,6 +7,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { useSettings } from '../hooks/useSettings';
+import { Card, CardContent } from '@/components/ui/Card';
 import { ExecutionModeSection } from './ExecutionModeSection';
 import { TicketingConnectionsSection } from './TicketingConnectionsSection';
 import { MonitoringConnectionsSection } from './MonitoringConnectionsSection';
@@ -67,8 +68,8 @@ export function Settings() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-gray-600">Loading settings...</div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <div className="text-neutral-600 font-medium">Loading settings...</div>
         </div>
       </div>
     );
@@ -80,32 +81,40 @@ export function Settings() {
   };
 
   return (
-    <div className="p-6">
+    <div className="p-6 space-y-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center">
-          <Cog6ToothIcon className="h-7 w-7 mr-2 text-blue-600" />
+        <h2 className="text-3xl font-bold text-neutral-900 mb-2 flex items-center">
+          <div className="mr-3 p-2 rounded-xl bg-gradient-to-br from-primary-500 to-secondary-500">
+            <Cog6ToothIcon className="h-7 w-7 text-white" />
+          </div>
           Settings & Connections
         </h2>
-        <p className="text-gray-600">Configure system behavior and connect to ticketing tools</p>
+        <p className="text-neutral-600 text-lg">Configure system behavior and connect to ticketing tools</p>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex items-center gap-2">
-            <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />
-            <p className="text-red-800 font-medium">Error</p>
-          </div>
-          <p className="text-red-700 mt-2 text-sm">{error}</p>
-        </div>
+        <Card variant="outlined" className="border-error-200 bg-error-50">
+          <CardContent padding="md">
+            <div className="flex items-center gap-3">
+              <ExclamationTriangleIcon className="h-5 w-5 text-error-600 flex-shrink-0" />
+              <div>
+                <p className="text-error-800 font-semibold">Error</p>
+                <p className="text-error-700 mt-1 text-sm">{error}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <div className="flex items-center gap-2">
-            <CheckCircleIcon className="h-5 w-5 text-green-600" />
-            <p className="text-green-800 font-medium">{success}</p>
-          </div>
-        </div>
+        <Card variant="outlined" className="border-success-200 bg-success-50">
+          <CardContent padding="md">
+            <div className="flex items-center gap-3">
+              <CheckCircleIcon className="h-5 w-5 text-success-600 flex-shrink-0" />
+              <p className="text-success-800 font-semibold">{success}</p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <ExecutionModeSection
@@ -117,14 +126,14 @@ export function Settings() {
       <div className="mb-6">
         <BenchmarkConfigurationSection
           onSuccess={handleSuccess}
-          onError={(msg) => setError(msg)}
+          onError={(msg: string) => setError(msg)}
         />
       </div>
 
       <div className="mb-6">
         <InfrastructureThresholdSection
           onSuccess={handleSuccess}
-          onError={(msg) => setError(msg)}
+          onError={(msg: string) => setError(msg)}
         />
       </div>
 
@@ -133,7 +142,7 @@ export function Settings() {
         availableTools={availableTools}
         onRefresh={fetchTicketingConnections}
         onSuccess={handleSuccess}
-        onError={(msg) => setError(msg)}
+        onError={(msg: string) => setError(msg)}
         onShowAddModal={() => setShowAddConnection(true)}
         editingConnection={editingConnection}
         onShowEditModal={setEditingConnection}
@@ -144,7 +153,7 @@ export function Settings() {
         credentials={credentials}
         onRefresh={fetchInfrastructureConnections}
         onSuccess={handleSuccess}
-        onError={(msg) => setError(msg)}
+        onError={(msg: string) => setError(msg)}
         onShowAddCredential={() => setShowAddCredential(true)}
         onShowAddConnection={() => setShowAddInfraConnection(true)}
         onEditConnection={setEditingInfraConnection}
@@ -158,7 +167,7 @@ export function Settings() {
         connections={monitoringConnections}
         onRefresh={fetchMonitoringConnections}
         onSuccess={handleSuccess}
-        onError={(msg) => setError(msg)}
+        onError={(msg: string) => setError(msg)}
       />
 
       {/* Modals */}

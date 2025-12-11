@@ -87,6 +87,14 @@ class TicketStatusService:
                 if issue_resolved is True:
                     ticket.status = "resolved"
                     ticket.resolved_at = datetime.now()
+                    
+                    # Track billing: ticket resolved
+                    try:
+                        from app.services.billing.billing_tracker import BillingTracker
+                        tracker = BillingTracker(self.db)
+                        tracker.track_ticket_resolved(ticket.tenant_id, ticket.id)
+                    except Exception as e:
+                        logger.warning(f"Failed to track ticket resolved for billing: {e}")
                 elif issue_resolved is False:
                     ticket.status = "escalated"
                 else:

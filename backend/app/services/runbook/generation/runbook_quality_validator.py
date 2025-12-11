@@ -20,9 +20,14 @@ class RunbookQualityValidator:
         errors: List[str] = []
 
         inputs = spec.get("inputs", [])
+        defined_input_names: Set[str] = set()
         if isinstance(inputs, list):
             for inp in inputs:
                 if isinstance(inp, dict):
+                    input_name = inp.get("name", "")
+                    if input_name:
+                        defined_input_names.add(input_name)
+                    
                     if "command" in inp:
                         errors.append(
                             f"CRITICAL: inputs section contains a command '{inp.get('name', 'unknown')}' - "
@@ -35,6 +40,10 @@ class RunbookQualityValidator:
                             f"inputs should have type='string', not 'command'! "
                             f"Commands belong in prechecks/steps/postchecks sections"
                         )
+        
+        # Validate that all referenced placeholders are defined in inputs
+        input_validation_errors = self._validate_input_references(spec, defined_input_names)
+        errors.extend(input_validation_errors)
 
         prechecks = spec.get(runbook_structure.SECTION_PRECHECKS, [])
         if not isinstance(prechecks, list):
@@ -106,7 +115,7 @@ class RunbookQualityValidator:
                 f"Your runbook must SOLVE the problem, not just investigate it."
             )
 
-        if diagnostic_only_count > runbook_structure.MAX_DIAGNOSTIC_ONLY_STEPS:
+        if runbook_structure.MAX_DIAGNOSTIC_ONLY_STEPS is not None and diagnostic_only_count > runbook_structure.MAX_DIAGNOSTIC_ONLY_STEPS:
             errors.append(
                 f"WARNING: Found {diagnostic_only_count} diagnostic-only steps. "
                 f"Runbooks should focus on REMEDIATION (fixing the issue), not just investigation."
@@ -235,4 +244,105 @@ class RunbookQualityValidator:
                     )
 
         return remediation_count, diagnostic_only_count, errors
+    
+    def _validate_input_references(
+        self,
+        spec: Dict[str, Any],
+        defined_input_names: Set[str]
+    ) -> List[str]:
+        """
+        Validate that all placeholders ({{variable_name}}) used in commands
+        are defined in the inputs section.
+        
+        Args:
+            spec: Runbook specification
+            defined_input_names: Set of input names defined in inputs section
+            
+        Returns:
+            List of error messages for missing input references
+        """
+        import re
+        errors: List[str] = []
+        
+        # Pattern to match {{variable_name}} placeholders
+        placeholder_pattern = re.compile(r'\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}')
+        
+        # Check prechecks
+        prechecks = spec.get("prechecks", [])
+        for idx, precheck in enumerate(prechecks, 1):
+            if isinstance(precheck, dict):
+                command = precheck.get("command", "")
+                if command:
+                    placeholders = placeholder_pattern.findall(command)
+                    for placeholder in placeholders:
+                        if placeholder not in defined_input_names:
+                            errors.append(
+                                f"CRITICAL: precheck {idx} references undefined input '{{{{{placeholder}}}}}'. "
+                                f"Add '{placeholder}' to the inputs section with: name, type: string, required, description"
+                            )
+        
+        # Check steps
+        steps = spec.get("steps", [])
+        
+        # Collect all valid step numbers once (for branching validation)
+        valid_step_numbers: Set[int] = set()
+        for step_idx, s in enumerate(steps, 1):
+            if isinstance(s, dict):
+                explicit_step_num = s.get("step_number")
+                if explicit_step_num is not None:
+                    valid_step_numbers.add(explicit_step_num)
+                else:
+                    # If no explicit step_number, use sequential index
+                    valid_step_numbers.add(step_idx)
+        
+        for idx, step in enumerate(steps, 1):
+            if isinstance(step, dict):
+                step_name = step.get("name", f"Step {idx}")
+                command = step.get("command", "")
+                if command:
+                    placeholders = placeholder_pattern.findall(command)
+                    for placeholder in placeholders:
+                        if placeholder not in defined_input_names:
+                            errors.append(
+                                f"CRITICAL: step {idx} ('{step_name}') references undefined input '{{{{{placeholder}}}}}'. "
+                                f"Add '{placeholder}' to the inputs section with: name, type: string, required, description"
+                            )
+                
+                # Validate branching step numbers reference valid steps
+                on_success = step.get("on_success")
+                on_failure = step.get("on_failure")
+                
+                if on_success is not None:
+                    if on_success not in valid_step_numbers:
+                        errors.append(
+                            f"CRITICAL: step {idx} ('{step_name}') has on_success={on_success}, "
+                            f"but no step with step_number={on_success} exists. "
+                            f"Valid step numbers are: {sorted(valid_step_numbers)}. "
+                            f"All branching targets must reference valid step numbers."
+                        )
+                
+                if on_failure is not None:
+                    if on_failure not in valid_step_numbers:
+                        errors.append(
+                            f"CRITICAL: step {idx} ('{step_name}') has on_failure={on_failure}, "
+                            f"but no step with step_number={on_failure} exists. "
+                            f"Valid step numbers are: {sorted(valid_step_numbers)}. "
+                            f"All branching targets must reference valid step numbers."
+                        )
+        
+        # Check postchecks
+        postchecks = spec.get("postchecks", [])
+        for idx, postcheck in enumerate(postchecks, 1):
+            if isinstance(postcheck, dict):
+                command = postcheck.get("command", "")
+                if command:
+                    placeholders = placeholder_pattern.findall(command)
+                    for placeholder in placeholders:
+                        if placeholder not in defined_input_names:
+                            errors.append(
+                                f"CRITICAL: postcheck {idx} references undefined input '{{{{{placeholder}}}}}'. "
+                                f"Add '{placeholder}' to the inputs section with: name, type: string, required, description"
+                            )
+        
+        return errors
 

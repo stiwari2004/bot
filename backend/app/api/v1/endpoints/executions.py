@@ -14,6 +14,8 @@ from app.core.database import SessionLocal, get_db
 from app.core.logging import get_logger
 from app.core.rate_limiting import rate_limit
 from app.models.execution_session import ExecutionSession
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.controllers.execution_controller import ExecutionController
 from app.services.execution_orchestrator import execution_orchestrator
 from app.services.queue_client import queue_client
@@ -265,11 +267,13 @@ async def get_runbook_execution_history(runbook_id: int, db: Session = Depends(g
 async def list_all_executions(
     limit: int = 50,
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get all execution sessions (paginated)"""
+    """Get all execution sessions for the authenticated user's tenant (paginated)"""
     try:
-        controller = ExecutionController(db, tenant_id=1)  # Demo tenant
+        # Use authenticated user's tenant_id - authentication required
+        controller = ExecutionController(db, tenant_id=current_user.tenant_id)
         result = controller.list_all_executions(limit, offset)
         # Ensure result is a dict with 'sessions' key
         if not isinstance(result, dict):

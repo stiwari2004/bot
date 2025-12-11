@@ -51,6 +51,7 @@ async def init_db():
             execution,
             audit,
         )
+        from app.models import super_admin  # Super Admin model
         from app.models import (
             system_config,
             runbook_usage,
@@ -67,6 +68,9 @@ async def init_db():
         from app.models import citation_verification  # Citation verification
         from app.models import resolution_flow  # Resolution orchestration
         from app.models import decision_analytics  # Decision engine analytics
+        from app.models import metadata_mapping  # Metadata mapping for input extraction learning
+        from app.models import tenant_billing_config  # Tenant billing configuration
+        from app.models import tenant_subscription  # Tenant subscription/license management
         try:
             from app.models import ticketing_tool_connection  # Ticketing tool connections
         except ImportError:

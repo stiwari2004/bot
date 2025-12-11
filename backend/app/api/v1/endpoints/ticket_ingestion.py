@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional
 from enum import Enum
 from app.core.database import get_db
+from app.models.user import User
+from app.services.auth import get_current_user, get_current_user_optional
 from app.controllers.alert_controller import AlertController
 from app.controllers.ticket_controller import TicketController
 
@@ -82,11 +84,14 @@ async def create_demo_ticket(
 async def list_tickets(
     db: Session = Depends(get_db),
     status: Optional[str] = Query(None, max_length=50),
-    limit: int = Query(50, ge=1, le=1000)
+    limit: int = Query(50, ge=1, le=1000),
+    current_user: User = Depends(get_current_user)
 ):
-    """List tickets (demo)"""
+    """List tickets for the authenticated user's tenant"""
     try:
-        controller = TicketController(db, tenant_id=1)  # Demo tenant
+        # Use authenticated user's tenant_id - authentication required
+        tenant_id = current_user.tenant_id
+        controller = TicketController(db, tenant_id=tenant_id)
         result = controller.list_tickets(status, limit)
         # Ensure result is a dict with 'tickets' key
         if not isinstance(result, dict):
@@ -117,11 +122,14 @@ async def cleanup_demo_tickets(
 @router.get("/demo/tickets/{ticket_id}")
 async def get_ticket(
     ticket_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get ticket details including matched runbooks"""
+    """Get ticket details including matched runbooks for the authenticated user's tenant"""
     try:
-        controller = TicketController(db, tenant_id=1)  # Demo tenant
+        # Use authenticated user's tenant_id - authentication required
+        tenant_id = current_user.tenant_id
+        controller = TicketController(db, tenant_id=tenant_id)
         return await controller.get_ticket(ticket_id)
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -138,30 +146,37 @@ async def get_ticket(
 async def execute_ticket_runbook(
     ticket_id: int,
     request: Dict[str, Any],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Execute a runbook for a ticket"""
+    """Execute a runbook for a ticket - requires authentication"""
     runbook_id = request.get("runbook_id")
     if not runbook_id:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="runbook_id is required")
     
-    controller = TicketController(db, tenant_id=1)  # Demo tenant
+    # Use authenticated user's tenant_id - authentication required
+    tenant_id = current_user.tenant_id
+    controller = TicketController(db, tenant_id=tenant_id)
     return await controller.execute_ticket_runbook(ticket_id, runbook_id)
 
 
 @router.get("/demo/tickets/{ticket_id}/debug")
 async def debug_ticket_meta_data(
     ticket_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Debug endpoint to inspect ticket meta_data and matched runbooks"""
     from app.models.ticket import Ticket
     from app.models.runbook import Runbook
     
+    # Use authenticated user's tenant_id - authentication required
+    tenant_id = current_user.tenant_id
+    
     ticket = db.query(Ticket).filter(
         Ticket.id == ticket_id,
-        Ticket.tenant_id == 1
+        Ticket.tenant_id == tenant_id
     ).first()
     
     if not ticket:
@@ -169,7 +184,7 @@ async def debug_ticket_meta_data(
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
     
     # Get all runbooks to check associations
-    all_runbooks = db.query(Runbook).filter(Runbook.tenant_id == 1).all()
+    all_runbooks = db.query(Runbook).filter(Runbook.tenant_id == tenant_id).all()
     
     return {
         "ticket_id": ticket.id,

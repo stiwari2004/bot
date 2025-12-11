@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { MagnifyingGlassIcon, DocumentTextIcon, PlayIcon, BookOpenIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { RunbookExecutionViewer } from '@/features/executions';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface SearchResult {
   text: string;
@@ -35,13 +37,13 @@ interface SearchResponse {
 
 // Color mapping for source types
 const sourceColors: Record<string, string> = {
-  'runbook': 'bg-purple-100 text-purple-800',
-  'doc': 'bg-green-100 text-green-800',
+  'runbook': 'bg-secondary-100 text-secondary-800',
+  'doc': 'bg-success-100 text-success-800',
   'slack': 'bg-pink-100 text-pink-800',
-  'ticket': 'bg-orange-100 text-orange-800',
-  'jira': 'bg-blue-100 text-blue-800',
-  'servicenow': 'bg-yellow-100 text-yellow-800',
-  'log': 'bg-red-100 text-red-800',
+  'ticket': 'bg-warning-100 text-warning-800',
+  'jira': 'bg-primary-100 text-primary-800',
+  'servicenow': 'bg-warning-100 text-warning-800',
+  'log': 'bg-error-100 text-error-800',
 };
 
 // Highlight search terms in text
@@ -70,7 +72,7 @@ function highlightText(text: string, query: string): React.JSX.Element[] {
     
     // Add the highlighted match
     parts.push(
-      <mark key={`highlight-${keyIndex++}`} className="bg-yellow-200 font-semibold">
+      <mark key={`highlight-${keyIndex++}`} className="bg-warning-200 font-semibold">
         {text.substring(matchIndex, matchIndex + matchLength)}
       </mark>
     );
@@ -187,9 +189,9 @@ export function SearchDemo() {
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/_(.+?)_/g, '<em>$1</em>')
       // Code blocks
-      .replace(/```[\s\S]*?```/g, '<pre class="bg-gray-100 p-4 rounded overflow-x-auto"><code>$&</code></pre>')
+      .replace(/```[\s\S]*?```/g, '<pre class="bg-neutral-100 p-4 rounded overflow-x-auto"><code>$&</code></pre>')
       // Inline code
-      .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>')
+      .replace(/`([^`]+)`/g, '<code class="bg-neutral-100 px-1 rounded">$1</code>')
       // Lists
       .replace(/^\* (.+)$/gim, '<li class="ml-4">$1</li>')
       .replace(/^- (.+)$/gim, '<li class="ml-4">$1</li>')
@@ -204,13 +206,22 @@ export function SearchDemo() {
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Semantic Search</h2>
-        <p className="text-gray-600">Search through your knowledge base using natural language</p>
-      </div>
+    <div className="space-y-6">
+      <Card variant="elevated">
+        <CardHeader>
+          <div className="flex items-center mb-2">
+            <div className="p-1.5 rounded-lg bg-secondary-100 mr-3">
+              <MagnifyingGlassIcon className="h-6 w-6 text-secondary-600" />
+            </div>
+            <h2 className="text-2xl font-semibold text-neutral-900">Semantic Search</h2>
+          </div>
+          <p className="text-sm text-neutral-600">Search through your knowledge base using natural language</p>
+        </CardHeader>
+      </Card>
 
-      <form onSubmit={handleSearch} className="mb-6">
+      <Card variant="elevated">
+        <CardContent padding="md">
+          <form onSubmit={handleSearch} className="mb-6">
         <div className="flex gap-4">
           <div className="flex-1">
             <label htmlFor="search-query" className="sr-only">
@@ -226,178 +237,204 @@ export function SearchDemo() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g., network connectivity issues, database errors, server performance..."
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="block w-full pl-10 pr-3 py-3 border-2 border-neutral-300 rounded-lg leading-5 bg-white placeholder-neutral-500 text-neutral-900 focus:outline-none focus:placeholder-neutral-400 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
               />
             </div>
           </div>
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="lg"
             disabled={loading || !query.trim()}
-            className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            isLoading={loading}
           >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
+            Search
+          </Button>
         </div>
-      </form>
+          </form>
+        </CardContent>
+      </Card>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
-        </div>
+        <Card variant="elevated" className="bg-error-50 border-error-200">
+          <CardContent padding="md">
+            <p className="text-error-800">{error}</p>
+          </CardContent>
+        </Card>
       )}
 
       {results && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Results List */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Search Results ({processedResults.length}{filterSource ? ` of ${results.results_count}` : ''})
-              </h3>
-              <div className="flex items-center gap-4">
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as 'score' | 'relevance')}
-                  className="text-sm border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="score">Sort by Score</option>
-                  <option value="relevance">Sort by Relevance</option>
-                </select>
-                <span className="text-sm text-gray-500">
-                  Query: "{results.query}"
-                </span>
-              </div>
-            </div>
-
-          {/* Source filters */}
-          {availableSources.length > 0 && (
-            <div className="mb-4 flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-medium text-gray-700">Filter by source:</span>
-              <button
-                onClick={() => setFilterSource(null)}
-                className={`text-sm px-3 py-1 rounded-full transition-colors ${
-                  filterSource === null
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                All
-              </button>
-              {availableSources.map((source) => (
-                <button
-                  key={source}
-                  onClick={() => setFilterSource(source)}
-                  className={`text-sm px-3 py-1 rounded-full transition-colors ${sourceColors[source] || 'bg-gray-100 text-gray-800'} ${
-                    filterSource === source
-                      ? 'ring-2 ring-blue-500 ring-offset-1'
-                      : 'hover:opacity-80'
-                  }`}
-                >
-                  {source}
-                </button>
-              ))}
-            </div>
-          )}
-
-            {processedResults.map((result, index) => (
-              <div
-                key={index}
-                className={`border rounded-lg p-4 transition-shadow ${
-                  result.runbook_id && selectedRunbook?.id === result.runbook_id
-                    ? 'border-blue-500 bg-blue-50 cursor-pointer'
-                    : 'border-gray-200 cursor-pointer'
-                } ${result.runbook_id ? 'hover:shadow-md hover:border-gray-300' : 'hover:border-gray-300'}`}
-                onClick={() => {
-                  if (result.runbook_id) {
-                    fetchRunbook(result.runbook_id);
-                  }
-                }}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center">
-                    <DocumentTextIcon className="h-5 w-5 text-blue-600 mr-2" />
-                    <h4 className="font-medium text-gray-900">{result.title}</h4>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      sourceColors[result.source] || 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {result.source}
-                    </span>
-                    <span className="text-sm text-gray-500">
-                      Score: {(result.score * 100).toFixed(1)}%
+            <Card variant="elevated">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-neutral-900">
+                    Search Results ({processedResults.length}{filterSource ? ` of ${results.results_count}` : ''})
+                  </h3>
+                  <div className="flex items-center gap-4">
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as 'score' | 'relevance')}
+                      className="text-sm border-2 border-neutral-300 rounded-lg px-3 py-1 text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                    >
+                      <option value="score">Sort by Score</option>
+                      <option value="relevance">Sort by Relevance</option>
+                    </select>
+                    <span className="text-sm text-neutral-500">
+                      Query: "{results.query}"
                     </span>
                   </div>
                 </div>
-                <p className="text-gray-700 text-sm leading-relaxed">
-                  {highlightText(
-                    result.text.length > 200 
-                      ? `${result.text.substring(0, 200)}...` 
-                      : result.text,
-                    query
-                  )}
-                </p>
-              </div>
-            ))}
+              </CardHeader>
+              <CardContent padding="md">
+                {/* Source filters */}
+                {availableSources.length > 0 && (
+                  <div className="mb-4 flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-neutral-700">Filter by source:</span>
+                    <Button
+                      variant={filterSource === null ? "primary" : "outline"}
+                      size="sm"
+                      onClick={() => setFilterSource(null)}
+                    >
+                      All
+                    </Button>
+                    {availableSources.map((source) => (
+                      <Button
+                        key={source}
+                        variant={filterSource === source ? "primary" : "outline"}
+                        size="sm"
+                        onClick={() => setFilterSource(source)}
+                        className={sourceColors[source] || ''}
+                      >
+                        {source}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
+                {processedResults.map((result, index) => (
+                  <Card
+                    key={index}
+                    variant="elevated"
+                    className={`cursor-pointer transition-colors ${
+                      result.runbook_id && selectedRunbook?.id === result.runbook_id
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'hover:border-primary-300'
+                    }`}
+                    onClick={() => {
+                      if (result.runbook_id) {
+                        fetchRunbook(result.runbook_id);
+                      }
+                    }}
+                  >
+                    <CardContent padding="md">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center">
+                          <DocumentTextIcon className="h-5 w-5 text-primary-600 mr-2" />
+                          <h4 className="font-semibold text-neutral-900">{result.title}</h4>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            sourceColors[result.source] || 'bg-neutral-100 text-neutral-800'
+                          }`}>
+                            {result.source}
+                          </span>
+                          <span className="text-sm text-neutral-500">
+                            Score: {(result.score * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-neutral-700 text-sm leading-relaxed">
+                        {highlightText(
+                          result.text.length > 200 
+                            ? `${result.text.substring(0, 200)}...` 
+                            : result.text,
+                          query
+                        )}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Runbook Viewer */}
           <div className="lg:sticky lg:top-6 lg:h-fit">
             {loadingRunbook ? (
-              <div className="border border-gray-200 rounded-lg p-6 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-sm text-gray-500">Loading runbook...</p>
-              </div>
+              <Card variant="elevated">
+                <CardContent padding="lg">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+                    <p className="mt-2 text-sm text-neutral-500">Loading runbook...</p>
+                  </div>
+                </CardContent>
+              </Card>
             ) : selectedRunbook ? (
-              <div className="border border-gray-200 rounded-lg p-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Runbook Details</h3>
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                    {(selectedRunbook.confidence * 100).toFixed(0)}% confidence
-                  </span>
-                </div>
+              <Card variant="elevated">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-neutral-900">Runbook Details</h3>
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-success-100 text-success-800">
+                      {(selectedRunbook.confidence * 100).toFixed(0)}% confidence
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent padding="md">
+                  <div className="prose max-w-none max-h-96 overflow-y-auto">
+                    <div 
+                      dangerouslySetInnerHTML={{ 
+                        __html: formatMarkdown(selectedRunbook.body_md) 
+                      }}
+                    />
+                  </div>
 
-                <div className="prose max-w-none max-h-96 overflow-y-auto">
-                  <div 
-                    dangerouslySetInnerHTML={{ 
-                      __html: formatMarkdown(selectedRunbook.body_md) 
-                    }}
-                  />
-                </div>
+                  <div className="mt-4 pt-4 border-t border-neutral-200 text-sm text-neutral-500">
+                    <p>Generated: {new Date(selectedRunbook.created_at).toLocaleString()}</p>
+                    <p>Query: "{selectedRunbook.meta_data.search_query}"</p>
+                  </div>
 
-                <div className="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-500">
-                  <p>Generated: {new Date(selectedRunbook.created_at).toLocaleString()}</p>
-                  <p>Query: "{selectedRunbook.meta_data.search_query}"</p>
-                </div>
-
-                <div className="mt-4 flex space-x-2">
-                  {selectedRunbook.status === 'approved' && (
-                    <button
-                      onClick={() => setExecutingRunbook(selectedRunbook.id)}
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <PlayIcon className="h-4 w-4 mr-2" />
-                      Execute
-                    </button>
-                  )}
-                  {selectedRunbook.status === 'draft' && (
-                    <button
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors cursor-not-allowed"
-                      disabled
-                      title="Approve in View Runbooks tab"
-                    >
-                      <CheckCircleIcon className="h-4 w-4 mr-2" />
-                      Approve
-                    </button>
-                  )}
-                </div>
-              </div>
+                  <div className="mt-4 flex space-x-2">
+                    {selectedRunbook.status === 'approved' && (
+                      <Button
+                        variant="success"
+                        size="sm"
+                        onClick={() => setExecutingRunbook(selectedRunbook.id)}
+                        leftIcon={<PlayIcon className="h-4 w-4" />}
+                        className="flex-1"
+                      >
+                        Execute
+                      </Button>
+                    )}
+                    {selectedRunbook.status === 'draft' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        leftIcon={<CheckCircleIcon className="h-4 w-4" />}
+                        className="flex-1"
+                        title="Approve in View Runbooks tab"
+                      >
+                        Approve
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             ) : (
-              <div className="border border-gray-200 rounded-lg p-6 text-center">
-                <BookOpenIcon className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">Select a runbook</h3>
-                <p className="mt-1 text-sm text-gray-500">Choose a runbook from the search results to view its details.</p>
-              </div>
+              <Card variant="elevated">
+                <CardContent padding="lg">
+                  <div className="text-center">
+                    <div className="p-1.5 rounded-lg bg-neutral-100 mx-auto mb-4 w-fit">
+                      <BookOpenIcon className="h-12 w-12 text-neutral-400" />
+                    </div>
+                    <h3 className="mt-2 text-sm font-semibold text-neutral-900">Select a runbook</h3>
+                    <p className="mt-1 text-sm text-neutral-500">Choose a runbook from the search results to view its details.</p>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         </div>

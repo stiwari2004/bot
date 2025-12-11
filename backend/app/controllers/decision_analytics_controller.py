@@ -74,3 +74,10 @@ class DecisionAnalyticsController(BaseController):
             logger.error(f"Error getting analytics trends: {e}")
             raise self.handle_error(e, "Failed to get analytics trends")
 
+
+
+
+
+
+
+

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { apiConfig } from '@/lib/api-config';
 import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
 
 interface PatternMatch {
   pattern_id: number;
@@ -48,7 +50,14 @@ export function PatternMatchView({ ticketId }: PatternMatchViewProps) {
           },
         });
         if (!response.ok) {
-          throw new Error(`Failed to fetch patterns: ${response.status}`);
+          if (response.status === 401 || response.status === 403) {
+            throw new Error('Authentication required. Please log in again.');
+          } else if (response.status === 404) {
+            throw new Error('Ticket not found or access denied.');
+          } else {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`Failed to fetch patterns: ${response.status} ${errorText || ''}`);
+          }
         }
         const data = await response.json();
         setPatterns(data);
@@ -67,64 +76,76 @@ export function PatternMatchView({ ticketId }: PatternMatchViewProps) {
 
   if (loading) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-          <span className="text-sm text-gray-600">Loading patterns...</span>
-        </div>
-      </div>
+      <Card variant="default">
+        <CardContent padding="md">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>
+            <span className="text-sm text-neutral-600 font-medium">Loading patterns...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-sm text-red-800">Error: {error}</p>
-      </div>
+      <Card variant="outlined" className="border-error-200 bg-error-50">
+        <CardContent padding="md">
+          <p className="text-sm text-error-800 font-medium">Error: {error}</p>
+        </CardContent>
+      </Card>
     );
   }
 
   if (patterns.length === 0) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <p className="text-sm text-gray-600">No matching patterns found</p>
-      </div>
+      <Card variant="outlined" className="bg-neutral-50">
+        <CardContent padding="md">
+          <p className="text-sm text-neutral-600">No matching patterns found</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-      <h4 className="font-medium text-gray-900">Matching Patterns ({patterns.length})</h4>
-      <div className="space-y-2">
-        {patterns.map((pattern) => (
-          <div key={pattern.pattern_id} className="border border-gray-200 rounded-lg p-3">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">
-                    {pattern.pattern_type}
-                  </span>
-                  <span className="text-xs text-gray-600">
-                    Match: {(pattern.match_score * 100).toFixed(0)}%
-                  </span>
+    <Card variant="elevated">
+      <CardHeader>
+        <h4 className="font-semibold text-neutral-900">Matching Patterns ({patterns.length})</h4>
+      </CardHeader>
+      <CardContent padding="md">
+        <div className="space-y-3">
+          {patterns.map((pattern) => (
+            <Card key={pattern.pattern_id} variant="default">
+              <CardContent padding="sm">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <Badge variant="primary" size="sm">
+                        {pattern.pattern_type}
+                      </Badge>
+                      <span className="text-xs text-neutral-600 font-medium">
+                        Match: {(pattern.match_score * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    {pattern.issue_signature && (
+                      <p className="text-xs text-neutral-600 mt-1 line-clamp-2">{pattern.issue_signature}</p>
+                    )}
+                  </div>
                 </div>
-                {pattern.issue_signature && (
-                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">{pattern.issue_signature}</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-4 text-xs text-gray-600">
-              {pattern.success_rate !== null && (
-                <span>
-                  Success: {pattern.success_rate.toFixed(1)}%
-                </span>
-              )}
-              <span>Used: {pattern.usage_count} times</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+                <div className="flex items-center gap-4 text-xs text-neutral-600">
+                  {pattern.success_rate !== null && (
+                    <span className="font-medium">
+                      Success: {pattern.success_rate.toFixed(1)}%
+                    </span>
+                  )}
+                  <span className="font-medium">Used: {pattern.usage_count} times</span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

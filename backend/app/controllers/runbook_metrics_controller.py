@@ -111,3 +111,10 @@ class RunbookMetricsController(BaseController):
             logger.error(f"Error calculating metrics for runbook {runbook_id}: {e}")
             raise self.handle_error(e, "Failed to calculate metrics")
 
+
+
+
+
+
+
+

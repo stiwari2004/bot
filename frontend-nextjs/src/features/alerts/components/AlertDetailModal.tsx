@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { XMarkIcon, BellIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import type { AlertDetail } from '../types';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 interface AlertDetailModalProps {
   alert: AlertDetail | null;
@@ -38,13 +41,15 @@ export function AlertDetailModal({ alert, loading, onClose, onUpdate }: AlertDet
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-        <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
-          <div className="flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <span className="ml-2 text-gray-600">Loading alert details...</span>
-          </div>
-        </div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <Card variant="elevated" className="max-w-2xl w-full mx-4">
+          <CardContent padding="lg">
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              <span className="ml-3 text-neutral-600 font-medium">Loading alert details...</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -54,233 +59,247 @@ export function AlertDetailModal({ alert, loading, onClose, onUpdate }: AlertDet
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
+        className="max-w-4xl w-full max-h-[90vh] overflow-y-auto"
       >
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <BellIcon className="h-6 w-6 text-orange-600" />
-              <h2 className="text-xl font-bold text-gray-900">Alert Details</h2>
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-warning-100">
+                  <BellIcon className="h-6 w-6 text-warning-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-neutral-900">Alert Details</h2>
+              </div>
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                <XMarkIcon className="h-6 w-6" />
+              </Button>
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
-          
-          {/* Action Buttons */}
-          {/* Allow actions when alert is not yet resolved (firing or acknowledged) */}
-          {alert.status !== 'resolved' && onUpdate && (
-            <div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleUpdateStatus('resolved')}
-                  disabled={updating}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <CheckCircleIcon className="h-5 w-5" />
-                  {updating ? 'Resolving...' : 'Resolve Alert'}
-                </button>
-                {alert.status === 'firing' && (
-                  <button
-                    onClick={() => handleUpdateStatus('acknowledged')}
+            
+            {/* Action Buttons */}
+            {alert.status !== 'resolved' && onUpdate && (
+              <div className="space-y-3">
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    variant="success"
+                    onClick={() => handleUpdateStatus('resolved')}
                     disabled={updating}
-                    className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    isLoading={updating}
+                    leftIcon={<CheckCircleIcon className="h-5 w-5" />}
                   >
-                    <ExclamationCircleIcon className="h-5 w-5" />
-                    {updating ? 'Acknowledging...' : 'Acknowledge'}
-                  </button>
+                    {updating ? 'Resolving...' : 'Resolve Alert'}
+                  </Button>
+                  {alert.status === 'firing' && (
+                    <Button
+                      variant="warning"
+                      onClick={() => handleUpdateStatus('acknowledged')}
+                      disabled={updating}
+                      isLoading={updating}
+                      leftIcon={<ExclamationCircleIcon className="h-5 w-5" />}
+                    >
+                      {updating ? 'Acknowledging...' : 'Acknowledge'}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowNotesInput(!showNotesInput)}
+                  >
+                    {showNotesInput ? 'Hide Notes' : 'Add Notes'}
+                  </Button>
+                </div>
+                
+                {/* Error Message */}
+                {error && (
+                  <Card variant="outlined" className="border-error-200 bg-error-50">
+                    <CardContent padding="sm">
+                      <p className="text-sm text-error-800 font-medium">{error}</p>
+                    </CardContent>
+                  </Card>
                 )}
-                <button
-                  onClick={() => setShowNotesInput(!showNotesInput)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  {showNotesInput ? 'Hide Notes' : 'Add Notes'}
-                </button>
+                
+                {/* Notes Input */}
+                {showNotesInput && (
+                  <div>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Add notes about this update..."
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                      rows={3}
+                    />
+                  </div>
+                )}
               </div>
-              
-              {/* Error Message */}
-              {error && (
-                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                  {error}
-                </div>
-              )}
-              
-              {/* Notes Input */}
-              {showNotesInput && (
-                <div className="mt-3">
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Add notes about this update..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-          
-          {/* Status Info for Resolved/Acknowledged */}
-          {alert.status !== 'firing' && (
-            <div className={`p-3 rounded-lg ${
-              alert.status === 'resolved' ? 'bg-green-50 border border-green-200' :
-              'bg-yellow-50 border border-yellow-200'
-            }`}>
-              <p className={`text-sm font-medium ${
-                alert.status === 'resolved' ? 'text-green-800' : 'text-yellow-800'
-              }`}>
-                This alert has been {alert.status}.
-                {alert.resolved_at && (
-                  <span className="ml-2 text-gray-600">
-                    Resolved at: {new Date(alert.resolved_at).toLocaleString()}
-                  </span>
-                )}
-              </p>
-            </div>
-          )}
-        </div>
+            )}
+            
+            {/* Status Info for Resolved/Acknowledged */}
+            {alert.status !== 'firing' && (
+              <Card variant="outlined" className={alert.status === 'resolved' ? 'border-success-200 bg-success-50' : 'border-warning-200 bg-warning-50'}>
+                <CardContent padding="sm">
+                  <p className={`text-sm font-semibold ${
+                    alert.status === 'resolved' ? 'text-success-800' : 'text-warning-800'
+                  }`}>
+                    This alert has been {alert.status}.
+                    {alert.resolved_at && (
+                      <span className="ml-2 text-neutral-600">
+                        Resolved at: {new Date(alert.resolved_at).toLocaleString()}
+                      </span>
+                    )}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </CardHeader>
 
-        <div className="p-6 space-y-6">
-          {/* Basic Information */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Title</label>
-                <p className="mt-1 text-gray-900">{alert.title}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Source</label>
-                <p className="mt-1 text-gray-900 capitalize">{alert.source.replace('_', ' ')}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Status</label>
-                <p className="mt-1">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    alert.status === 'firing' ? 'bg-red-100 text-red-800' :
-                    alert.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {alert.status}
-                  </span>
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Severity</label>
-                <p className="mt-1">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    alert.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                    alert.severity === 'high' ? 'bg-orange-100 text-orange-800' :
-                    alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-blue-100 text-blue-800'
-                  }`}>
-                    {alert.severity}
-                  </span>
-                </p>
-              </div>
-              {alert.external_id && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">External ID</label>
-                  <p className="mt-1 text-gray-900 font-mono text-sm">{alert.external_id}</p>
-                </div>
-              )}
-              {alert.service && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Service</label>
-                  <p className="mt-1 text-gray-900">{alert.service}</p>
-                </div>
-              )}
-              {alert.environment && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Environment</label>
-                  <p className="mt-1 text-gray-900">{alert.environment}</p>
-                </div>
-              )}
-              {alert.matched_ticket_id && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Matched Ticket</label>
-                  <p className="mt-1 text-gray-900">Ticket #{alert.matched_ticket_id}</p>
-                  {alert.matched_at && (
-                    <p className="mt-1 text-sm text-gray-500">
-                      Matched: {new Date(alert.matched_at).toLocaleString()}
+          <CardContent padding="md" className="space-y-6">
+            {/* Basic Information */}
+            <Card variant="elevated">
+              <CardHeader>
+                <h3 className="text-lg font-semibold text-neutral-900">Basic Information</h3>
+              </CardHeader>
+              <CardContent padding="md">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-neutral-500 mb-1 block">Title</label>
+                    <p className="mt-1 text-neutral-900 font-medium">{alert.title}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-neutral-500 mb-1 block">Source</label>
+                    <p className="mt-1 text-neutral-900 font-medium capitalize">{alert.source.replace('_', ' ')}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-neutral-500 mb-1 block">Status</label>
+                    <p className="mt-1">
+                      <Badge variant="status" status={alert.status as any} size="sm">
+                        {alert.status}
+                      </Badge>
                     </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-neutral-500 mb-1 block">Severity</label>
+                    <p className="mt-1">
+                      <Badge variant="severity" severity={alert.severity as any} size="sm">
+                        {alert.severity}
+                      </Badge>
+                    </p>
+                  </div>
+                  {alert.external_id && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">External ID</label>
+                      <p className="mt-1 text-neutral-900 font-mono text-sm">{alert.external_id}</p>
+                    </div>
+                  )}
+                  {alert.service && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">Service</label>
+                      <p className="mt-1 text-neutral-900 font-medium">{alert.service}</p>
+                    </div>
+                  )}
+                  {alert.environment && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">Environment</label>
+                      <p className="mt-1 text-neutral-900 font-medium">{alert.environment}</p>
+                    </div>
+                  )}
+                  {alert.matched_ticket_id && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">Matched Ticket</label>
+                      <p className="mt-1 text-neutral-900 font-medium">Ticket #{alert.matched_ticket_id}</p>
+                      {alert.matched_at && (
+                        <p className="mt-1 text-sm text-neutral-500">
+                          Matched: {new Date(alert.matched_at).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
+              </CardContent>
+            </Card>
 
-          {/* Description */}
-          {alert.description && (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Description</h3>
-              <p className="text-gray-700 whitespace-pre-wrap">{alert.description}</p>
-            </div>
-          )}
+            {/* Description */}
+            {alert.description && (
+              <Card variant="elevated">
+                <CardHeader>
+                  <h3 className="text-lg font-semibold text-neutral-900">Description</h3>
+                </CardHeader>
+                <CardContent padding="md">
+                  <p className="text-neutral-700 whitespace-pre-wrap">{alert.description}</p>
+                </CardContent>
+              </Card>
+            )}
 
-          {/* Timestamps */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Timestamps</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Received At</label>
-                <p className="mt-1 text-gray-900">
-                  {new Date(alert.received_at).toLocaleString()}
-                </p>
-              </div>
-              {alert.starts_at && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Started At</label>
-                  <p className="mt-1 text-gray-900">
-                    {new Date(alert.starts_at).toLocaleString()}
-                  </p>
+            {/* Timestamps */}
+            <Card variant="elevated">
+              <CardHeader>
+                <h3 className="text-lg font-semibold text-neutral-900">Timestamps</h3>
+              </CardHeader>
+              <CardContent padding="md">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-neutral-500 mb-1 block">Received At</label>
+                    <p className="mt-1 text-neutral-900 font-medium">
+                      {new Date(alert.received_at).toLocaleString()}
+                    </p>
+                  </div>
+                  {alert.starts_at && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">Started At</label>
+                      <p className="mt-1 text-neutral-900 font-medium">
+                        {new Date(alert.starts_at).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                  {alert.ends_at && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">Ended At</label>
+                      <p className="mt-1 text-neutral-900 font-medium">
+                        {new Date(alert.ends_at).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                  {alert.resolved_at && (
+                    <div>
+                      <label className="text-sm font-semibold text-neutral-500 mb-1 block">Resolved At</label>
+                      <p className="mt-1 text-neutral-900 font-medium">
+                        {new Date(alert.resolved_at).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
-              {alert.ends_at && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Ended At</label>
-                  <p className="mt-1 text-gray-900">
-                    {new Date(alert.ends_at).toLocaleString()}
-                  </p>
-                </div>
-              )}
-              {alert.resolved_at && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Resolved At</label>
-                  <p className="mt-1 text-gray-900">
-                    {new Date(alert.resolved_at).toLocaleString()}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+              </CardContent>
+            </Card>
 
-          {/* Metadata */}
-          {alert.meta_data && Object.keys(alert.meta_data).length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Metadata</h3>
-              <pre className="bg-gray-50 p-4 rounded-lg overflow-x-auto text-sm">
-                {JSON.stringify(alert.meta_data, null, 2)}
-              </pre>
-            </div>
-          )}
+            {/* Metadata */}
+            {alert.meta_data && Object.keys(alert.meta_data).length > 0 && (
+              <Card variant="elevated">
+                <CardHeader>
+                  <h3 className="text-lg font-semibold text-neutral-900">Metadata</h3>
+                </CardHeader>
+                <CardContent padding="md">
+                  <pre className="bg-neutral-50 p-4 rounded-lg border-2 border-neutral-200 overflow-x-auto text-sm text-neutral-900">
+                    {JSON.stringify(alert.meta_data, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
+            )}
 
-          {/* Raw Payload */}
-          {alert.raw_payload && (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Raw Payload</h3>
-              <pre className="bg-gray-50 p-4 rounded-lg overflow-x-auto text-xs max-h-96">
-                {JSON.stringify(alert.raw_payload, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
+            {/* Raw Payload */}
+            {alert.raw_payload && (
+              <Card variant="elevated">
+                <CardHeader>
+                  <h3 className="text-lg font-semibold text-neutral-900">Raw Payload</h3>
+                </CardHeader>
+                <CardContent padding="md">
+                  <pre className="bg-neutral-50 p-4 rounded-lg border-2 border-neutral-200 overflow-x-auto text-xs max-h-96 text-neutral-900">
+                    {JSON.stringify(alert.raw_payload, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

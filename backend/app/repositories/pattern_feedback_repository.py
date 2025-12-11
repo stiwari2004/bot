@@ -58,3 +58,10 @@ class PatternFeedbackRepository(BaseRepository[PatternFeedback]):
             PatternFeedback.tenant_id == tenant_id
         ).order_by(PatternFeedback.created_at.desc()).limit(limit).all()
 
+
+
+
+
+
+
+

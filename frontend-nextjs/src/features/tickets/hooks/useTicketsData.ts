@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiConfig } from '@/lib/api-config';
 import { useAuth } from '@/contexts/AuthContext';
+import { authFetch } from '@/lib/auth-fetch';
 import type { Ticket, TicketDetail } from '../types';
 
 interface UseTicketsDataProps {
@@ -22,18 +23,27 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const fetchTickets = useCallback(async () => {
+    // Don't fetch if not authenticated
+    if (!token) {
+      setTickets([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       const url = apiConfig.endpoints.tickets.list({ limit: 100 });
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
+      const response = await authFetch(url);
       
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const response = await fetch(url, { headers });
       if (!response.ok) {
+        // Handle 401 gracefully - user not authenticated
+        if (response.status === 401) {
+          setTickets([]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+        
         let errorMessage = `Failed to fetch tickets: ${response.status}`;
         try {
           const contentType = response.headers.get('content-type');
@@ -63,34 +73,49 @@ export function useTicketsData({ onSessionLaunched }: UseTicketsDataProps = {}) 
       setError(null);
     } catch (err) {
       console.error('Error fetching tickets:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch tickets');
+      // Don't set error for 401 - just show empty state
+      if (err instanceof Error && err.message.includes('401')) {
+        setTickets([]);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to fetch tickets');
+      }
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   const fetchTicketDetail = useCallback(async (ticketId: number) => {
+    // Don't fetch if not authenticated
+    if (!token) {
+      setTicketDetail(null);
+      setLoadingDetail(false);
+      return;
+    }
+
     setLoadingDetail(true);
     setTicketDetail(null);
     try {
       const url = apiConfig.endpoints.tickets.detail(ticketId);
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
+      const response = await authFetch(url);
       
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const response = await fetch(url, { headers });
       if (!response.ok) {
+        // Handle 401 gracefully
+        if (response.status === 401) {
+          setTicketDetail(null);
+          setLoadingDetail(false);
+          return;
+        }
         throw new Error(`Failed to fetch ticket detail: ${response.status}`);
       }
       const data = await response.json();
       setTicketDetail(data);
     } catch (err) {
       console.error('Error fetching ticket detail:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch ticket detail');
+      // Don't set error for 401
+      if (!(err instanceof Error && err.message.includes('401'))) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch ticket detail');
+      }
     } finally {
       setLoadingDetail(false);
     }

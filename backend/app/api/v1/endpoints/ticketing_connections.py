@@ -9,6 +9,8 @@ from typing import Optional, List, Dict, Any
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.ticketing_tool_connection import TicketingToolConnection
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.core.logging import get_logger
 from app.services.ticketing_connectors.zoho_oauth import ZohoOAuthService
 from app.services.ticketing_poller import TicketingPoller
@@ -114,11 +116,12 @@ class TicketingConnectionUpdate(BaseModel):
 @router.post("/ticketing-connections")
 async def create_ticketing_connection(
     connection: TicketingConnectionCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new ticketing tool connection"""
     try:
-        tenant_id = 1  # Demo tenant
+        tenant_id = current_user.tenant_id
         
         # Check if connection already exists for this tool
         existing = db.query(TicketingToolConnection).filter(
@@ -182,11 +185,12 @@ async def create_ticketing_connection(
 
 @router.get("/ticketing-connections")
 async def list_ticketing_connections(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all ticketing tool connections"""
+    """List all ticketing tool connections for the current tenant"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connections = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.tenant_id == tenant_id
@@ -237,11 +241,12 @@ async def list_ticketing_connections(
 @router.get("/ticketing-connections/{connection_id}")
 async def get_ticketing_connection(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Get a specific ticketing tool connection"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
@@ -290,11 +295,12 @@ async def get_ticketing_connection(
 async def update_ticketing_connection(
     connection_id: int,
     connection_update: TicketingConnectionUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update a ticketing tool connection"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
@@ -372,11 +378,12 @@ async def update_ticketing_connection(
 @router.delete("/ticketing-connections/{connection_id}")
 async def delete_ticketing_connection(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Delete a ticketing tool connection"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
@@ -403,11 +410,12 @@ async def delete_ticketing_connection(
 @router.post("/ticketing-connections/{connection_id}/test")
 async def test_ticketing_connection(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Test ticketing tool connection by actually fetching tickets"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
@@ -529,11 +537,12 @@ async def test_ticketing_connection(
 @router.post("/ticketing-connections/{connection_id}/sync")
 async def sync_ticketing_connection(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Manually trigger sync for a ticketing tool connection (actually creates tickets)"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
@@ -577,11 +586,12 @@ async def sync_ticketing_connection(
 async def authorize_ticketing_connection(
     connection_id: int,
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """OAuth authorization endpoint for ticketing tools (Zoho, ManageEngine)"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,
@@ -650,11 +660,12 @@ async def oauth_callback(
     connection_id: int,
     code: str = Query(...),
     state: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """OAuth callback endpoint for ticketing tools"""
     try:
-        tenant_id = 1
+        tenant_id = current_user.tenant_id
         
         connection = db.query(TicketingToolConnection).filter(
             TicketingToolConnection.id == connection_id,

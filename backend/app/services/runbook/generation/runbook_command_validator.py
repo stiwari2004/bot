@@ -194,9 +194,17 @@ class RunbookCommandValidator:
                         })
         
         # Determine if runbook is valid
-        # Require at least 4 remediation commands out of 5-6 total steps
-        # This ensures runbooks focus on fixing issues, not just investigating
-        missing_remediation = len(remediation_commands_found) < 4
+        # Require at least MIN_REMEDIATION_STEPS and REMEDIATION_RATIO
+        from app.config.runbook_config import runbook_structure
+        min_remediation = runbook_structure.MIN_REMEDIATION_STEPS
+        remediation_ratio = runbook_structure.REMEDIATION_RATIO
+        total_steps = len(steps)
+        
+        # Check both minimum count and ratio
+        remediation_count_ok = len(remediation_commands_found) >= min_remediation
+        remediation_ratio_ok = (len(remediation_commands_found) / total_steps) >= remediation_ratio if total_steps > 0 else False
+        
+        missing_remediation = not (remediation_count_ok and remediation_ratio_ok)
         has_invalid_commands = len(invalid_commands) > 0
         has_mislabeled = len(diagnostic_mislabeled) > 0
         
@@ -205,10 +213,15 @@ class RunbookCommandValidator:
         # Build suggestions
         suggestions = []
         if missing_remediation:
+            from app.config.runbook_config import runbook_structure
+            min_remediation = runbook_structure.MIN_REMEDIATION_STEPS
+            remediation_ratio = runbook_structure.REMEDIATION_RATIO * 100
+            current_ratio = (len(remediation_commands_found) / total_steps * 100) if total_steps > 0 else 0.0
             suggestions.append(
-                f"CRITICAL: Only {len(remediation_commands_found)} remediation command(s) found, need at least 4. "
+                f"CRITICAL: Only {len(remediation_commands_found)} remediation command(s) found. "
+                f"Need at least {min_remediation} remediation steps AND at least {remediation_ratio:.0f}% of steps must be remediation. "
                 f"Runbook must include actual fix actions (kill, restart, stop, clear, etc.), not just diagnostics. "
-                f"With 5-6 total steps, at least 4 must be remediation to ensure the issue is actually solved."
+                f"Current: {len(remediation_commands_found)}/{total_steps} steps are remediation ({current_ratio:.0f}%)."
             )
         if has_invalid_commands:
             suggestions.append(

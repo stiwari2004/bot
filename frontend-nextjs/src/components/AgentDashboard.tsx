@@ -15,6 +15,8 @@ import {
   StopIcon,
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface PendingApproval {
   session_id: number;
@@ -99,86 +101,108 @@ export function AgentDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-gray-600">Loading pending approvals...</div>
-        </div>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="lg">
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-neutral-600 font-medium">Loading pending approvals...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded-lg">
-        <div className="flex items-center gap-2">
-          <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />
-          <p className="text-red-800 font-medium">Error loading approvals</p>
-        </div>
-        <p className="text-red-700 mt-2 text-sm">{error}</p>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="md">
+          <div className="flex items-center gap-2">
+            <ExclamationTriangleIcon className="h-5 w-5 text-error-600" />
+            <p className="text-error-800 font-medium">Error loading approvals</p>
+          </div>
+          <p className="text-error-700 mt-2 text-sm">{error}</p>
+        </CardContent>
+      </Card>
     );
   }
 
   if (pendingApprovals.length === 0) {
     return (
-      <div className="p-8 bg-blue-50 border border-blue-200 rounded-lg text-center">
-        <CheckCircleIcon className="h-12 w-12 text-blue-400 mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">No Pending Approvals</h3>
-        <p className="text-gray-600 text-sm">
-          All execution sessions are running smoothly. No approvals needed at this time.
-        </p>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="lg">
+          <div className="text-center py-12">
+            <div className="p-1.5 rounded-lg bg-primary-100 mx-auto mb-4 w-fit">
+              <CheckCircleIcon className="h-12 w-12 text-primary-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-neutral-900 mb-2">No Pending Approvals</h3>
+            <p className="text-neutral-600 text-sm">
+              All execution sessions are running smoothly. No approvals needed at this time.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Agent Execution Dashboard</h2>
-          <p className="text-gray-600 mt-1">Review and approve execution steps</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
-            {pendingApprovals.length} Pending
-          </span>
-        </div>
-      </div>
+      <Card variant="elevated">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center mb-2">
+                <div className="p-1.5 rounded-lg bg-secondary-100 mr-3">
+                  <ExclamationTriangleIcon className="h-6 w-6 text-secondary-600" />
+                </div>
+                <h2 className="text-2xl font-semibold text-neutral-900">Agent Execution Dashboard</h2>
+              </div>
+              <p className="text-sm text-neutral-600">Review and approve execution steps</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-error-100 text-error-800 rounded-full text-sm font-medium">
+                {pendingApprovals.length} Pending
+              </span>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4">
         {pendingApprovals.map((approval) => (
-          <div
+          <Card
             key={approval.session_id}
-            className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow"
+            variant="elevated"
+            className="hover:border-primary-300 transition-colors"
           >
-            <div className="p-6">
+            <CardContent padding="md">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <ExclamationTriangleIcon className="h-5 w-5 text-yellow-500" />
-                    <h3 className="text-lg font-semibold text-gray-900">
+                    <ExclamationTriangleIcon className="h-5 w-5 text-warning-500" />
+                    <h3 className="text-lg font-semibold text-neutral-900">
                       {approval.runbook_title}
                     </h3>
                   </div>
                   
-                  <p className="text-gray-600 text-sm mb-4">{approval.issue_description}</p>
+                  <p className="text-neutral-600 text-sm mb-4">{approval.issue_description}</p>
                   
-                  <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-semibold text-gray-500 uppercase">
-                        Step {approval.step_number}
-                      </span>
-                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded capitalize">
-                        {approval.step_type}
-                      </span>
-                    </div>
-                    <code className="text-sm text-gray-800 block bg-white p-2 rounded border border-gray-200">
-                      {approval.command}
-                    </code>
-                  </div>
+                  <Card variant="default" className="bg-neutral-50 mb-4">
+                    <CardContent padding="sm">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold text-neutral-500 uppercase">
+                          Step {approval.step_number}
+                        </span>
+                        <span className="text-xs px-2 py-1 bg-primary-100 text-primary-800 rounded capitalize">
+                          {approval.step_type}
+                        </span>
+                      </div>
+                      <code className="text-sm text-neutral-800 block bg-white p-2 rounded border border-neutral-200">
+                        {approval.command}
+                      </code>
+                    </CardContent>
+                  </Card>
                   
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <div className="flex items-center gap-2 text-xs text-neutral-500">
                     <ClockIcon className="h-4 w-4" />
                     <span>
                       {new Date(approval.created_at).toLocaleString()}
@@ -187,31 +211,33 @@ export function AgentDashboard() {
                 </div>
               </div>
               
-              <div className="flex items-center gap-3 mt-6 pt-6 border-t border-gray-200">
-                <button
+              <div className="flex items-center gap-3 mt-6 pt-6 border-t border-neutral-200">
+                <Button
+                  variant="success"
                   onClick={() => handleApprove(approval.session_id, approval.step_number, true)}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                  leftIcon={<CheckCircleIcon className="h-5 w-5" />}
+                  className="flex-1"
                 >
-                  <CheckCircleIcon className="h-5 w-5" />
                   Approve & Continue
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="danger"
                   onClick={() => handleApprove(approval.session_id, approval.step_number, false)}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  leftIcon={<XCircleIcon className="h-5 w-5" />}
+                  className="flex-1"
                 >
-                  <XCircleIcon className="h-5 w-5" />
                   Reject & Stop
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
                   onClick={() => setSelectedSession(approval.session_id)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  rightIcon={<ArrowRightIcon className="h-4 w-4" />}
                 >
                   View Details
-                  <ArrowRightIcon className="h-4 w-4" />
-                </button>
+                </Button>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
@@ -415,9 +441,11 @@ function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
-        <div className="bg-white rounded-lg p-6">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-        </div>
+        <Card variant="elevated">
+          <CardContent padding="lg">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -436,206 +464,211 @@ function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         <div
-          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+          className="fixed inset-0 transition-opacity bg-neutral-500 bg-opacity-75"
           onClick={onClose}
         />
         
         <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full">
-          <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <h3 className="text-xl font-semibold text-gray-900">Execution Session #{sessionId}</h3>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  execution?.status === 'completed' ? 'bg-green-100 text-green-800' :
-                  execution?.status === 'failed' ? 'bg-red-100 text-red-800' :
-                  execution?.status === 'waiting_approval' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-blue-100 text-blue-800'
-                }`}>
-                  {execution?.status || 'loading'}
-                </span>
-                <div className="flex items-center gap-2">
-                  <div className={`h-2 w-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <span className="text-xs text-gray-500">
-                    {wsConnected ? 'Live' : 'Disconnected'}
+          <Card variant="elevated" className="border-0 shadow-xl">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xl font-semibold text-neutral-900">Execution Session #{sessionId}</h3>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    execution?.status === 'completed' ? 'bg-success-100 text-success-800' :
+                    execution?.status === 'failed' ? 'bg-error-100 text-error-800' :
+                    execution?.status === 'waiting_approval' ? 'bg-warning-100 text-warning-800' :
+                    'bg-primary-100 text-primary-800'
+                  }`}>
+                    {execution?.status || 'loading'}
                   </span>
+                  <div className="flex items-center gap-2">
+                    <div className={`h-2 w-2 rounded-full ${wsConnected ? 'bg-success-500' : 'bg-error-500'}`} />
+                    <span className="text-xs text-neutral-500">
+                      {wsConnected ? 'Live' : 'Disconnected'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 border border-gray-300 rounded-lg">
-                  <button
-                    onClick={() => setViewMode('detailed')}
-                    className={`px-3 py-1 text-sm font-medium rounded-l-lg ${
-                      viewMode === 'detailed'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    Detailed
-                  </button>
-                  <button
-                    onClick={() => setViewMode('summary')}
-                    className={`px-3 py-1 text-sm font-medium rounded-r-lg ${
-                      viewMode === 'summary'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    Summary
-                  </button>
-                </div>
-                <button
-                  onClick={onClose}
-                  className="text-gray-400 hover:text-gray-500"
-                >
-                  <XCircleIcon className="h-6 w-6" />
-                </button>
-              </div>
-            </div>
-            
-            {viewMode === 'detailed' ? (
-              <div className="space-y-4 max-h-[70vh] overflow-y-auto">
-                {execution?.steps?.map((step: any) => {
-                  const stepState: StepExecutionState = stepStates.get(step.step_number) || {
-                    step_number: step.step_number,
-                    step_type: step.step_type || 'main',
-                    command: step.command || '',
-                    description: step.notes || '',
-                    status: step.completed 
-                      ? (step.success ? 'completed' : 'failed')
-                      : (step.step_number === execution.current_step ? 'executing' : 'pending'),
-                    output: step.output || '',
-                    error: step.error || '',
-                    duration_ms: undefined,
-                    started_at: undefined,
-                    completed_at: undefined,
-                  };
-
-                  return (
-                    <div
-                      key={step.step_number}
-                      className={`border rounded-lg p-4 ${
-                        stepState.status === 'executing' ? 'border-blue-400 bg-blue-50' :
-                        stepState.status === 'completed' ? 'border-green-300 bg-green-50' :
-                        stepState.status === 'failed' ? 'border-red-300 bg-red-50' :
-                        'border-gray-200 bg-white'
-                      }`}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 border-2 border-neutral-300 rounded-lg">
+                    <Button
+                      variant={viewMode === 'detailed' ? 'primary' : 'ghost'}
+                      size="sm"
+                      onClick={() => setViewMode('detailed')}
+                      className="rounded-l-lg rounded-r-none"
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-gray-900">
-                              Step {step.step_number}
-                            </span>
-                            <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded capitalize">
-                              {stepState.step_type}
-                            </span>
-                            {stepState.status === 'executing' && (
-                              <div className="flex items-center gap-1 text-blue-600">
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600" />
-                                <span className="text-xs font-medium">Executing...</span>
-                              </div>
-                            )}
-                            {stepState.status === 'completed' && (
-                              <div className="flex items-center gap-1 text-green-600">
-                                <CheckCircleIcon className="h-4 w-4" />
-                                <span className="text-xs font-medium">Completed</span>
-                              </div>
-                            )}
-                            {stepState.status === 'failed' && (
-                              <div className="flex items-center gap-1 text-red-600">
-                                <XCircleIcon className="h-4 w-4" />
-                                <span className="text-xs font-medium">Failed</span>
-                              </div>
-                            )}
-                            {stepState.duration_ms && (
-                              <span className="text-xs text-gray-500">
-                                ({formatDuration(stepState.duration_ms)})
-                              </span>
-                            )}
-                          </div>
-                          {stepState.description && (
-                            <p className="text-sm text-gray-600 mb-2">{stepState.description}</p>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="bg-gray-900 text-green-400 p-3 rounded font-mono text-xs mb-2">
-                        <div className="text-gray-400 mb-1">$ {stepState.command}</div>
-                      </div>
-                      
-                      {stepState.output && (
-                        <div className="mt-2">
-                          <div className="text-xs font-semibold text-gray-700 mb-1">Output:</div>
-                          <div
-                            ref={(el) => {
-                              if (el) outputRefs.current.set(step.step_number, el);
-                            }}
-                            className="bg-gray-900 text-gray-100 p-3 rounded font-mono text-xs max-h-48 overflow-y-auto"
-                          >
-                            <pre className="whitespace-pre-wrap">{stepState.output}</pre>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {stepState.error && (
-                        <div className="mt-2">
-                          <div className="text-xs font-semibold text-red-700 mb-1">Error:</div>
-                          <div className="bg-red-50 border border-red-200 text-red-800 p-3 rounded font-mono text-xs max-h-48 overflow-y-auto">
-                            <pre className="whitespace-pre-wrap">{stepState.error}</pre>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-3">Summary</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">Total Steps:</span>
-                      <span className="ml-2 font-medium">{execution?.steps?.length || 0}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Duration:</span>
-                      <span className="ml-2 font-medium">
-                        {execution?.total_duration_minutes 
-                          ? `${execution.total_duration_minutes} minutes`
-                          : 'N/A'}
-                      </span>
-                    </div>
+                      Detailed
+                    </Button>
+                    <Button
+                      variant={viewMode === 'summary' ? 'primary' : 'ghost'}
+                      size="sm"
+                      onClick={() => setViewMode('summary')}
+                      className="rounded-r-lg rounded-l-none"
+                    >
+                      Summary
+                    </Button>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onClose}
+                  >
+                    <XCircleIcon className="h-6 w-6" />
+                  </Button>
                 </div>
-                
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Post-Checks</h4>
-                  <div className="space-y-2">
-                    {execution?.steps?.filter((s: any) => s.step_type === 'postcheck').map((step: any) => (
-                      <div
+              </div>
+            </CardHeader>
+            <CardContent padding="md">
+            
+              {viewMode === 'detailed' ? (
+                <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+                  {execution?.steps?.map((step: any) => {
+                    const stepState: StepExecutionState = stepStates.get(step.step_number) || {
+                      step_number: step.step_number,
+                      step_type: step.step_type || 'main',
+                      command: step.command || '',
+                      description: step.notes || '',
+                      status: step.completed 
+                        ? (step.success ? 'completed' : 'failed')
+                        : (step.step_number === execution.current_step ? 'executing' : 'pending'),
+                      output: step.output || '',
+                      error: step.error || '',
+                      duration_ms: undefined,
+                      started_at: undefined,
+                      completed_at: undefined,
+                    };
+
+                    return (
+                      <Card
                         key={step.step_number}
-                        className="border border-gray-200 rounded-lg p-3"
+                        variant="elevated"
+                        className={`${
+                          stepState.status === 'executing' ? 'border-primary-400 bg-primary-50' :
+                          stepState.status === 'completed' ? 'border-success-300 bg-success-50' :
+                          stepState.status === 'failed' ? 'border-error-300 bg-error-50' :
+                          ''
+                        }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">{step.notes || 'Post-check'}</span>
-                          {step.completed ? (
-                            step.success ? (
-                              <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                            ) : (
-                              <XCircleIcon className="h-5 w-5 text-red-500" />
-                            )
-                          ) : (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                        <CardContent padding="md">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold text-neutral-900">
+                                  Step {step.step_number}
+                                </span>
+                                <span className="text-xs px-2 py-1 bg-neutral-100 text-neutral-700 rounded capitalize">
+                                  {stepState.step_type}
+                                </span>
+                                {stepState.status === 'executing' && (
+                                  <div className="flex items-center gap-1 text-primary-600">
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary-600" />
+                                    <span className="text-xs font-medium">Executing...</span>
+                                  </div>
+                                )}
+                                {stepState.status === 'completed' && (
+                                  <div className="flex items-center gap-1 text-success-600">
+                                    <CheckCircleIcon className="h-4 w-4" />
+                                    <span className="text-xs font-medium">Completed</span>
+                                  </div>
+                                )}
+                                {stepState.status === 'failed' && (
+                                  <div className="flex items-center gap-1 text-error-600">
+                                    <XCircleIcon className="h-4 w-4" />
+                                    <span className="text-xs font-medium">Failed</span>
+                                  </div>
+                                )}
+                                {stepState.duration_ms && (
+                                  <span className="text-xs text-neutral-500">
+                                    ({formatDuration(stepState.duration_ms)})
+                                  </span>
+                                )}
+                              </div>
+                              {stepState.description && (
+                                <p className="text-sm text-neutral-600 mb-2">{stepState.description}</p>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="bg-neutral-900 text-success-400 p-3 rounded font-mono text-xs mb-2">
+                            <div className="text-neutral-400 mb-1">$ {stepState.command}</div>
+                          </div>
+                          
+                          {stepState.output && (
+                            <div className="mt-2">
+                              <div className="text-xs font-semibold text-neutral-700 mb-1">Output:</div>
+                              <div
+                                ref={(el) => {
+                                  if (el) outputRefs.current.set(step.step_number, el);
+                                }}
+                                className="bg-neutral-900 text-neutral-100 p-3 rounded font-mono text-xs max-h-48 overflow-y-auto"
+                              >
+                                <pre className="whitespace-pre-wrap">{stepState.output}</pre>
+                              </div>
+                            </div>
                           )}
+                          
+                          {stepState.error && (
+                            <div className="mt-2">
+                              <div className="text-xs font-semibold text-error-700 mb-1">Error:</div>
+                              <div className="bg-error-50 border border-error-200 text-error-800 p-3 rounded font-mono text-xs max-h-48 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap">{stepState.error}</pre>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <Card variant="default" className="bg-neutral-50">
+                    <CardContent padding="md">
+                      <h4 className="font-semibold text-neutral-900 mb-3">Summary</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-neutral-600">Total Steps:</span>
+                          <span className="ml-2 font-semibold">{execution?.steps?.length || 0}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-600">Duration:</span>
+                          <span className="ml-2 font-semibold">
+                            {execution?.total_duration_minutes 
+                              ? `${execution.total_duration_minutes} minutes`
+                              : 'N/A'}
+                          </span>
                         </div>
                       </div>
-                    ))}
+                    </CardContent>
+                  </Card>
+                  
+                  <div>
+                    <h4 className="font-semibold text-neutral-900 mb-2">Post-Checks</h4>
+                    <div className="space-y-2">
+                      {execution?.steps?.filter((s: any) => s.step_type === 'postcheck').map((step: any) => (
+                        <Card key={step.step_number} variant="default">
+                          <CardContent padding="sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm">{step.notes || 'Post-check'}</span>
+                              {step.completed ? (
+                                step.success ? (
+                                  <CheckCircleIcon className="h-5 w-5 text-success-500" />
+                                ) : (
+                                  <XCircleIcon className="h-5 w-5 text-error-500" />
+                                )
+                              ) : (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600" />
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

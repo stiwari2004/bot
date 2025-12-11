@@ -62,7 +62,7 @@ class StepApprovalRequest(BaseModel):
 @router.get("/pending-approvals")
 async def get_pending_approvals(
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
     """Get all sessions waiting for approval"""
     try:
@@ -79,7 +79,8 @@ async def get_pending_approvals(
 async def start_execution(
     request: ExecutionRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Start execution of a runbook"""
     import time
@@ -87,13 +88,6 @@ async def start_execution(
     logger.info(f"[START_EXECUTION] Received execution request: runbook_id={request.runbook_id}, ticket_id={request.ticket_id}, issue_description={request.issue_description[:50] if request.issue_description else None}")
     try:
         # Get tenant_id and user_id from current user or defaults
-        current_user = None
-        try:
-            current_user = await get_current_user()
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use defaults if no user
-        
         tenant_id = get_tenant_id(current_user)
         user_id = current_user.id if current_user else None
         
@@ -173,18 +167,12 @@ async def start_execution(
 async def approve_step(
     session_id: int,
     request: StepApprovalRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Approve or reject a step"""
     try:
         # Get tenant_id and user_id from current user or defaults
-        current_user = None
-        try:
-            current_user = await get_current_user()
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use defaults if no user
-        
         tenant_id = get_tenant_id(current_user)
         user_id = current_user.id if current_user else None
         
@@ -212,21 +200,13 @@ async def approve_step(
 async def list_execution_sessions(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of sessions to return"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all execution sessions with optional status filter"""
+    """List all execution sessions for the authenticated user's tenant"""
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        
-        # Try to get current user if available
-        try:
-            from app.services.auth import get_current_user
-            current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use default for demo
+        # Use authenticated user's tenant_id - authentication required
+        tenant_id = current_user.tenant_id
         
         query = db.query(ExecutionSession).filter(
             ExecutionSession.tenant_id == tenant_id
@@ -268,21 +248,13 @@ async def list_execution_sessions(
 @router.get("/{session_id}")
 async def get_execution_status(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get execution session status"""
+    """Get execution session status for the authenticated user's tenant"""
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        
-        # Try to get current user if available
-        try:
-            from app.services.auth import get_current_user
-            current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use default for demo
+        # Use authenticated user's tenant_id - authentication required
+        tenant_id = current_user.tenant_id
         
         session = db.query(ExecutionSession).filter(
             ExecutionSession.id == session_id,
@@ -334,21 +306,13 @@ async def get_execution_status(
 @router.post("/{session_id}/cancel")
 async def cancel_execution(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Cancel a running execution session"""
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        
-        # Try to get current user if available
-        try:
-            from app.services.auth import get_current_user
-            current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use default for demo
+        # Use authenticated user's tenant_id if available, otherwise fallback to demo tenant
+        tenant_id = current_user.tenant_id if current_user else 1
         
         session = db.query(ExecutionSession).filter(
             ExecutionSession.id == session_id,
@@ -387,21 +351,13 @@ async def cancel_execution(
 @router.delete("/{session_id}")
 async def delete_execution_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Delete an execution session"""
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        
-        # Try to get current user if available
-        try:
-            from app.services.auth import get_current_user
-            current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use default for demo
+        # Use authenticated user's tenant_id if available, otherwise fallback to demo tenant
+        tenant_id = current_user.tenant_id if current_user else 1
         
         session = db.query(ExecutionSession).filter(
             ExecutionSession.id == session_id,
@@ -1028,21 +984,13 @@ async def debug_execution_state(
 @router.get("/{session_id}/steps")
 async def get_session_steps(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Get all steps for a session with their execution status"""
     try:
-        # Use demo tenant for POC
-        tenant_id = 1
-        
-        # Try to get current user if available
-        try:
-            from app.services.auth import get_current_user
-            current_user = await get_current_user()
-            tenant_id = current_user.tenant_id
-        except (HTTPException, Exception) as e:
-            logger.debug(f"User authentication optional: {e}")
-            pass  # Use default for demo
+        # Use authenticated user's tenant_id if available, otherwise fallback to demo tenant
+        tenant_id = current_user.tenant_id if current_user else 1
         
         session = db.query(ExecutionSession).filter(
             ExecutionSession.id == session_id,

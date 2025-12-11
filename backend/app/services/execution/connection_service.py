@@ -52,6 +52,13 @@ class ConnectionService:
                     )
                     
                     if connection:
+                        # Verify connection is active
+                        if not connection.is_active:
+                            raise ValueError(
+                                f"Infrastructure connection for '{ci_name}' is inactive. "
+                                "Please activate the connection in Settings → Infrastructure Connections."
+                            )
+                        
                         # Get credential
                         credential = None
                         if connection.credential_id:
@@ -85,31 +92,12 @@ class ConnectionService:
                         logger.info(f"Using infrastructure connection for CI: {ci_name}")
                         return config
                     
-                    # Try cloud discovery (Azure, GCP, AWS)
-                    from app.services.cloud_discovery import CloudDiscoveryService
-                    vm_info = await CloudDiscoveryService.discover_azure_vm(
-                        db=db,
-                        vm_name=ci_name,
-                        tenant_id=session.tenant_id
+                    # Node not found in InfrastructureConnection - require it to be added first
+                    raise ValueError(
+                        f"Node '{ci_name}' is not configured in Infrastructure Connections. "
+                        "Please add this node to your infrastructure connections first before executing runbooks. "
+                        "You can discover and add nodes from Settings → Infrastructure Connections → Discover Resources."
                     )
-                    
-                    if vm_info:
-                        azure_creds = vm_info.get('azure_credentials') or {}
-                        config = {
-                            "connector_type": "azure_bastion",
-                            "resource_id": vm_info['resource_id'],
-                            "subscription_id": vm_info['subscription_id'],
-                            "ci_name": ci_name,
-                            "connection_id": vm_info.get('connection_id'),
-                            "credential_id": vm_info.get('credential_id'),
-                            "azure_credentials": azure_creds,
-                            "tenant_id": azure_creds.get('tenant_id'),
-                            "client_id": azure_creds.get('client_id'),
-                            "client_secret": azure_creds.get('client_secret'),
-                            "os_type": vm_info.get('os_type'),
-                        }
-                        logger.info(f"Discovered Azure VM: {ci_name}")
-                        return config
                 
                 # Fallback: Check ticket meta_data for connection_config
                 ticket_meta = ticket.meta_data or {}

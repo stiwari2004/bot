@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { Runbook } from '../types';
+import { authFetch } from '@/lib/auth-fetch';
 
 export function useRunbookActions(onRefresh: () => void) {
   const [approving, setApproving] = useState<number | null>(null);
@@ -12,7 +13,7 @@ export function useRunbookActions(onRefresh: () => void) {
     if (!confirm('Are you sure you want to delete this runbook?')) return;
 
     try {
-      const response = await fetch(`/api/v1/runbooks/demo/${id}`, {
+      const response = await authFetch(`/api/v1/runbooks/demo/${id}`, {
         method: 'DELETE',
       });
 
@@ -34,7 +35,7 @@ export function useRunbookActions(onRefresh: () => void) {
 
     try {
       const url = `/api/v1/runbooks/demo/${id}/approve${forceApprove ? '?force_approval=true' : ''}`;
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: 'POST',
       });
 

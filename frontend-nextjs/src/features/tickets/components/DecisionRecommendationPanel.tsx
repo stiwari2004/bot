@@ -5,6 +5,9 @@ import { PlayIcon, ExclamationTriangleIcon, CheckCircleIcon } from '@heroicons/r
 import { apiConfig } from '@/lib/api-config';
 import { PatternFeedbackPanel } from './PatternFeedbackPanel';
 import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 interface Recommendation {
   runbook_id: number | null;
@@ -54,7 +57,14 @@ export function DecisionRecommendationPanel({ ticketId, onExecute, onFeedbackSub
           },
         });
         if (!response.ok) {
-          throw new Error(`Failed to fetch recommendation: ${response.status}`);
+          if (response.status === 401 || response.status === 403) {
+            throw new Error('Authentication required. Please log in again.');
+          } else if (response.status === 404) {
+            throw new Error('Ticket not found or access denied.');
+          } else {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`Failed to fetch recommendation: ${response.status} ${errorText || ''}`);
+          }
         }
         const data = await response.json();
         setRecommendation(data);
@@ -73,106 +83,122 @@ export function DecisionRecommendationPanel({ ticketId, onExecute, onFeedbackSub
 
   if (loading) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-          <span className="text-sm text-gray-600">Loading recommendation...</span>
-        </div>
-      </div>
+      <Card variant="default">
+        <CardContent padding="md">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>
+            <span className="text-sm text-neutral-600 font-medium">Loading recommendation...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-sm text-red-800">Error: {error}</p>
-      </div>
+      <Card variant="outlined" className="border-error-200 bg-error-50">
+        <CardContent padding="md">
+          <p className="text-sm text-error-800 font-medium">Error: {error}</p>
+        </CardContent>
+      </Card>
     );
   }
 
   if (!recommendation) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <p className="text-sm text-gray-600">No recommendation available</p>
-      </div>
+      <Card variant="outlined" className="bg-neutral-50">
+        <CardContent padding="md">
+          <p className="text-sm text-neutral-600">No recommendation available</p>
+        </CardContent>
+      </Card>
     );
   }
 
   const confidencePercent = (recommendation.confidence * 100).toFixed(0);
-  const confidenceColor =
+  const confidenceVariant =
     recommendation.confidence >= 0.8
-      ? 'bg-green-100 text-green-800'
+      ? 'success'
       : recommendation.confidence >= 0.5
-      ? 'bg-yellow-100 text-yellow-800'
-      : 'bg-red-100 text-red-800';
+      ? 'warning'
+      : 'error';
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h4 className="font-medium text-gray-900">AI Recommendation</h4>
-        <span className={`text-xs px-2 py-1 rounded ${confidenceColor}`}>
-          {confidencePercent}% confidence
-        </span>
-      </div>
-
-      {recommendation.runbook_id && recommendation.runbook_title && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <h5 className="font-medium text-gray-900">{recommendation.runbook_title}</h5>
-              {recommendation.pattern_success_rate !== null && (
-                <p className="text-xs text-gray-600 mt-1">
-                  Pattern success rate: {recommendation.pattern_success_rate.toFixed(1)}%
-                </p>
+    <Card variant="elevated">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <h4 className="font-semibold text-neutral-900">AI Recommendation</h4>
+          <Badge variant={confidenceVariant} size="sm">
+            {confidencePercent}% confidence
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent padding="md" className="space-y-4">
+        {recommendation.runbook_id && recommendation.runbook_title && (
+          <Card variant="outlined" className="border-primary-200 bg-primary-50">
+            <CardContent padding="md">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <h5 className="font-semibold text-neutral-900 mb-1">{recommendation.runbook_title}</h5>
+                  {recommendation.pattern_success_rate !== null && (
+                    <p className="text-xs text-neutral-600 mt-1">
+                      Pattern success rate: {recommendation.pattern_success_rate.toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+                {recommendation.should_auto_execute && (
+                  <Badge variant="success" size="sm">Auto-execute</Badge>
+                )}
+              </div>
+              <p className="text-sm text-neutral-700 mb-4">{recommendation.reasoning}</p>
+              {onExecute && recommendation.runbook_id && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => onExecute(recommendation.runbook_id!)}
+                  leftIcon={<PlayIcon className="h-4 w-4" />}
+                >
+                  Execute Recommended Runbook
+                </Button>
               )}
-            </div>
-            {recommendation.should_auto_execute && (
-              <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-800">
-                Auto-execute
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-gray-700 mb-3">{recommendation.reasoning}</p>
-          {onExecute && recommendation.runbook_id && (
-            <button
-              onClick={() => onExecute(recommendation.runbook_id!)}
-              className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-            >
-              <PlayIcon className="h-4 w-4" />
-              Execute Recommended Runbook
-            </button>
-          )}
-        </div>
-      )}
+            </CardContent>
+          </Card>
+        )}
 
-      {recommendation.should_escalate && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
-          <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-yellow-900">Escalation Recommended</p>
-            <p className="text-xs text-yellow-800 mt-1">
-              Low confidence or no matching patterns found. Manual review recommended.
-            </p>
-          </div>
-        </div>
-      )}
+        {recommendation.should_escalate && (
+          <Card variant="outlined" className="border-warning-200 bg-warning-50">
+            <CardContent padding="md">
+              <div className="flex items-start gap-3">
+                <ExclamationTriangleIcon className="h-5 w-5 text-warning-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-warning-900">Escalation Recommended</p>
+                  <p className="text-xs text-warning-800 mt-1">
+                    Low confidence or no matching patterns found. Manual review recommended.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-      {!recommendation.runbook_id && !recommendation.should_escalate && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-          <p className="text-sm text-gray-700">{recommendation.reasoning}</p>
-        </div>
-      )}
+        {!recommendation.runbook_id && !recommendation.should_escalate && (
+          <Card variant="outlined" className="bg-neutral-50">
+            <CardContent padding="md">
+              <p className="text-sm text-neutral-700">{recommendation.reasoning}</p>
+            </CardContent>
+          </Card>
+        )}
 
-      {/* Feedback Panel */}
-      {(recommendation.pattern_id || recommendation.runbook_id) && (
-        <PatternFeedbackPanel
-          patternId={recommendation.pattern_id}
-          recommendationId={recommendation.runbook_id}
-          ticketId={ticketId}
-          onFeedbackSubmitted={onFeedbackSubmitted}
-        />
-      )}
-    </div>
+        {/* Feedback Panel */}
+        {(recommendation.pattern_id || recommendation.runbook_id) && (
+          <PatternFeedbackPanel
+            patternId={recommendation.pattern_id}
+            recommendationId={recommendation.runbook_id}
+            ticketId={ticketId}
+            onFeedbackSubmitted={onFeedbackSubmitted}
+          />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

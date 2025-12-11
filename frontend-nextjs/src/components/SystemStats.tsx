@@ -9,6 +9,9 @@ import {
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 
 interface SystemStatsProps {
   stats: any;
@@ -40,170 +43,215 @@ export function SystemStats({ stats }: SystemStatsProps) {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">System Statistics</h2>
-        <p className="text-gray-600">Monitor your AI troubleshooting system performance and data</p>
+        <h2 className="text-2xl font-bold text-neutral-900 mb-2">System Statistics</h2>
+        <p className="text-neutral-600">Monitor your AI troubleshooting system performance and data</p>
       </div>
 
       {/* Health Status */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">System Health</h3>
-          <button
-            onClick={checkHealth}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Checking...' : 'Refresh'}
-          </button>
-        </div>
-        
-        {healthStatus ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <CheckCircleIcon className="h-8 w-8 text-green-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Status</p>
-                  <p className="text-lg font-semibold text-green-600 capitalize">
-                    {healthStatus.status}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <Cog6ToothIcon className="h-8 w-8 text-blue-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Database</p>
-                  <p className="text-lg font-semibold text-green-600 capitalize">
-                    {healthStatus.database}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <DocumentTextIcon className="h-8 w-8 text-purple-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Tables</p>
-                  <p className="text-lg font-semibold text-green-600 capitalize">
-                    {healthStatus.tables}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <ChartBarIcon className="h-8 w-8 text-orange-600" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-500">Vector Extension</p>
-                  <p className="text-lg font-semibold text-green-600 capitalize">
-                    {healthStatus.vector_extension}
-                  </p>
-                </div>
-              </div>
-            </div>
+      <Card variant="elevated" className="mb-8">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-neutral-900">System Health</h3>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={checkHealth}
+              disabled={loading}
+              isLoading={loading}
+            >
+              {loading ? 'Checking...' : 'Refresh'}
+            </Button>
           </div>
-        ) : (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex">
-              <ExclamationTriangleIcon className="h-5 w-5 text-yellow-400" />
-              <div className="ml-3">
-                <p className="text-sm text-yellow-800">
-                  Unable to fetch health status. Please check if the backend is running.
-                </p>
-              </div>
+        </CardHeader>
+        <CardContent padding="md">
+          {healthStatus ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card variant="default">
+                <CardContent padding="md">
+                  <div className="flex items-center">
+                    <div className="p-2 rounded-lg bg-success-100">
+                      <CheckCircleIcon className="h-6 w-6 text-success-600" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-semibold text-neutral-500">Status</p>
+                      <p className="text-lg font-bold text-success-600 capitalize">
+                        {healthStatus.status}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card variant="default">
+                <CardContent padding="md">
+                  <div className="flex items-center">
+                    <div className="p-2 rounded-lg bg-primary-100">
+                      <Cog6ToothIcon className="h-6 w-6 text-primary-600" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-semibold text-neutral-500">Database</p>
+                      <p className="text-lg font-bold text-success-600 capitalize">
+                        {healthStatus.database}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card variant="default">
+                <CardContent padding="md">
+                  <div className="flex items-center">
+                    <div className="p-2 rounded-lg bg-warning-100">
+                      <DocumentTextIcon className="h-6 w-6 text-warning-600" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-semibold text-neutral-500">Tables</p>
+                      <p className="text-lg font-bold text-success-600 capitalize">
+                        {healthStatus.tables}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card variant="default">
+                <CardContent padding="md">
+                  <div className="flex items-center">
+                    <div className="p-2 rounded-lg bg-error-100">
+                      <ChartBarIcon className="h-6 w-6 text-error-600" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-semibold text-neutral-500">Vector Extension</p>
+                      <p className="text-lg font-bold text-success-600 capitalize">
+                        {healthStatus.vector_extension}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-        )}
-      </div>
+          ) : (
+            <Card variant="outlined" className="border-warning-200 bg-warning-50">
+              <CardContent padding="sm">
+                <div className="flex items-center gap-2">
+                  <ExclamationTriangleIcon className="h-5 w-5 text-warning-600" />
+                  <p className="text-sm text-warning-800 font-medium">
+                    Unable to fetch health status. Please check if the backend is running.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Knowledge Base Statistics */}
       {stats && (
         <div className="space-y-6">
-          <h3 className="text-lg font-semibold text-gray-900">Knowledge Base Statistics</h3>
-          
-          {/* Overall Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <DocumentTextIcon className="h-8 w-8 text-blue-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Documents</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stats.total_documents}
-                  </p>
-                </div>
+          <Card variant="elevated">
+            <CardHeader>
+              <h3 className="text-lg font-semibold text-neutral-900">Knowledge Base Statistics</h3>
+            </CardHeader>
+            <CardContent padding="md">
+              {/* Overall Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <Card variant="default">
+                  <CardContent padding="md">
+                    <div className="flex items-center">
+                      <div className="p-2 rounded-lg bg-primary-100">
+                        <DocumentTextIcon className="h-6 w-6 text-primary-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-semibold text-neutral-500">Total Documents</p>
+                        <p className="text-2xl font-bold text-neutral-900">
+                          {stats.total_documents}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card variant="default">
+                  <CardContent padding="md">
+                    <div className="flex items-center">
+                      <div className="p-2 rounded-lg bg-success-100">
+                        <ChartBarIcon className="h-6 w-6 text-success-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-semibold text-neutral-500">Total Chunks</p>
+                        <p className="text-2xl font-bold text-neutral-900">
+                          {stats.total_chunks}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card variant="default">
+                  <CardContent padding="md">
+                    <div className="flex items-center">
+                      <div className="p-2 rounded-lg bg-warning-100">
+                        <Cog6ToothIcon className="h-6 w-6 text-warning-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-semibold text-neutral-500">Processing Status</p>
+                        <Badge variant="status" status="completed" size="sm" className="mt-1">
+                          Active
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </div>
-            
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <ChartBarIcon className="h-8 w-8 text-green-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Chunks</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stats.total_chunks}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <Cog6ToothIcon className="h-8 w-8 text-purple-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Processing Status</p>
-                  <p className="text-2xl font-semibold text-green-600">
-                    Active
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Source Type Breakdown */}
-          <div>
-            <h4 className="text-md font-medium text-gray-900 mb-4">Documents by Source Type</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {Object.entries(sourceTypeStats).map(([sourceType, count]) => (
-                <div key={sourceType} className="bg-white p-4 rounded-lg border border-gray-200">
-                  <div className="text-center">
-                    <p className="text-2xl font-semibold text-gray-900">{count as number}</p>
-                    <p className="text-sm text-gray-500 capitalize">{sourceType}</p>
-                  </div>
+              {/* Source Type Breakdown */}
+              <div>
+                <h4 className="text-md font-semibold text-neutral-900 mb-4">Documents by Source Type</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {Object.entries(sourceTypeStats).map(([sourceType, count]) => (
+                    <Card key={sourceType} variant="default">
+                      <CardContent padding="md" className="text-center">
+                        <p className="text-2xl font-bold text-neutral-900">{count as number}</p>
+                        <p className="text-sm text-neutral-600 capitalize mt-1">{sourceType}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Quick Actions */}
-          <div className="bg-gray-50 p-6 rounded-lg">
-            <h4 className="text-md font-medium text-gray-900 mb-4">Quick Actions</h4>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => window.open(apiConfig.endpoints.system.testUi(), '_blank')}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
-              >
-                Open Test Interface
-              </button>
-              <button
-                onClick={() => window.open(apiConfig.endpoints.system.docs(), '_blank')}
-                className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700"
-              >
-                View API Docs
-              </button>
-              <button
-                onClick={() => window.open(apiConfig.endpoints.system.health(), '_blank')}
-                className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
-              >
-                Health Check
-              </button>
-            </div>
-          </div>
+          <Card variant="elevated">
+            <CardHeader>
+              <h4 className="text-md font-semibold text-neutral-900">Quick Actions</h4>
+            </CardHeader>
+            <CardContent padding="md">
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => window.open(apiConfig.endpoints.system.testUi(), '_blank')}
+                >
+                  Open Test Interface
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => window.open(apiConfig.endpoints.system.docs(), '_blank')}
+                >
+                  View API Docs
+                </Button>
+                <Button
+                  variant="success"
+                  size="sm"
+                  onClick={() => window.open(apiConfig.endpoints.system.health(), '_blank')}
+                >
+                  Health Check
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     executions,
     agent_workers,
     network,
+    setup,
 )
 
 # Import new Phase 2 endpoints
@@ -67,6 +68,13 @@ api_router.include_router(test.router, prefix="/test", tags=["testing"])
 api_router.include_router(demo.router, prefix="/demo", tags=["demo"])
 api_router.include_router(test_auth.router, prefix="/test-auth", tags=["test-auth"])
 
+# Setup endpoints (for first-run configuration)
+try:
+    from app.api.v1.endpoints import setup
+    api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
+except ImportError:
+    pass  # setup module not available
+
 # Include Phase 2 endpoints if available
 if ticket_ingestion:
     api_router.include_router(ticket_ingestion.router, prefix="/tickets", tags=["ticket-ingestion"])
@@ -90,5 +98,41 @@ if decision:
     api_router.include_router(decision.router, prefix="/decision", tags=["decision"])
 if resolution:
     api_router.include_router(resolution.router, prefix="/resolution", tags=["resolution"])
+
+# Super Admin endpoints (platform-level management)
+try:
+    from app.api.v1.endpoints import super_admin_auth, super_admin
+    api_router.include_router(super_admin_auth.router, prefix="/super-admin/auth", tags=["super-admin-auth"])
+    api_router.include_router(super_admin.router, prefix="/super-admin", tags=["super-admin"])
+except ImportError:
+    pass  # Super admin modules not available
+
+# Billing endpoints (Super Admin only)
+try:
+    from app.api.v1.endpoints import billing
+    api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
+except ImportError:
+    pass  # Billing module not available
+
+# Tenant Admin endpoints (for MSPs to manage their customers)
+try:
+    from app.api.v1.endpoints import tenant_admin
+    api_router.include_router(tenant_admin.router, prefix="/tenant-admin", tags=["tenant-admin"])
+except ImportError:
+    pass  # Tenant admin module not available
+
+# Subscription endpoints (Super Admin only)
+try:
+    from app.api.v1.endpoints import subscriptions
+    api_router.include_router(subscriptions.router, prefix="/subscriptions", tags=["subscriptions"])
+except ImportError:
+    pass  # Subscriptions module not available
+
+# Client Admin endpoints (for tenant admins to manage their own tenant)
+try:
+    from app.api.v1.endpoints import client_admin
+    api_router.include_router(client_admin.router, prefix="/client-admin", tags=["client-admin"])
+except ImportError:
+    pass  # Client admin module not available
 
 

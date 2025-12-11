@@ -34,27 +34,23 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    env_file:
+      - ./backend/.env  # Load ALL environment variables from backend/.env file (single source of truth)
+      # SECURITY: Never hardcode API keys or secrets here - use .env file only
     environment:
-      # SECURITY: These values are for LOCAL DEVELOPMENT ONLY
-      # For production, use environment variables or secrets management
-      # 
-      # IMPORTANT: Set these in a .env file in the backend/ directory:
-      #   SECRET_KEY=<your-generated-key>
-      #   CREDENTIAL_ENCRYPTION_KEY=<your-generated-key>
-      # 
-      # Generate secure values:
-      #   SECRET_KEY: python -c 'import secrets; print(secrets.token_urlsafe(32))'
-      #   CREDENTIAL_ENCRYPTION_KEY: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+      # Only override values that MUST be different in Docker vs local development
+      # All sensitive values (GEMINI_API_KEY, SECRET_KEY, etc.) MUST come from backend/.env
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/troubleshooting_ai
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-temp-allow-in-development-only-change-me}
-      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY:-mkEobHr9CF2zTF8xJHVGVuySweN7KFvbus3rTdiZy5Y=}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - LLM_PROVIDER=llamacpp
       - LLAMACPP_BASE_URL=http://host.docker.internal:11434
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true
-      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,9 +73,10 @@ services:
       - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY:-}
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_started
+    restart: on-failure
     volumes:
       - ./backend:/app
     command: python -m worker.main

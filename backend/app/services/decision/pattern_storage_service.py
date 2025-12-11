@@ -187,3 +187,10 @@ class PatternStorageService:
         )
 
 
+
+
+
+
+
+
+

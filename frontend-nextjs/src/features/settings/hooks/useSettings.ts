@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type {
   ExecutionMode,
   TicketingConnection,
@@ -12,6 +14,7 @@ import type {
 } from '../types';
 
 export function useSettings() {
+  const { token } = useAuth();
   const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null);
   const [ticketingConnections, setTicketingConnections] = useState<TicketingConnection[]>([]);
   const [availableTools, setAvailableTools] = useState<TicketingTool[]>([]);
@@ -40,8 +43,9 @@ export function useSettings() {
   }, []);
 
   const fetchTicketingConnections = useCallback(async () => {
+    if (!token) return;
     try {
-      const response = await fetch(apiConfig.endpoints.settings.ticketingConnections());
+      const response = await authFetch(apiConfig.endpoints.settings.ticketingConnections());
       if (!response.ok) {
         throw new Error('Failed to fetch ticketing connections');
       }
@@ -50,11 +54,12 @@ export function useSettings() {
     } catch (err) {
       console.error('Failed to fetch ticketing connections:', err);
     }
-  }, []);
+  }, [token]);
 
   const fetchInfrastructureConnections = useCallback(async () => {
+    if (!token) return;
     try {
-      const response = await fetch(apiConfig.endpoints.connectors.infrastructureConnections());
+      const response = await authFetch(apiConfig.endpoints.connectors.infrastructureConnections());
       if (!response.ok) {
         throw new Error('Failed to fetch infrastructure connections');
       }
@@ -63,11 +68,12 @@ export function useSettings() {
     } catch (err) {
       console.error('Failed to fetch infrastructure connections:', err);
     }
-  }, []);
+  }, [token]);
 
   const fetchMonitoringConnections = useCallback(async () => {
+    if (!token) return;
     try {
-      const response = await fetch(apiConfig.endpoints.connectors.monitoringConnections());
+      const response = await authFetch(apiConfig.endpoints.connectors.monitoringConnections());
       if (!response.ok) {
         throw new Error('Failed to fetch monitoring connections');
       }
@@ -76,11 +82,12 @@ export function useSettings() {
     } catch (err) {
       console.error('Failed to fetch monitoring connections:', err);
     }
-  }, []);
+  }, [token]);
 
   const fetchCredentials = useCallback(async () => {
+    if (!token) return;
     try {
-      const response = await fetch(apiConfig.endpoints.connectors.credentials());
+      const response = await authFetch(apiConfig.endpoints.connectors.credentials());
       if (!response.ok) {
         throw new Error('Failed to fetch credentials');
       }
@@ -89,7 +96,7 @@ export function useSettings() {
     } catch (err) {
       console.error('Failed to fetch credentials:', err);
     }
-  }, []);
+  }, [token]);
 
   const fetchAvailableTools = useCallback(async () => {
     try {

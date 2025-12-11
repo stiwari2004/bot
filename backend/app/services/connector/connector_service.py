@@ -2,6 +2,7 @@
 Connector service for business logic: testing, discovery, command execution
 """
 from typing import Dict, Any, Optional, List
+from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.credential import Credential, InfrastructureConnection
 from app.services.credential_service import get_credential_service
@@ -279,6 +280,139 @@ class ConnectorService:
             "connection_name": infra_conn.name,
             "resources": connection_vms,
             "total": len(connection_vms)
+        }
+    
+    async def save_discovered_resources(
+        self,
+        db: Session,
+        connection_id: int,
+        tenant_id: int,
+        resource_ids: List[str],
+        environment: str = "prod"
+    ) -> Dict[str, Any]:
+        """
+        Save discovered resources as InfrastructureConnection entries.
+        
+        Args:
+            connection_id: The cloud account connection ID
+            resource_ids: List of resource IDs to save (from discovery)
+            environment: Environment for the new connections (prod, staging, dev)
+        
+        Returns:
+            Dict with created_count, skipped_count, and created_connections
+        """
+        from app.repositories.infrastructure_repository import InfrastructureRepository
+        from app.models.credential import InfrastructureConnection
+        
+        # Get the parent cloud account connection
+        infra_conn = db.query(InfrastructureConnection).filter(
+            InfrastructureConnection.id == connection_id,
+            InfrastructureConnection.tenant_id == tenant_id,
+            InfrastructureConnection.is_active == True
+        ).first()
+        
+        if not infra_conn:
+            raise ValueError("Infrastructure connection not found")
+        
+        # Get discovered resources
+        discovery_result = await self.discover_cloud_resources(db, connection_id, tenant_id)
+        discovered_resources = discovery_result.get("resources", [])
+        
+        # Filter to only requested resource_ids
+        resources_to_save = [
+            r for r in discovered_resources
+            if r.get("resource_id") in resource_ids
+        ]
+        
+        if not resources_to_save:
+            return {
+                "created_count": 0,
+                "skipped_count": 0,
+                "created_connections": [],
+                "message": "No matching resources found in discovery results"
+            }
+        
+        infra_repo = InfrastructureRepository(db)
+        created_count = 0
+        skipped_count = 0
+        created_connections = []
+        
+        for resource in resources_to_save:
+            resource_id = resource.get("resource_id")
+            vm_name = resource.get("name") or resource.get("vm_name")
+            resource_group = resource.get("resource_group")
+            
+            if not vm_name:
+                logger.warning(f"Skipping resource {resource_id}: missing name")
+                skipped_count += 1
+                continue
+            
+            # Check if connection already exists (by name)
+            existing = db.query(InfrastructureConnection).filter(
+                InfrastructureConnection.tenant_id == tenant_id,
+                InfrastructureConnection.name == vm_name,
+                InfrastructureConnection.is_active == True
+            ).first()
+            
+            if existing:
+                logger.info(f"Skipping {vm_name}: already exists as connection {existing.id}")
+                skipped_count += 1
+                continue
+            
+            # Create metadata for the new connection
+            meta_data = {
+                "resource_id": resource_id,
+                "subscription_id": resource.get("subscription_id"),
+                "resource_group": resource_group,
+                "vm_name": vm_name,
+                "os_type": resource.get("os_type"),
+                "discovered_from_connection_id": connection_id,
+                "discovered_at": datetime.utcnow().isoformat()
+            }
+            
+            # Create new InfrastructureConnection
+            try:
+                new_connection = infra_repo.create_connection(
+                    tenant_id=tenant_id,
+                    credential_id=infra_conn.credential_id,  # Use same credential as parent
+                    name=vm_name,
+                    connection_type="azure_bastion",  # Or determine from resource type
+                    target_host=None,  # Will be resolved from resource_id
+                    target_port=None,
+                    target_service=None,
+                    environment=environment,
+                    meta_data=json.dumps(meta_data),
+                    is_active=True
+                )
+                
+                db.flush()
+                created_count += 1
+                created_connections.append({
+                    "id": new_connection.id,
+                    "name": new_connection.name,
+                    "resource_id": resource_id
+                })
+                
+                logger.info(f"Created InfrastructureConnection {new_connection.id} for discovered resource {vm_name}")
+                
+            except Exception as e:
+                logger.error(f"Error creating connection for {vm_name}: {e}", exc_info=True)
+                skipped_count += 1
+                continue
+        
+        db.commit()
+        
+        # Update subscription usage after creating connections
+        if created_count > 0:
+            from app.services.subscription.subscription_tracker import SubscriptionTracker
+            tracker = SubscriptionTracker(db)
+            tracker.update_usage(tenant_id)
+        
+        return {
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+            "created_connections": created_connections,
+            "message": f"Created {created_count} connection(s), skipped {skipped_count}"
         }
     
     async def test_command_on_vm(

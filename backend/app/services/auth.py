@@ -39,6 +39,8 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return None
+    if not user.is_active:
+        return None  # Inactive users cannot authenticate
     if not verify_password(password, user.password_hash):
         return None
     return user
@@ -58,23 +60,49 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     """Get current authenticated user"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    # Log token presence (but not the actual token value for security)
+    if not token:
+        logger.warning("No token provided in request")
+        raise credentials_exception
+    
+    logger.info(f"Token received (length: {len(token) if token else 0})")
+    
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email: str = payload.get("sub")
+        tenant_id = payload.get("tenant_id")
         if email is None:
+            logger.warning(f"JWT token missing 'sub' claim. Payload keys: {list(payload.keys())}")
             raise credentials_exception
-    except JWTError:
+        logger.info(f"JWT decoded successfully for email: {email}, tenant_id: {tenant_id}")
+    except JWTError as e:
+        logger.error(f"JWT decode error: {type(e).__name__}: {e}")
         raise credentials_exception
     
     user = db.query(User).filter(User.email == email).first()
     if user is None:
+        logger.warning(f"User not found for email: {email}")
         raise credentials_exception
+    
+    # Check if user is active
+    if not user.is_active:
+        logger.warning(f"User {email} is inactive")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    logger.debug(f"Authenticated user: {email}, tenant_id: {user.tenant_id}, active: {user.is_active}")
     return user
 
 
@@ -97,3 +125,27 @@ async def get_current_user_optional(
     
     user = db.query(User).filter(User.email == email).first()
     return user
+
+
+async def get_current_admin_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Get current user and verify they have admin role (tenant admin)"""
+    if current_user.role not in ["admin", "super_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return current_user
+
+
+async def get_current_super_admin_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Get current user and verify they have super_admin role (platform admin)"""
+    if current_user.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access required"
+        )
+    return current_user

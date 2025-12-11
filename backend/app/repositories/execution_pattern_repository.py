@@ -67,3 +67,10 @@ class ExecutionPatternRepository(BaseRepository[ExecutionPattern]):
             ExecutionPattern.is_deprecated == 'false'
         ).order_by(ExecutionPattern.quality_score.asc()).limit(limit).all()
 
+
+
+
+
+
+
+

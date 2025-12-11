@@ -59,9 +59,16 @@ class TestCommandRequest(BaseModel):
 class ConnectorController(BaseController):
     """Controller for connector operations"""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, tenant_id: int = 1):
+        """
+        Initialize connector controller
+        
+        Args:
+            db: Database session
+            tenant_id: Tenant ID (defaults to 1 for backward compatibility, but should be provided)
+        """
         self.db = db
-        self.tenant_id = 1  # Demo tenant
+        self.tenant_id = tenant_id
         self.credential_repo = CredentialRepository(db)
         self.infrastructure_repo = InfrastructureRepository(db)
         self.connector_service = ConnectorService()
@@ -160,6 +167,13 @@ class ConnectorController(BaseController):
     def create_infrastructure_connection(self, connection: InfrastructureConnectionCreate) -> Dict[str, Any]:
         """Create a new infrastructure connection"""
         try:
+            # Check subscription node limit
+            from app.services.subscription.subscription_tracker import SubscriptionTracker
+            tracker = SubscriptionTracker(self.db)
+            allowed, error_msg = tracker.check_node_limit(self.tenant_id)
+            if not allowed:
+                raise self.bad_request(error_msg or "Node limit reached")
+            
             # Create connection using repository
             infra_conn = self.infrastructure_repo.create_connection(
                 tenant_id=self.tenant_id,
@@ -306,6 +320,23 @@ class ConnectorController(BaseController):
         except Exception as e:
             logger.error(f"Error discovering cloud resources: {e}")
             raise self.handle_error(e, "Failed to discover resources")
+    
+    async def save_discovered_resources(
+        self,
+        connection_id: int,
+        resource_ids: List[str],
+        environment: str = "prod"
+    ) -> Dict[str, Any]:
+        """Save discovered resources as InfrastructureConnection entries"""
+        try:
+            return await self.connector_service.save_discovered_resources(
+                self.db, connection_id, self.tenant_id, resource_ids, environment
+            )
+        except ValueError as e:
+            raise self.bad_request(str(e))
+        except Exception as e:
+            logger.error(f"Error saving discovered resources: {e}")
+            raise self.handle_error(e, "Failed to save discovered resources")
     
     async def test_command_on_vm(
         self,

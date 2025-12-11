@@ -4,8 +4,10 @@ Manage connections to user environments (SSH, databases, APIs, cloud)
 """
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Dict, Any
 from app.core.database import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.controllers.connector_controller import (
     ConnectorController,
     CredentialCreate,
@@ -24,30 +26,33 @@ router = APIRouter()
 @router.post("/credentials")
 async def create_credential(
     credential: CredentialCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new credential"""
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.create_credential(credential)
 
 
 @router.get("/credentials")
 async def list_credentials(
     db: Session = Depends(get_db),
-    environment: Optional[str] = None
+    environment: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
 ):
-    """List all credentials"""
-    controller = ConnectorController(db)
+    """List all credentials for the current tenant"""
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.list_credentials(environment)
 
 
 @router.post("/infrastructure-connections")
 async def create_infrastructure_connection(
     connection: InfrastructureConnectionCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new infrastructure connection"""
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.create_infrastructure_connection(connection)
 
 
@@ -55,10 +60,11 @@ async def create_infrastructure_connection(
 async def list_infrastructure_connections(
     db: Session = Depends(get_db),
     connection_type: Optional[str] = None,
-    environment: Optional[str] = None
+    environment: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
 ):
-    """List all infrastructure connections"""
-    controller = ConnectorController(db)
+    """List all infrastructure connections for the current tenant"""
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.list_infrastructure_connections(environment, connection_type)
 
 
@@ -66,55 +72,90 @@ async def list_infrastructure_connections(
 async def update_infrastructure_connection(
     connection_id: int,
     connection: InfrastructureConnectionCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update an existing infrastructure connection"""
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.update_infrastructure_connection(connection_id, connection)
 
 
 @router.delete("/infrastructure-connections/{connection_id}")
 async def delete_infrastructure_connection(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Delete an infrastructure connection (soft delete by setting is_active=False)"""
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.delete_infrastructure_connection(connection_id)
 
 
 @router.post("/infrastructure-connections/{connection_id}/test")
 async def test_infrastructure_connection(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Test infrastructure connection by validating credentials and connectivity"""
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return controller.test_connection(connection_id)
 
 
 @router.get("/infrastructure-connections/{connection_id}/discover")
 async def discover_cloud_resources(
     connection_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Discover resources (VMs, instances) from a cloud account connection"""
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return await controller.discover_cloud_resources(connection_id)
+
+
+@router.post("/infrastructure-connections/{connection_id}/save-discovered")
+async def save_discovered_resources(
+    connection_id: int,
+    request: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Save discovered resources as InfrastructureConnection entries.
+    
+    Request body:
+    {
+        "resource_ids": ["/subscriptions/.../resourceGroups/.../providers/.../virtualMachines/vm1", ...],
+        "environment": "prod"  # optional, defaults to "prod"
+    }
+    """
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
+    resource_ids = request.get("resource_ids", [])
+    environment = request.get("environment", "prod")
+    
+    if not resource_ids:
+        raise HTTPException(status_code=400, detail="resource_ids is required")
+    
+    return await controller.save_discovered_resources(
+        connection_id=connection_id,
+        resource_ids=resource_ids,
+        environment=environment
+    )
 
 
 @router.post("/infrastructure-connections/{connection_id}/test-command")
 async def test_command_on_vm(
     connection_id: int,
     request: TestCommandRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Execute a test command on an Azure VM via Run Command API.
     
     This endpoint allows direct command execution for testing purposes.
     """
-    controller = ConnectorController(db)
+    controller = ConnectorController(db, tenant_id=current_user.tenant_id)
     return await controller.test_command_on_vm(connection_id, request)
 
 

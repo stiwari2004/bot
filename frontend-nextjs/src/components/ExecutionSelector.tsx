@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { PlayIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import { RunbookExecutionViewer } from '@/features/executions';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface Runbook {
   id: number;
@@ -134,10 +136,9 @@ export function ExecutionSelector() {
                 <div className="text-sm text-gray-500">
                   Confidence: {((runbook.confidence || 0) * 100).toFixed(0)}%
                 </div>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
+                <Button variant="primary" size="sm" leftIcon={<PlayIcon className="h-4 w-4" />}>
                   Execute
-                  <PlayIcon className="h-4 w-4 ml-2" />
-                </button>
+                </Button>
               </div>
             </div>
           ))}

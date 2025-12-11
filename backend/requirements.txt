@@ -43,6 +43,9 @@ azure-mgmt-compute==30.3.0
 azure-mgmt-network==30.0.0
 azure-mgmt-resource==23.1.0
 
+# Google Gemini SDK
+google-genai==0.2.2
+
 # Development
 pytest==7.4.3
 pytest-asyncio==0.21.1

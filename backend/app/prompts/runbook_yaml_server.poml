@@ -1,0 +1,132 @@
+# Service-specific instructions for SERVER runbooks
+# Common instructions are loaded from common_instructions.toml
+
+system = '''You are generating a runbook for SERVER issues.
+
+SERVICE-SPECIFIC CONTEXT:
+- Server issues include: CPU/memory/disk/network utilization, process issues, service failures
+- Use OS-specific commands: Windows (PowerShell) or Linux (shell commands)
+- Get-Counter format: Get-Counter -Counter '\Processor(_Total)\% Processor Time' (single quotes, single backslashes)
+- Use {{server_name}} placeholder for server names
+
+COMMAND FORMATTING:
+- Windows: Use PowerShell commands (Get-Counter, Get-Process, Stop-Process, Restart-Service, etc.)
+- Linux: Use shell commands (top, ps, free, df, kill, systemctl, etc.)
+
+REMEDIATION COMMANDS (Windows):
+- Stop-Process -Id <pid> -Force (kill process)
+- Restart-Service <name> (restart service)
+- Clear-EventLog -LogName <name> (clear logs)
+- Remove-Item -Path <path> -Recurse -Force (delete files/folders)
+
+REMEDIATION COMMANDS (Linux):
+- kill -9 <pid> (kill process)
+- systemctl restart <service> (restart service)
+- rm -rf <path> (delete files/folders)
+- truncate -s 0 <logfile> (clear log file)
+'''
+
+user_template = '''Generate a troubleshooting runbook YAML for this SERVER issue.
+
+ISSUE: {issue_description}
+SERVICE: {service}
+ENV: {env}
+RISK: {risk}
+OS TYPE: {os_type}
+
+CONTEXT (similar runbooks for reference):
+{context}
+
+THINK:
+1. What metric is mentioned? (CPU/memory/disk/network)
+2. What OS? (Windows/Linux)
+3. What's the problem? (high utilization, full, slow, error)
+4. What commands should I use? (Windows: Get-Counter/Get-Process, Linux: top/ps/free/df)
+
+PLAN:
+- Precheck 1: Check the actual metric (e.g., CPU usage for CPU issues)
+- Precheck 2: Validate connectivity or system state
+- Precheck 3: Additional validation
+- Steps: Use iterative troubleshooting pattern (3-30 steps allowed)
+  * Diagnose -> Remediate -> Diagnose -> Remediate -> Verify pattern
+  * Consider branching: if first fix fails, try alternative fix
+  * At least 2 steps must be remediation (40% minimum remediation ratio)
+- Postcheck: Verify same metric is now normal
+
+BRANCHING RECOMMENDATION:
+For complex issues, use branching to try alternative fixes:
+- Step 1: Try primary fix (on_success: 2, on_failure: 3)
+- Step 2: Verify primary fix worked
+- Step 3: Try alternative fix (on_success: 4, on_failure: 5)
+- Step 4: Verify alternative fix worked
+- Step 5: Escalate if both failed
+
+EACH STEP MUST INCLUDE:
+- name: [Step name]
+  type: command
+  command: [OS-specific command]
+  description: [What this step does]
+  expected_output: [Expected result]
+  purpose: diagnose OR remediate OR verify (MANDATORY - see rules below)
+  severity: safe OR moderate OR high
+  skip_in_auto_mode: false
+- requires_metric: which metric it uses (cpu, memory_percent, disk_free, network_latency, etc.) - optional
+- captures_variable: optional variable name to store data
+- depends_on: optional list of variables this step needs
+
+PURPOSE FIELD RULES - CRITICAL:
+The "purpose:" field is MANDATORY and must be set correctly:
+- purpose: diagnose - For steps that ONLY gather information (Get-Process, Get-Counter, top, ps, free, df, systemctl status, journalctl)
+- purpose: remediate - For steps that FIX issues (Stop-Process, Restart-Service, kill, systemctl restart, rm, truncate, clear)
+- purpose: verify - For the final step that confirms the issue is resolved
+
+EXAMPLES:
+Windows:
+- "Get-Process | Sort-Object CPU -Descending" -> purpose: diagnose (only lists processes)
+- "Stop-Process -Id 1234 -Force" -> purpose: remediate (kills process)
+- "Restart-Service w3svc" -> purpose: remediate (restarts service)
+- "Clear-EventLog -LogName Application" -> purpose: remediate (clears logs)
+
+Linux:
+- "ps aux | grep process" -> purpose: diagnose (only lists processes)
+- "kill -9 1234" -> purpose: remediate (kills process)
+- "systemctl restart nginx" -> purpose: remediate (restarts service)
+- "truncate -s 0 /var/log/app.log" -> purpose: remediate (clears log file)
+
+MANDATORY: At least 2 of your steps MUST have "purpose: remediate". At least 40% of steps should be remediation. You can have multiple diagnostic steps for iterative troubleshooting. Diagnostic-only runbooks will be REJECTED.
+
+Generate the YAML following the structure:
+runbook_id: rb-server-[keyword]
+version: 1.0.0
+title: Fix [issue summary]
+service: {service}
+env: {env}
+risk: {risk}
+description: [Single-line description of issue and impact]
+
+inputs:
+- name: server_name
+  type: string
+  required: true
+  description: Target server hostname or IP address
+
+prechecks:
+- description: [Check the actual metric from issue]
+  command: [OS-specific command to check metric]
+  expected_output: [What to expect]
+- description: [Validate connectivity/system state]
+  command: [ping or system check]
+  expected_output: [Expected result]
+- description: [Additional validation]
+  command: [Relevant check]
+  expected_output: [Expected result]
+
+steps:
+[Generate 3-30 steps following iterative pattern: diagnose -> remediate -> diagnose -> remediate -> verify. Use branching (on_success/on_failure) for alternative fixes if needed.]
+
+postchecks:
+- description: [Verify the metric from issue is now normal]
+  command: [Same metric check as precheck 1]
+  expected_output: [Metric is now below threshold]
+'''
+

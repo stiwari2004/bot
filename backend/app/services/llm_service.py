@@ -565,19 +565,37 @@ class PerplexityLLMService:
             return ""
 
 
-def get_llm_service() -> LlamaCppLLMService:
+def get_llm_service():
     """Get or create the global LLM service instance.
     
-    Always uses llama.cpp for runbook generation.
+    Priority:
+    1. Gemini 2.0 Flash (if GEMINI_API_KEY is set) - recommended for accuracy
+    2. Ollama/Llama (fallback if LLAMACPP_BASE_URL is set)
+    
     Perplexity is only used for command validation/verification (via RunbookCommandValidator).
     """
     global llm_service
     
     if llm_service is None:
-        # Always use llama.cpp for main runbook generation
-        # Perplexity is only used for web search validation (via RunbookCommandValidator)
-        llm_service = LlamaCppLLMService()
-        logger.info("Using llama.cpp LLM service for runbook generation")
+            # Check for Gemini first (preferred for accuracy)
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            # Only initialize Gemini if API key is set and not empty
+            if gemini_api_key and gemini_api_key.strip():
+                try:
+                    from app.services.llm_service_gemini import GeminiLLMService
+                    # Default uses n-1 strategy: stable gemini-2.5-flash (not experimental)
+                    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+                    llm_service = GeminiLLMService(api_key=gemini_api_key, model=model)
+                    logger.info(f"✅ Using Google Gemini LLM service (model: {model})")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Gemini: {e}. Falling back to Ollama.")
+                    logger.exception("Gemini initialization error details:", exc_info=True)
+                    llm_service = LlamaCppLLMService()
+                    logger.info("Using llama.cpp LLM service (fallback)")
+            else:
+                # Fallback to Ollama
+                llm_service = LlamaCppLLMService()
+                logger.info("Using llama.cpp LLM service (no GEMINI_API_KEY set or empty)")
     
     return llm_service
 

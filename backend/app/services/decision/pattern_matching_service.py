@@ -254,3 +254,10 @@ class PatternMatchingService:
         
         return patterns
 
+
+
+
+
+
+
+

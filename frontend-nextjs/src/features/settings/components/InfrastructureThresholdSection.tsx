@@ -7,6 +7,8 @@ import {
   CheckIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface InfrastructureThreshold {
   metric: string;
@@ -143,134 +145,155 @@ export function InfrastructureThresholdSection({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-600">Loading infrastructure thresholds...</span>
-        </div>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="lg">
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-neutral-600 font-medium">Loading infrastructure thresholds...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
-      <div className="flex items-center mb-6">
-        <ServerIcon className="h-6 w-6 text-indigo-600 mr-2" />
-        <h3 className="text-lg font-semibold text-gray-900">Infrastructure Thresholds</h3>
-      </div>
-      <p className="text-sm text-gray-600 mb-6">
-        Configure thresholds for infrastructure metrics (CPU, Memory, Disk, Network) used by
-        precheck analysis to determine if reported issues are false positives. If a metric is below
-        the warning threshold, the ticket will be closed as a false positive.
-      </p>
-
-      <div className="space-y-6">
-        {Object.entries(groupedByMetric).map(([metric, metricThresholds]) => (
-          <div key={metric} className="border border-gray-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-gray-900 mb-4">
-              {getMetricLabel(metric)}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {metricThresholds.map((threshold) => {
-                const key = `${threshold.metric}_${threshold.environment}`;
-                const isEditing = editingKey === key;
-
-                return (
-                  <div
-                    key={key}
-                    className="border border-gray-200 rounded-lg p-3 bg-gray-50"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium text-gray-700">
-                        {getEnvironmentLabel(threshold.environment)}
-                      </span>
-                    </div>
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        <div>
-                          <label className="text-xs text-gray-600">Warning (%)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.1"
-                            value={editWarning}
-                            onChange={(e) => setEditWarning(parseFloat(e.target.value) || 0)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            disabled={saving}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-gray-600">Critical (%)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.1"
-                            value={editCritical}
-                            onChange={(e) => setEditCritical(parseFloat(e.target.value) || 0)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={() =>
-                              handleSave(threshold.metric, threshold.environment)
-                            }
-                            disabled={saving}
-                            className="flex-1 p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-50 text-xs"
-                            title="Save"
-                          >
-                            <CheckIcon className="h-4 w-4 mx-auto" />
-                          </button>
-                          <button
-                            onClick={handleCancel}
-                            disabled={saving}
-                            className="flex-1 p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50 text-xs"
-                            title="Cancel"
-                          >
-                            <XMarkIcon className="h-4 w-4 mx-auto" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-600">Warning:</span>
-                          <span className="text-sm font-semibold text-yellow-600">
-                            {threshold.warning_threshold}%
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-600">Critical:</span>
-                          <span className="text-sm font-semibold text-red-600">
-                            {threshold.critical_threshold}%
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => handleEdit(threshold)}
-                          className="mt-2 w-full p-1 text-gray-600 hover:bg-gray-100 rounded transition-colors text-xs"
-                          title="Edit"
-                        >
-                          <PencilIcon className="h-3 w-3 mx-auto" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+    <Card variant="elevated">
+      <CardHeader>
+        <div className="flex items-center mb-2">
+          <div className="p-1.5 rounded-lg bg-primary-100 mr-3">
+            <ServerIcon className="h-6 w-6 text-primary-600" />
           </div>
-        ))}
-      </div>
-
-      {thresholds.length === 0 && (
-        <div className="text-center py-8 text-gray-500">
-          <p>No infrastructure thresholds found. Default values will be used.</p>
+          <h3 className="text-xl font-semibold text-neutral-900">Infrastructure Thresholds</h3>
         </div>
-      )}
-    </div>
+        <p className="text-sm text-neutral-600">
+          Configure thresholds for infrastructure metrics (CPU, Memory, Disk, Network) used by
+          precheck analysis to determine if reported issues are false positives. If a metric is below
+          the warning threshold, the ticket will be closed as a false positive.
+        </p>
+      </CardHeader>
+      <CardContent padding="md">
+        {thresholds.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-neutral-500">No infrastructure thresholds found. Default values will be used.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {Object.entries(groupedByMetric).map(([metric, metricThresholds]) => (
+              <Card key={metric} variant="default">
+                <CardContent padding="md">
+                  <h4 className="text-sm font-semibold text-neutral-900 mb-4">
+                    {getMetricLabel(metric)}
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {metricThresholds.map((threshold) => {
+                      const key = `${threshold.metric}_${threshold.environment}`;
+                      const isEditing = editingKey === key;
+
+                      return (
+                        <Card
+                          key={key}
+                          variant="outlined"
+                          className="bg-neutral-50"
+                        >
+                          <CardContent padding="sm">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-semibold text-neutral-700">
+                                {getEnvironmentLabel(threshold.environment)}
+                              </span>
+                            </div>
+                            {isEditing ? (
+                              <div className="space-y-3">
+                                <div>
+                                  <label className="text-xs font-semibold text-neutral-600 mb-1 block">Warning (%)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    value={editWarning}
+                                    onChange={(e) => setEditWarning(parseFloat(e.target.value) || 0)}
+                                    className="w-full px-2 py-1.5 border-2 border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                                    disabled={saving}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs font-semibold text-neutral-600 mb-1 block">Critical (%)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    value={editCritical}
+                                    onChange={(e) => setEditCritical(parseFloat(e.target.value) || 0)}
+                                    className="w-full px-2 py-1.5 border-2 border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                                    disabled={saving}
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2 pt-1">
+                                  <Button
+                                    variant="success"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleSave(threshold.metric, threshold.environment)
+                                    }
+                                    disabled={saving}
+                                    leftIcon={<CheckIcon className="h-4 w-4" />}
+                                    className="flex-1"
+                                    title="Save"
+                                  >
+                                    Save
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleCancel}
+                                    disabled={saving}
+                                    leftIcon={<XMarkIcon className="h-4 w-4" />}
+                                    className="flex-1"
+                                    title="Cancel"
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-neutral-600">Warning:</span>
+                                  <span className="text-sm font-semibold text-warning-600">
+                                    {threshold.warning_threshold}%
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-neutral-600">Critical:</span>
+                                  <span className="text-sm font-semibold text-error-600">
+                                    {threshold.critical_threshold}%
+                                  </span>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEdit(threshold)}
+                                  leftIcon={<PencilIcon className="h-3 w-3" />}
+                                  className="mt-2 w-full"
+                                  title="Edit"
+                                >
+                                  Edit
+                                </Button>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -30,7 +30,7 @@ class CheckItem(BaseModel):
 
 
 class RunbookStep(BaseModel):
-    """Step in a runbook"""
+    """Step in a runbook with support for conditional branching"""
     name: str
     type: Literal["command", "manual", "prompt"] = "command"
     command: Optional[str] = None
@@ -38,7 +38,11 @@ class RunbookStep(BaseModel):
     expected_output: Optional[str] = None
     skip_in_auto_mode: Optional[bool] = False
     timeout: Optional[int] = None
-    on_fail: Optional[str] = None
+    on_fail: Optional[str] = None  # Legacy: kept for backward compatibility
+    # Branching support: step_number to jump to (integer)
+    step_number: Optional[int] = None  # Optional explicit step number (for branching)
+    on_success: Optional[int] = None  # Jump to step_number on success
+    on_failure: Optional[int] = None  # Jump to step_number on failure (preferred over on_fail)
     severity: Optional[CommandSeverity] = None
     purpose: Literal["precheck", "diagnose", "remediate", "postcheck", "verify"] = "diagnose"
     requires_metric: Optional[str] = None
@@ -67,8 +71,8 @@ class RunbookYAML(BaseModel):
     def validate_steps_not_empty(cls, v):
         if not v:
             raise ValueError("steps list cannot be empty")
-        if len(v) > 20:
-            raise ValueError("steps list cannot exceed 20 steps")
+        if len(v) > 30:  # Increased limit to support branching scenarios
+            raise ValueError("steps list cannot exceed 30 steps")
         return v
 
     @field_validator('runbook_id')

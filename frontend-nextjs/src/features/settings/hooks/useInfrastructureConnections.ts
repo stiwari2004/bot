@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type { InfrastructureConnection } from '../types';
 
 export function useInfrastructureConnections(
@@ -19,7 +20,7 @@ export function useInfrastructureConnections(
     try {
       onError('');
       const url = apiConfig.endpoints.connectors.infrastructureConnectionTest(connectionId);
-      const response = await fetch(url, { 
+      const response = await authFetch(url, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -53,7 +54,7 @@ export function useInfrastructureConnections(
     try {
       onError('');
       const url = apiConfig.endpoints.connectors.infrastructureConnectionDiscover(connectionId);
-      const response = await fetch(url);
+      const response = await authFetch(url);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
@@ -117,7 +118,7 @@ export function useInfrastructureConnections(
     if (!confirm('Are you sure you want to delete this connection?')) return;
     
     try {
-      const response = await fetch(
+      const response = await authFetch(
         apiConfig.endpoints.connectors.infrastructureConnection(connectionId),
         { method: 'DELETE' }
       );

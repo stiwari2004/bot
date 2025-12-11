@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 import type { TicketingTool } from '../types';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface AddConnectionModalProps {
   availableTools: TicketingTool[];
@@ -93,34 +95,31 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] overflow-y-auto" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        <div
-          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-          onClick={onClose}
-        />
-        
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full z-10 relative">
-          <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold text-gray-900">Add Ticketing Tool Connection</h3>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-500"
-              >
+    <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+      >
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-neutral-900">Add Ticketing Tool Connection</h3>
+              <Button variant="ghost" size="sm" onClick={onClose}>
                 <XMarkIcon className="h-6 w-6" />
-              </button>
+              </Button>
             </div>
+          </CardHeader>
+          <CardContent padding="md">
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
                   Ticketing Tool *
                 </label>
                 <select
                   value={selectedTool}
                   onChange={(e) => setSelectedTool(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                  className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                   required
                 >
                   <option value="">Select a tool...</option>
@@ -134,13 +133,13 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
 
               {selectedToolInfo && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     Connection Type *
                   </label>
                   <select
                     value={connectionType}
                     onChange={(e) => setConnectionType(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                     required
                   >
                     {selectedToolInfo.connection_types.map((type) => (
@@ -154,7 +153,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
 
               {connectionType === 'webhook' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     Webhook URL
                   </label>
                   <input
@@ -166,9 +165,9 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                         ? apiConfig.endpoints.tickets.webhook(selectedTool)
                         : ''
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-neutral-500 mt-1">
                     Configure this URL in your ticketing tool's webhook settings
                   </p>
                 </div>
@@ -177,7 +176,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
               {connectionType === 'api_poll' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
                       API Base URL *
                     </label>
                     <input
@@ -185,7 +184,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                       value={apiBaseUrl}
                       onChange={(e) => setApiBaseUrl(e.target.value)}
                       placeholder={selectedTool === 'manageengine' ? 'https://sdpondemand.manageengine.in' : 'https://your-instance.service-now.com'}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                       required
                     />
                   </div>
@@ -193,7 +192,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                   {(selectedTool === 'zoho' || selectedTool === 'manageengine') ? (
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
                           Client ID *
                         </label>
                         <input
@@ -201,15 +200,15 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                           value={clientId}
                           onChange={(e) => setClientId(e.target.value)}
                           placeholder={`Your ${selectedTool === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client ID`}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                           required
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-neutral-500 mt-1">
                           Register your app at {selectedTool === 'zoho' ? 'https://api-console.zoho.com' : 'https://api-console.zoho.in'} to get Client ID and Secret
                         </p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
                           Client Secret *
                         </label>
                         <input
@@ -217,12 +216,12 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                           value={clientSecret}
                           onChange={(e) => setClientSecret(e.target.value)}
                           placeholder={`Your ${selectedTool === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client Secret`}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                           required
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
                           Redirect URI
                         </label>
                         <input
@@ -230,9 +229,9 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                           value={redirectUri}
                           onChange={(e) => setRedirectUri(e.target.value)}
                           placeholder="http://localhost:8000/oauth/callback"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-neutral-500 mt-1">
                           Configure this redirect URI in your OAuth app settings
                         </p>
                       </div>
@@ -240,25 +239,25 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                   ) : (
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
                           API Key / Username
                         </label>
                         <input
                           type="text"
                           value={apiUsername}
                           onChange={(e) => setApiUsername(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
                           API Password / Token
                         </label>
                         <input
                           type="password"
                           value={apiPassword}
                           onChange={(e) => setApiPassword(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                         />
                       </div>
                     </>
@@ -267,30 +266,33 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
               )}
 
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
+                <Card variant="outlined" className="border-error-200 bg-error-50">
+                  <CardContent padding="sm">
+                    <p className="text-sm text-error-800 font-medium">{error}</p>
+                  </CardContent>
+                </Card>
               )}
 
               <div className="flex items-center justify-end gap-3 pt-4">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
+                  variant="primary"
                   disabled={saving || !selectedTool}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  isLoading={saving}
                 >
                   {saving ? 'Creating...' : 'Create Connection'}
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

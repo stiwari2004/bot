@@ -6,6 +6,8 @@
 
 import { useState } from 'react';
 import { CloudArrowUpIcon, DocumentArrowUpIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 export function TicketCSVUpload() {
   const [file, setFile] = useState<File | null>(null);
@@ -136,23 +138,17 @@ Network latency,High latency between data centers,medium,prod,network,datadog`;
             </label>
           </div>
 
-          <button
+          <Button
+            variant="primary"
+            size="lg"
             onClick={handleUpload}
             disabled={!file || uploading}
-            className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            isLoading={uploading}
+            leftIcon={<CloudArrowUpIcon className="h-5 w-5" />}
+            className="w-full"
           >
-            {uploading ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                Uploading...
-              </>
-            ) : (
-              <>
-                <CloudArrowUpIcon className="h-5 w-5 mr-2" />
-                Upload Tickets
-              </>
-            )}
-          </button>
+            Upload Tickets
+          </Button>
         </div>
       </div>
 

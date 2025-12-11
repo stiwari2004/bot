@@ -16,6 +16,9 @@ import {
   PlusIcon,
   ArrowRightOnRectangleIcon,
   BellIcon,
+  UserGroupIcon,
+  ServerIcon,
+  CurrencyDollarIcon,
 } from '@heroicons/react/24/outline';
 import { Tickets } from '@/features/tickets';
 import { Alerts } from '@/features/alerts';
@@ -25,6 +28,9 @@ import { RunbookList } from '@/features/runbooks';
 import { RunbookGenerator } from '@/components/RunbookGenerator';
 import { FileUpload } from '@/components/FileUpload';
 import { SystemStats } from '@/components/SystemStats';
+import { UserManagement } from '@/features/admin/components/UserManagement';
+import { NodeManagement } from '@/features/admin/components/NodeManagement';
+import { BillingView } from '@/features/admin/components/BillingView';
 import { useAgentVitals } from '@/features/agent/hooks/useAgentVitals';
 import { ExecutionsSurface } from '@/features/executions/components/ExecutionsSurface';
 import { AnalyticsAccuracyDashboard } from '@/features/analytics/components/AnalyticsAccuracyDashboard';
@@ -59,6 +65,7 @@ export default function Home() {
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     if (tab) setActiveTab(tab);
@@ -70,13 +77,64 @@ export default function Home() {
     }
   }, []);
 
+  // Handle redirects from /admin/* routes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const pathname = window.location.pathname;
+    if (pathname.startsWith('/admin')) {
+      const adminPath = pathname.replace('/admin', '').replace(/^\//, '');
+      let targetTab = 'admin-users'; // default
+      
+      if (adminPath === '' || adminPath === 'users') {
+        targetTab = 'admin-users';
+      } else if (adminPath === 'nodes') {
+        targetTab = 'admin-nodes';
+      } else if (adminPath === 'billing') {
+        targetTab = 'admin-billing';
+      } else if (adminPath === 'settings') {
+        targetTab = 'settings';
+      }
+      
+      // Redirect to main page with appropriate tab
+      window.history.replaceState({}, '', `/?tab=${targetTab}`);
+      setActiveTab(targetTab);
+    }
+  }, []);
+
+  // Redirect admins to their appropriate admin pages
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (authLoading) return;
+    
+    // Wait for user data to be fully loaded (including tenant info)
+    if (isAuthenticated && user && user.tenant !== undefined) {
+      const currentPath = window.location.pathname;
+      
+      // MSP Admin: redirect to /tenant-admin
+      // Allow both 'msp_admin' role and legacy 'admin' role with MSP tenant
+      const isMspAdmin = (
+        user.role === 'msp_admin' || 
+        (user.role === 'admin' && user.tenant?.is_msp === true)
+      );
+      if (isMspAdmin && currentPath === '/') {
+        window.location.href = '/tenant-admin';
+        return;
+      }
+      
+      // Tenant Admin (non-MSP): no redirect needed - they see admin tabs in main page
+      // Allow both 'tenant_admin' role and legacy 'admin' role with non-MSP tenant
+      // They will see admin features in the System section
+    }
+  }, [isAuthenticated, user, authLoading]);
+
   // Show login page if not authenticated and user hasn't skipped
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-neutral-50 via-white to-neutral-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+          <p className="mt-4 text-neutral-600 font-medium">Loading...</p>
         </div>
       </div>
     );
@@ -138,15 +196,22 @@ export default function Home() {
         },
       ],
     },
-    {
+    // System section only for authenticated (non-guest) users
+    // Admin features only for tenant admins (role='tenant_admin' or 'admin' with is_msp=false)
+    ...(isAuthenticated ? [{
       id: 'system',
       label: 'System',
       icon: Cog6ToothIcon,
       items: [
-        { id: 'settings', name: 'Settings & Connections', description: 'Connectors & credentials', icon: Cog6ToothIcon },
+        ...(user && (user.role === 'tenant_admin' || (user.role === 'admin' && user.tenant?.is_msp === false)) ? [
+          { id: 'settings', name: 'Settings & Connections', description: 'Connectors & credentials', icon: Cog6ToothIcon },
+          { id: 'admin-users', name: 'User Management', description: 'Create and manage users', icon: UserGroupIcon },
+          { id: 'admin-nodes', name: 'Node Management', description: 'Approve and manage nodes', icon: ServerIcon },
+          { id: 'admin-billing', name: 'Billing & Subscription', description: 'View billing details', icon: CurrencyDollarIcon },
+        ] : []),
         { id: 'stats', name: 'System Stats', description: 'Platform diagnostics', icon: ChartBarIcon },
       ],
-    },
+    }] : []),
   ];
 
   const handleSessionLaunched = (sessionId: number) => {
@@ -187,6 +252,12 @@ export default function Home() {
         return <FileUpload onFileUploaded={refreshVitals} />;
       case 'settings':
         return <Settings />;
+      case 'admin-users':
+        return <UserManagement />;
+      case 'admin-nodes':
+        return <NodeManagement />;
+      case 'admin-billing':
+        return <BillingView />;
       case 'stats':
         return (
           <SystemStats
@@ -207,38 +278,38 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] text-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-neutral-50 text-neutral-900">
       <div className="flex h-screen overflow-hidden">
         <aside
-          className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r border-gray-100 bg-[#fafafa] shadow-lg transition-transform duration-300 lg:static lg:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r border-neutral-200 bg-white shadow-xl transition-transform duration-300 lg:static lg:translate-x-0 ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
           <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between px-6 py-6 lg:justify-start">
+            <div className="flex items-center justify-between px-6 py-6 lg:justify-start border-b border-neutral-200">
               <div className="flex items-center space-x-3">
-                <div className="rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 p-2">
-                  <SparklesIcon className="h-6 w-6 text-indigo-600" />
+                <div className="rounded-xl bg-gradient-to-br from-primary-500 to-secondary-500 p-2.5 shadow-lg">
+                  <SparklesIcon className="h-6 w-6 text-white" />
                 </div>
                 <div className="text-left">
-                  <p className="text-xs uppercase tracking-[0.3em] text-gray-500">Troubleshooting</p>
-                  <p className="text-lg font-semibold text-gray-900">AI Agent</p>
+                  <p className="text-xs uppercase tracking-[0.3em] text-neutral-500 font-semibold">Troubleshooting</p>
+                  <p className="text-lg font-bold text-neutral-900 bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">AI Agent</p>
                 </div>
               </div>
               <button
-                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:hidden"
+                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 transition-colors lg:hidden"
                 onClick={() => setSidebarOpen(false)}
                 aria-label="Close navigation"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto px-4 pb-6">
-              <div className="space-y-6">
+            <nav className="flex-1 overflow-y-auto px-4 pb-6 pt-6">
+              <div className="space-y-8">
                 {navigationSections.map((section) => (
                   <div key={section.id} className="space-y-3">
-                    <div className="flex items-center space-x-3 text-xs font-semibold uppercase tracking-widest text-gray-500">
-                      <section.icon className="h-4 w-4 text-gray-400" />
+                    <div className="flex items-center space-x-3 px-2 text-xs font-bold uppercase tracking-widest text-neutral-500">
+                      <section.icon className="h-4 w-4 text-primary-500" />
                       <span className="text-left">{section.label}</span>
                     </div>
                     <div className="space-y-2">
@@ -251,18 +322,20 @@ export default function Home() {
                               setActiveTab(item.id);
                               setSidebarOpen(false);
                             }}
-                            className={`w-full rounded-2xl border px-4 py-3 text-left transition-all ${
+                            className={`w-full rounded-xl border-2 px-4 py-3 text-left transition-all duration-200 ${
                               isActive
-                                ? 'border-indigo-300 bg-gradient-to-r from-indigo-50 to-violet-50 text-indigo-900 shadow-md shadow-indigo-100'
-                                : 'border-gray-100 bg-white text-gray-700 hover:border-indigo-200 hover:bg-indigo-50/50'
+                                ? 'border-primary-300 bg-gradient-to-r from-primary-50 to-secondary-50 text-primary-900 shadow-lg shadow-primary-100/50'
+                                : 'border-neutral-200 bg-white text-neutral-700 hover:border-primary-200 hover:bg-primary-50/30 hover:shadow-md'
                             }`}
                           >
                             <div className="flex items-center space-x-3">
-                              <item.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-indigo-600' : 'text-gray-400'}`} />
+                              <div className={`p-1.5 rounded-lg ${isActive ? 'bg-primary-100' : 'bg-neutral-100'}`}>
+                                <item.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-primary-600' : 'text-neutral-500'}`} />
+                              </div>
                               <div className="text-left min-w-0 flex-1">
-                                <p className="text-sm font-semibold">{item.name}</p>
+                                <p className={`text-sm font-semibold ${isActive ? 'text-primary-900' : 'text-neutral-900'}`}>{item.name}</p>
                                 {item.description && (
-                                  <p className="text-xs text-gray-500 mt-0.5">{item.description}</p>
+                                  <p className={`text-xs mt-0.5 ${isActive ? 'text-primary-700' : 'text-neutral-500'}`}>{item.description}</p>
                                 )}
                               </div>
                             </div>
@@ -274,8 +347,8 @@ export default function Home() {
                 ))}
               </div>
             </nav>
-            <div className="border-t border-gray-100 p-4">
-              <button className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-colors shadow-sm">
+            <div className="border-t border-neutral-200 p-4 bg-gradient-to-b from-white to-neutral-50">
+              <button className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-primary-200 bg-gradient-to-r from-primary-50 to-secondary-50 px-4 py-2.5 text-sm font-semibold text-primary-700 hover:border-primary-300 hover:from-primary-100 hover:to-secondary-100 hover:text-primary-800 transition-all duration-200 shadow-md hover:shadow-lg">
                 <CommandLineIcon className="h-4 w-4" />
                 Command Palette
               </button>
@@ -284,35 +357,35 @@ export default function Home() {
         </aside>
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <header className="flex items-center justify-between border-b border-gray-100 bg-white px-8 py-5 shadow-sm">
-            <div className="flex items-center gap-3">
+          <header className="flex items-center justify-between border-b border-neutral-200 bg-white px-8 py-5 shadow-sm">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="rounded-xl border border-gray-200 p-2 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 lg:hidden transition-colors"
+                className="rounded-xl border-2 border-neutral-200 p-2 text-neutral-600 hover:border-primary-300 hover:text-primary-600 hover:bg-primary-50 lg:hidden transition-all duration-200"
                 aria-label="Open navigation"
               >
                 <Bars3Icon className="h-5 w-5" />
               </button>
-              <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Control Center</p>
-              <div className="text-left">
-                <p className="text-sm text-gray-600">Monitor, guide, and measure your AI responder</p>
+              <div>
+                <p className="text-xs uppercase tracking-[0.4em] text-neutral-500 font-bold">Control Center</p>
+                <p className="text-sm text-neutral-600 mt-0.5">Monitor, guide, and measure your AI responder</p>
               </div>
             </div>
             <div className="hidden md:flex items-center gap-3">
               {isAuthenticated && user && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200">
-                  <span className="text-sm text-indigo-700 font-medium">{user.email}</span>
-                  <span className="text-xs text-indigo-500">({user.role})</span>
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-primary-50 to-secondary-50 border-2 border-primary-200">
+                  <span className="text-sm text-primary-700 font-semibold">{user.email}</span>
+                  <span className="text-xs text-primary-600 font-medium">({user.role})</span>
                 </div>
               )}
               {!isAuthenticated && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 border border-gray-200">
-                  <span className="text-xs text-gray-600">Demo Mode</span>
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-100 border-2 border-neutral-200">
+                  <span className="text-xs text-neutral-700 font-semibold">Demo Mode</span>
                 </div>
               )}
               <button
                 onClick={refreshVitals}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-colors shadow-sm"
+                className="flex items-center gap-2 rounded-xl border-2 border-primary-200 bg-white px-4 py-2 text-sm font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-50 transition-all duration-200 shadow-sm hover:shadow-md"
               >
                 <ArrowPathIcon className="h-4 w-4" />
                 Sync vitals
@@ -320,45 +393,39 @@ export default function Home() {
               {isAuthenticated && (
                 <button
                   onClick={logout}
-                  className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700 transition-colors shadow-sm"
+                  className="flex items-center gap-2 rounded-xl border-2 border-error-200 bg-white px-4 py-2 text-sm font-semibold text-error-700 hover:border-error-300 hover:bg-error-50 transition-all duration-200 shadow-sm hover:shadow-md"
                   title="Logout"
                 >
                   <ArrowRightOnRectangleIcon className="h-4 w-4" />
                   Logout
                 </button>
               )}
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 lg:hidden transition-colors"
-              >
-                <Bars3Icon className="h-5 w-5" />
-              </button>
             </div>
           </header>
 
-          <section className="border-b border-gray-100 bg-white px-8 py-4">
-            <div className="flex flex-wrap gap-3">
+          <section className="border-b border-neutral-200 bg-gradient-to-r from-white to-neutral-50 px-8 py-5">
+            <div className="flex flex-wrap gap-4">
               {statusIndicators.map((indicator) => (
                 <div
                   key={indicator.label}
-                  className="rounded-2xl border border-gray-100 bg-white px-4 py-2 text-sm shadow-sm hover:shadow-md transition-shadow"
+                  className="rounded-xl border-2 border-neutral-200 bg-white px-5 py-3 shadow-md hover:shadow-lg transition-all duration-200 hover:border-primary-200 hover:-translate-y-0.5"
                 >
-                  <p className="text-xs uppercase tracking-wider text-gray-500 text-left">{indicator.label}</p>
-                  <p className="text-lg font-semibold text-gray-900 text-left">
+                  <p className="text-xs uppercase tracking-wider text-neutral-500 text-left font-semibold mb-1">{indicator.label}</p>
+                  <p className="text-2xl font-bold text-neutral-900 text-left bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
                     {vitalsLoading ? '...' : indicator.value}
                   </p>
                 </div>
               ))}
               {vitalsError && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 shadow-sm">
+                <div className="rounded-xl border-2 border-error-200 bg-error-50 px-5 py-3 text-sm text-error-700 shadow-md">
                   {vitalsError}
                 </div>
               )}
             </div>
           </section>
 
-          <main className="flex-1 overflow-auto px-8 py-6 bg-[#fafafa]">
-            <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-lg">
+          <main className="flex-1 overflow-auto px-8 py-6 bg-gradient-to-br from-neutral-50 via-white to-neutral-50">
+            <div className="rounded-2xl border-2 border-neutral-200 bg-white p-8 shadow-xl animate-fade-in">
               {renderActiveView()}
             </div>
           </main>
@@ -366,7 +433,7 @@ export default function Home() {
       </div>
 
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/10 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm lg:hidden z-40" onClick={() => setSidebarOpen(false)} />
       )}
     </div>
   );

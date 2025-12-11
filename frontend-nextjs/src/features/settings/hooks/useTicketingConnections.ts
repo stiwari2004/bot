@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type { TicketingConnection } from '../types';
 
 export function useTicketingConnections(
@@ -13,7 +14,7 @@ export function useTicketingConnections(
 
   const handleTestConnection = useCallback(async (connectionId: number) => {
     try {
-      const response = await fetch(apiConfig.endpoints.settings.ticketingConnectionTest(connectionId), {
+      const response = await authFetch(apiConfig.endpoints.settings.ticketingConnectionTest(connectionId), {
         method: 'POST',
       });
       if (!response.ok) {
@@ -29,7 +30,7 @@ export function useTicketingConnections(
 
   const handleToggleConnection = useCallback(async (connectionId: number, isActive: boolean) => {
     try {
-      const response = await fetch(apiConfig.endpoints.settings.ticketingConnection(connectionId), {
+      const response = await authFetch(apiConfig.endpoints.settings.ticketingConnection(connectionId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !isActive }),
@@ -46,7 +47,7 @@ export function useTicketingConnections(
 
   const handleAuthorizeConnection = useCallback(async (connectionId: number, toolName: string) => {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${apiConfig.endpoints.settings.ticketingConnections()}/${connectionId}/oauth/authorize`,
         { method: 'POST' }
       );
@@ -75,7 +76,7 @@ export function useTicketingConnections(
     if (!confirm('Are you sure you want to delete this connection?')) return;
     
     try {
-      const response = await fetch(apiConfig.endpoints.settings.ticketingConnection(connectionId), {
+      const response = await authFetch(apiConfig.endpoints.settings.ticketingConnection(connectionId), {
         method: 'DELETE',
       });
       if (!response.ok) {

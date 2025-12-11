@@ -9,6 +9,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface VersionDiff {
   version1: {
@@ -87,20 +89,27 @@ export function VersionDiffView({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <div className="text-gray-600 text-sm">Loading diff...</div>
-        </div>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="lg">
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-neutral-600 font-medium">Loading diff...</span>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-sm text-red-800">Error: {error}</p>
-      </div>
+      <Card variant="elevated">
+        <CardContent padding="md">
+          <div className="flex items-center gap-2">
+            <XCircleIcon className="h-5 w-5 text-error-600" />
+            <p className="text-sm text-error-800">Error: {error}</p>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -111,99 +120,113 @@ export function VersionDiffView({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="text-center">
-            <p className="text-sm text-gray-600">From</p>
-            <p className="font-medium text-gray-900">v{diff.version1.version_number}</p>
-            <p className="text-xs text-gray-500">{diff.version1.title}</p>
+      <Card variant="elevated">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <p className="text-sm text-neutral-600">From</p>
+                <p className="font-semibold text-neutral-900">v{diff.version1.version_number}</p>
+                <p className="text-xs text-neutral-500">{diff.version1.title}</p>
+              </div>
+              <ArrowRightIcon className="h-6 w-6 text-neutral-400" />
+              <div className="text-center">
+                <p className="text-sm text-neutral-600">To</p>
+                <p className="font-semibold text-neutral-900">v{diff.version2.version_number}</p>
+                <p className="text-xs text-neutral-500">{diff.version2.title}</p>
+              </div>
+            </div>
+            {onClose && (
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                Close
+              </Button>
+            )}
           </div>
-          <ArrowRightIcon className="h-6 w-6 text-gray-400" />
-          <div className="text-center">
-            <p className="text-sm text-gray-600">To</p>
-            <p className="font-medium text-gray-900">v{diff.version2.version_number}</p>
-            <p className="text-xs text-gray-500">{diff.version2.title}</p>
-          </div>
-        </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="text-sm text-gray-600 hover:text-gray-900"
-          >
-            Close
-          </button>
-        )}
-      </div>
+        </CardHeader>
+      </Card>
 
       {/* Summary */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-gray-600">Lines Added</p>
-            <p className="text-lg font-semibold text-green-600">{diff.summary.lines_added}</p>
+      <Card variant="elevated">
+        <CardContent padding="md">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-neutral-600">Lines Added</p>
+              <p className="text-lg font-semibold text-success-600">{diff.summary.lines_added}</p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Lines Removed</p>
+              <p className="text-lg font-semibold text-error-600">{diff.summary.lines_removed}</p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Net Change</p>
+              <p className={`text-lg font-semibold ${
+                diff.summary.net_change > 0 ? 'text-success-600' : diff.summary.net_change < 0 ? 'text-error-600' : 'text-neutral-600'
+              }`}>
+                {diff.summary.net_change > 0 ? '+' : ''}{diff.summary.net_change}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-gray-600">Lines Removed</p>
-            <p className="text-lg font-semibold text-red-600">{diff.summary.lines_removed}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-600">Net Change</p>
-            <p className={`text-lg font-semibold ${
-              diff.summary.net_change > 0 ? 'text-green-600' : diff.summary.net_change < 0 ? 'text-red-600' : 'text-gray-600'
-            }`}>
-              {diff.summary.net_change > 0 ? '+' : ''}{diff.summary.net_change}
-            </p>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Diff Content */}
       <div className="grid grid-cols-2 gap-4">
         {/* Removed Lines */}
-        <div className="border border-gray-200 rounded-lg">
-          <div className="bg-red-50 border-b border-red-200 px-4 py-2">
-            <h4 className="text-sm font-medium text-red-900">
+        <Card variant="elevated" className="overflow-hidden">
+          <CardHeader className="bg-error-50 border-error-200">
+            <h4 className="text-sm font-semibold text-error-900">
               Removed ({diff.changes.removed_lines.length} lines)
             </h4>
-          </div>
-          <div className="p-4 max-h-96 overflow-y-auto">
-            {diff.changes.removed_lines.length > 0 ? (
-              <div className="space-y-1 font-mono text-sm">
-                {diff.changes.removed_lines.map((line, idx) => (
-                  <div key={idx} className="text-red-800 bg-red-50 px-2 py-1 rounded">
-                    - {line}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-4">No lines removed</p>
-            )}
-          </div>
-        </div>
+          </CardHeader>
+          <CardContent padding="md">
+            <div className="max-h-96 overflow-y-auto">
+              {diff.changes.removed_lines.length > 0 ? (
+                <div className="space-y-1 font-mono text-sm">
+                  {diff.changes.removed_lines.map((line, idx) => (
+                    <div key={idx} className="text-error-800 bg-error-50 px-2 py-1 rounded">
+                      - {line}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-500 text-center py-4">No lines removed</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Added Lines */}
-        <div className="border border-gray-200 rounded-lg">
-          <div className="bg-green-50 border-b border-green-200 px-4 py-2">
-            <h4 className="text-sm font-medium text-green-900">
+        <Card variant="elevated" className="overflow-hidden">
+          <CardHeader className="bg-success-50 border-success-200">
+            <h4 className="text-sm font-semibold text-success-900">
               Added ({diff.changes.added_lines.length} lines)
             </h4>
-          </div>
-          <div className="p-4 max-h-96 overflow-y-auto">
-            {diff.changes.added_lines.length > 0 ? (
-              <div className="space-y-1 font-mono text-sm">
-                {diff.changes.added_lines.map((line, idx) => (
-                  <div key={idx} className="text-green-800 bg-green-50 px-2 py-1 rounded">
-                    + {line}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-4">No lines added</p>
-            )}
-          </div>
-        </div>
+          </CardHeader>
+          <CardContent padding="md">
+            <div className="max-h-96 overflow-y-auto">
+              {diff.changes.added_lines.length > 0 ? (
+                <div className="space-y-1 font-mono text-sm">
+                  {diff.changes.added_lines.map((line, idx) => (
+                    <div key={idx} className="text-success-800 bg-success-50 px-2 py-1 rounded">
+                      + {line}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-500 text-center py-4">No lines added</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
+
+
+
+
+
+
+
 

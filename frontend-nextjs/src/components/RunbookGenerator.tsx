@@ -3,6 +3,12 @@
 import { useState, useEffect, type FormEvent, type ChangeEvent } from 'react';
 import { BookOpenIcon, WrenchScrewdriverIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 
 interface RunbookResponse {
   id: number;
@@ -197,12 +203,12 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
 
     // Process markdown without code blocks
     processedMarkdown = processedMarkdown
-      .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold text-gray-900 mb-4">$1</h1>')
-      .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold text-gray-800 mb-3 mt-6">$1</h2>')
-      .replace(/^### (.*$)/gim, '<h3 class="text-lg font-medium text-gray-700 mb-2 mt-4">$1</h3>')
-      .replace(/^\- (.*$)/gim, '<li class="ml-4 text-gray-700">$1</li>')
-      .replace(/\n\n/gim, '</p><p class="mb-4 text-gray-700">')
-      .replace(/^(?!<[h|l|p|d])/gim, '<p class="mb-4 text-gray-700">')
+      .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold text-neutral-900 mb-4">$1</h1>')
+      .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold text-neutral-800 mb-3 mt-6">$1</h2>')
+      .replace(/^### (.*$)/gim, '<h3 class="text-lg font-medium text-neutral-700 mb-2 mt-4">$1</h3>')
+      .replace(/^\- (.*$)/gim, '<li class="ml-4 text-neutral-700">$1</li>')
+      .replace(/\n\n/gim, '</p><p class="mb-4 text-neutral-700">')
+      .replace(/^(?!<[h|l|p|d])/gim, '<p class="mb-4 text-neutral-700">')
       .replace(/(?<!>)$/gim, '</p>');
 
     // Restore code blocks with proper formatting
@@ -210,9 +216,9 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
       const placeholder = `__CODE_BLOCK_${index}__`;
       // Format code blocks
       const formattedBlock = block
-        .replace(/```yaml\n?([\s\S]*?)\n?```/g, '<pre class="bg-gray-100 border border-gray-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
-        .replace(/```bash\n?([\s\S]*?)\n?```/g, '<pre class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
-        .replace(/```([\s\S]*?)\n?```/g, '<pre class="bg-gray-100 border border-gray-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>');
+        .replace(/```yaml\n?([\s\S]*?)\n?```/g, '<pre class="bg-neutral-100 border-2 border-neutral-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm text-neutral-900">$1</code></pre>')
+        .replace(/```bash\n?([\s\S]*?)\n?```/g, '<pre class="bg-neutral-900 text-success-400 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm">$1</code></pre>')
+        .replace(/```([\s\S]*?)\n?```/g, '<pre class="bg-neutral-100 border-2 border-neutral-300 p-4 rounded-lg overflow-x-auto my-4"><code class="text-sm text-neutral-900">$1</code></pre>');
       processedMarkdown = processedMarkdown.replace(placeholder, formattedBlock);
     });
 
@@ -222,25 +228,26 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Generate Runbook</h2>
-        <p className="text-gray-600">Describe an IT issue and let AI generate a comprehensive troubleshooting guide</p>
+        <h2 className="text-2xl font-bold text-neutral-900 mb-2">Generate Runbook</h2>
+        <p className="text-neutral-600">Describe an IT issue and let AI generate a comprehensive troubleshooting guide</p>
       </div>
 
-      <form onSubmit={handleGenerate} className="mb-6">
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="issue-description" className="block text-sm font-medium text-gray-700 mb-2">
-              Issue Description
-            </label>
-            <textarea
-              id="issue-description"
-              value={issueDescription}
-              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setIssueDescription(e.target.value)}
-              rows={4}
-              placeholder="Describe the IT issue you need a runbook for... (e.g., 'Server is running slow and users are complaining about timeouts')"
-              className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+      <Card variant="elevated" className="mb-6">
+        <CardContent padding="md">
+          <form onSubmit={handleGenerate}>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="issue-description" className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Issue Description
+                </label>
+                <Textarea
+                  id="issue-description"
+                  value={issueDescription}
+                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setIssueDescription(e.target.value)}
+                  rows={4}
+                  placeholder="Describe the IT issue you need a runbook for... (e.g., 'Server is running slow and users are complaining about timeouts')"
+                />
+              </div>
           
           {/* Agent-ready only */}
 
@@ -248,47 +255,52 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="ci-type" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="ci-type" className="block text-sm font-semibold text-neutral-700 mb-2">
                     CI Type *
                   </label>
-                  <select
-                    id="ci-type"
+                  <Select
                     value={ciType}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                      setCiType(e.target.value);
-                      // Reset OS type if CI type is not server
-                      if (e.target.value !== 'server' && e.target.value !== 'auto') {
+                    onValueChange={(value) => {
+                      setCiType(value);
+                      if (value !== 'server' && value !== 'auto') {
                         setOsType('auto');
                       }
                     }}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="auto">Auto-detect</option>
-                    <option value="server">Server</option>
-                    <option value="database">Database</option>
-                    <option value="web">Web Application</option>
-                    <option value="storage">Storage</option>
-                    <option value="network">Network</option>
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">CI Type: server, router, switch, storage, database, web, etc.</p>
+                    <SelectTrigger id="ci-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto-detect</SelectItem>
+                      <SelectItem value="server">Server</SelectItem>
+                      <SelectItem value="database">Database</SelectItem>
+                      <SelectItem value="web">Web Application</SelectItem>
+                      <SelectItem value="storage">Storage</SelectItem>
+                      <SelectItem value="network">Network</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-xs text-neutral-500">CI Type: server, router, switch, storage, database, web, etc.</p>
                 </div>
                 
                 <div>
-                  <label htmlFor="os-type" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="os-type" className="block text-sm font-semibold text-neutral-700 mb-2">
                     OS Type {ciType === 'server' || ciType === 'auto' ? '*' : '(N/A)'}
                   </label>
-                  <select
-                    id="os-type"
+                  <Select
                     value={osType}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setOsType(e.target.value)}
+                    onValueChange={setOsType}
                     disabled={ciType !== 'server' && ciType !== 'auto'}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
-                    <option value="auto">Auto-detect {detectingOS && '(detecting...)'}</option>
-                    <option value="Windows">Windows</option>
-                    <option value="Linux">Linux</option>
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                    <SelectTrigger id="os-type">
+                      <SelectValue placeholder={detectingOS ? 'Detecting...' : 'Select OS'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto-detect {detectingOS && '(detecting...)'}</SelectItem>
+                      <SelectItem value="Windows">Windows</SelectItem>
+                      <SelectItem value="Linux">Linux</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-xs text-neutral-500">
                     {ciType === 'server' || ciType === 'auto' 
                       ? 'OS Type: Windows or Linux (only for servers)'
                       : 'OS Type not applicable for this CI type'}
@@ -298,36 +310,36 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="env-type" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="env-type" className="block text-sm font-semibold text-neutral-700 mb-2">
                     Environment
                   </label>
-                  <select
-                    id="env-type"
-                    value={envType}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setEnvType(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="prod">Production</option>
-                    <option value="staging">Staging</option>
-                    <option value="dev">Development</option>
-                    <option value="testing">Testing</option>
-                  </select>
+                  <Select value={envType} onValueChange={setEnvType}>
+                    <SelectTrigger id="env-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="prod">Production</SelectItem>
+                      <SelectItem value="staging">Staging</SelectItem>
+                      <SelectItem value="dev">Development</SelectItem>
+                      <SelectItem value="testing">Testing</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>
-                  <label htmlFor="risk-level" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="risk-level" className="block text-sm font-semibold text-neutral-700 mb-2">
                     Risk Level
                   </label>
-                  <select
-                    id="risk-level"
-                    value={riskLevel}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setRiskLevel(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
+                  <Select value={riskLevel} onValueChange={setRiskLevel}>
+                    <SelectTrigger id="risk-level">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </>
@@ -336,92 +348,102 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
           {/* Traditional path removed */}
         </div>
 
-        <div className="mt-6">
-          <button
-            type="submit"
-            disabled={loading || !issueDescription.trim()}
-            className="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <WrenchScrewdriverIcon className="h-5 w-5 mr-2" />
-            {loading ? 'Generating...' : 'Generate Runbook'}
-          </button>
-        </div>
-      </form>
+              <div className="mt-6">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={loading || !issueDescription.trim()}
+                  isLoading={loading}
+                  leftIcon={<WrenchScrewdriverIcon className="h-5 w-5" />}
+                >
+                  {loading ? 'Generating...' : 'Generate Runbook'}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
-        </div>
-      )}
+        {error && (
+          <Card variant="outlined" className="mb-6 border-error-200 bg-error-50">
+            <CardContent padding="sm">
+              <p className="text-error-800 font-medium">{error}</p>
+            </CardContent>
+          </Card>
+        )}
 
-      {successMessage && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-green-800">{successMessage}</p>
-        </div>
-      )}
+        {successMessage && (
+          <Card variant="outlined" className="mb-6 border-success-200 bg-success-50">
+            <CardContent padding="sm">
+              <p className="text-success-800 font-medium">{successMessage}</p>
+            </CardContent>
+          </Card>
+        )}
 
       {runbook && (
-        <div className="border border-gray-200 rounded-lg p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center">
-              <BookOpenIcon className="h-6 w-6 text-blue-600 mr-2" />
-              <h3 className="text-xl font-semibold text-gray-900">{runbook.title}</h3>
-            </div>
-            <div className="flex items-center space-x-4">
-              {runbook.status && (
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  runbook.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
-                  runbook.status === 'approved' ? 'bg-green-100 text-green-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  {runbook.status.charAt(0).toUpperCase() + runbook.status.slice(1)}
-                </span>
-              )}
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                Confidence: {(runbook.confidence * 100).toFixed(0)}%
-              </span>
-              {runbook.meta_data.sources_used && (
-                <span className="text-sm text-gray-500">
-                  Sources: {runbook.meta_data.sources_used}
-                </span>
-              )}
-              {runbook.meta_data.service && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                  {runbook.meta_data.service.toUpperCase()}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="prose max-w-none">
-            <div 
-              dangerouslySetInnerHTML={{ 
-                __html: formatMarkdown(runbook.body_md) 
-              }}
-            />
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-gray-200">
+        <Card variant="elevated">
+          <CardHeader>
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-500">
-                <p>Generated on: {new Date(runbook.created_at).toLocaleString()}</p>
-                {runbook.meta_data.search_query && (
-                  <p>Query: "{runbook.meta_data.search_query}"</p>
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary-100">
+                  <BookOpenIcon className="h-6 w-6 text-primary-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-neutral-900">{runbook.title}</h3>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {runbook.status && (
+                  <Badge variant="status" status={runbook.status === 'draft' ? 'waiting_approval' : runbook.status === 'approved' ? 'completed' : 'pending'} size="sm">
+                    {runbook.status.charAt(0).toUpperCase() + runbook.status.slice(1)}
+                  </Badge>
+                )}
+                <Badge variant="primary" size="sm">
+                  Confidence: {(runbook.confidence * 100).toFixed(0)}%
+                </Badge>
+                {runbook.meta_data.sources_used && (
+                  <span className="text-sm text-neutral-600 font-medium">
+                    Sources: {runbook.meta_data.sources_used}
+                  </span>
+                )}
+                {runbook.meta_data.service && (
+                  <Badge variant="secondary" size="sm">
+                    {runbook.meta_data.service.toUpperCase()}
+                  </Badge>
                 )}
               </div>
-              {runbook.status === 'draft' && (
-                <button
-                  onClick={handleApprove}
-                  disabled={approving}
-                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <CheckCircleIcon className="h-5 w-5 mr-2" />
-                  {approving ? 'Approving...' : 'Approve & Publish'}
-                </button>
-              )}
             </div>
-          </div>
-        </div>
+          </CardHeader>
+          <CardContent padding="md">
+
+            <div className="prose max-w-none">
+              <div 
+                dangerouslySetInnerHTML={{ 
+                  __html: formatMarkdown(runbook.body_md) 
+                }}
+              />
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-neutral-200">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="text-sm text-neutral-600">
+                  <p className="font-medium">Generated on: {new Date(runbook.created_at).toLocaleString()}</p>
+                  {runbook.meta_data.search_query && (
+                    <p className="text-neutral-500">Query: "{runbook.meta_data.search_query}"</p>
+                  )}
+                </div>
+                {runbook.status === 'draft' && (
+                  <Button
+                    variant="success"
+                    onClick={handleApprove}
+                    disabled={approving}
+                    isLoading={approving}
+                    leftIcon={<CheckCircleIcon className="h-5 w-5" />}
+                  >
+                    {approving ? 'Approving...' : 'Approve & Publish'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

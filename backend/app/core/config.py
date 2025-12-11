@@ -49,8 +49,15 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 50
     
     # LLM
-    LLM_MODEL: str = "llama3.1:8b"
-    LLM_BASE_URL: str = "http://localhost:11434"
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")  # "gemini" or "ollama"
+    LLM_MODEL: str = "llama3.1:8b"  # For Ollama fallback
+    LLM_BASE_URL: str = "http://localhost:11434"  # For Ollama fallback
+    GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")  # Default model (used if explicit model selection disabled)
+    # Model Priority (for complexity-based selection):
+    # - gemini-2.0-flash-exp: 80% of cases (simple, free tier)
+    # - gemini-2.5-flash: 15% of cases (moderate, free tier)
+    # - gemini-2.5-pro: 5% of cases (complex, paid tier)
     LLM_BUDGET_DEFAULT_TOKENS: int = 500_000
     LLM_BUDGET_WINDOW_SECONDS: int = 86_400  # 24 hours rolling
     LLM_RATE_LIMIT_PER_MINUTE: int = 30

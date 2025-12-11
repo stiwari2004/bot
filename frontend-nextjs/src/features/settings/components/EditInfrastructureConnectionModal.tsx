@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 import type { InfrastructureConnection, Credential } from '../types';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 
 interface EditInfrastructureConnectionModalProps {
   connection: InfrastructureConnection;
@@ -65,47 +67,51 @@ export function EditInfrastructureConnectionModal({ connection, credentials, onC
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900">Edit Infrastructure Connection</h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
-
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
-              {error}
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+      >
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-bold text-neutral-900">Edit Infrastructure Connection</h3>
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                <XMarkIcon className="h-6 w-6" />
+              </Button>
             </div>
-          )}
+          </CardHeader>
+          <CardContent padding="md">
+            {error && (
+              <Card variant="outlined" className="mb-4 border-error-200 bg-error-50">
+                <CardContent padding="sm">
+                  <p className="text-sm text-error-800 font-medium">{error}</p>
+                </CardContent>
+              </Card>
+            )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-neutral-700 mb-2">
                 Name *
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-neutral-700 mb-2">
                 Environment *
               </label>
               <select
                 value={environment}
                 onChange={(e) => setEnvironment(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                 required
               >
                 <option value="prod">Production</option>
@@ -115,13 +121,13 @@ export function EditInfrastructureConnectionModal({ connection, credentials, onC
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-neutral-700 mb-2">
                 Credential
               </label>
               <select
                 value={credentialId || ''}
                 onChange={(e) => setCredentialId(e.target.value ? parseInt(e.target.value) : null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
               >
                 <option value="">Select a credential (optional)</option>
                 {credentials.map((cred) => (
@@ -135,39 +141,39 @@ export function EditInfrastructureConnectionModal({ connection, credentials, onC
             {(connection.type === 'ssh' || connection.type === 'winrm' || connection.type === 'database' || connection.type === 'api') && (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     Target Host
                   </label>
                   <input
                     type="text"
                     value={targetHost}
                     onChange={(e) => setTargetHost(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                     placeholder="Host or IP address"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     Target Port
                   </label>
                   <input
                     type="number"
                     value={targetPort}
                     onChange={(e) => setTargetPort(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                     placeholder="Port number"
                   />
                 </div>
                 {connection.type === 'database' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
                       Service Name
                     </label>
                     <input
                       type="text"
                       value={targetService}
                       onChange={(e) => setTargetService(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                       placeholder="e.g., postgres, mysql"
                     />
                   </div>
@@ -175,24 +181,26 @@ export function EditInfrastructureConnectionModal({ connection, credentials, onC
               </>
             )}
 
-            <div className="flex items-center justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Saving...' : 'Save Connection'}
-              </button>
-            </div>
-          </form>
-        </div>
+              <div className="flex items-center justify-end gap-3 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onClose}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={saving}
+                  isLoading={saving}
+                >
+                  {saving ? 'Saving...' : 'Save Connection'}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

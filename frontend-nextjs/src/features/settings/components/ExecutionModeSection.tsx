@@ -2,6 +2,7 @@
 
 import { CheckCircleIcon } from '@heroicons/react/24/outline';
 import type { ExecutionMode } from '../types';
+import { Card, CardContent } from '@/components/ui/Card';
 
 interface ExecutionModeSectionProps {
   executionMode: ExecutionMode | null;
@@ -15,86 +16,96 @@ export function ExecutionModeSection({
   onModeChange,
 }: ExecutionModeSectionProps) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6">
-      <div className="p-6">
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+    <Card variant="elevated">
+      <CardContent padding="lg">
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold text-neutral-900 mb-2">
             Execution Mode
           </h3>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-neutral-600">
             Control how runbooks are executed when matched to tickets
           </p>
         </div>
 
         <div className="space-y-4">
-          <div
-            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+          <Card
+            variant={executionMode?.mode === 'hil' ? 'outlined' : 'default'}
+            className={`cursor-pointer transition-all ${
               executionMode?.mode === 'hil'
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300'
+                ? 'border-primary-500 bg-primary-50 hover:bg-primary-100'
+                : 'hover:border-primary-300 hover:shadow-md'
             }`}
             onClick={() => onModeChange('hil')}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <input
-                    type="radio"
-                    name="execution-mode"
-                    checked={executionMode?.mode === 'hil'}
-                    onChange={() => onModeChange('hil')}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                    disabled={saving}
-                  />
-                  <h4 className="font-medium text-gray-900">
-                    Human-in-the-Loop (HIL) Mode
-                  </h4>
+            <CardContent padding="md">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <input
+                      type="radio"
+                      name="execution-mode"
+                      checked={executionMode?.mode === 'hil'}
+                      onChange={() => onModeChange('hil')}
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500"
+                      disabled={saving}
+                    />
+                    <h4 className="font-semibold text-neutral-900">
+                      Human-in-the-Loop (HIL) Mode
+                    </h4>
+                  </div>
+                  <p className="text-sm text-neutral-600 ml-7">
+                    Always require manual approval before executing any runbook step.
+                  </p>
                 </div>
-                <p className="text-sm text-gray-600 ml-7">
-                  Always require manual approval before executing any runbook step.
-                </p>
+                {executionMode?.mode === 'hil' && (
+                  <div className="p-1 rounded-full bg-primary-100">
+                    <CheckCircleIcon className="h-6 w-6 text-primary-600 flex-shrink-0" />
+                  </div>
+                )}
               </div>
-              {executionMode?.mode === 'hil' && (
-                <CheckCircleIcon className="h-6 w-6 text-blue-600 flex-shrink-0 ml-4" />
-              )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div
-            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+          <Card
+            variant={executionMode?.mode === 'auto' ? 'outlined' : 'default'}
+            className={`cursor-pointer transition-all ${
               executionMode?.mode === 'auto'
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300'
+                ? 'border-primary-500 bg-primary-50 hover:bg-primary-100'
+                : 'hover:border-primary-300 hover:shadow-md'
             }`}
             onClick={() => onModeChange('auto')}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <input
-                    type="radio"
-                    name="execution-mode"
-                    checked={executionMode?.mode === 'auto'}
-                    onChange={() => onModeChange('auto')}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                    disabled={saving}
+            <CardContent padding="md">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <input
+                      type="radio"
+                      name="execution-mode"
+                      checked={executionMode?.mode === 'auto'}
+                      onChange={() => onModeChange('auto')}
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500"
+                      disabled={saving}
                   />
-                  <h4 className="font-medium text-gray-900">
-                    Auto Mode
-                  </h4>
+                    <h4 className="font-semibold text-neutral-900">
+                      Auto Mode
+                    </h4>
+                  </div>
+                  <p className="text-sm text-neutral-600 ml-7">
+                    Automatically execute runbooks when confidence score is ≥0.8.
+                  </p>
                 </div>
-                <p className="text-sm text-gray-600 ml-7">
-                  Automatically execute runbooks when confidence score is ≥0.8.
-                </p>
+                {executionMode?.mode === 'auto' && (
+                  <div className="p-1 rounded-full bg-primary-100">
+                    <CheckCircleIcon className="h-6 w-6 text-primary-600 flex-shrink-0" />
+                  </div>
+                )}
               </div>
-              {executionMode?.mode === 'auto' && (
-                <CheckCircleIcon className="h-6 w-6 text-blue-600 flex-shrink-0 ml-4" />
-              )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 

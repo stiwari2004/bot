@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import { CloudArrowUpIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 
 interface FileUploadProps {
   onFileUploaded?: () => void;
@@ -75,113 +79,125 @@ export function FileUpload({ onFileUploaded }: FileUploadProps) {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center">
-          <CloudArrowUpIcon className="h-7 w-7 mr-2 text-teal-600" />
+        <h2 className="text-2xl font-bold text-neutral-900 mb-2 flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-primary-100">
+            <CloudArrowUpIcon className="h-7 w-7 text-primary-600" />
+          </div>
           Upload Documents
         </h2>
-        <p className="text-gray-600">
+        <p className="text-neutral-600">
           Upload documentation, logs, and other files to build the knowledge base for runbook generation.
-          <strong className="text-blue-600 block mt-2">Note: For tickets, use the Tickets tab after configuring ticketing tool connections in Settings & Connections.</strong>
+          <strong className="text-primary-600 block mt-2">Note: For tickets, use the Tickets tab after configuring ticketing tool connections in Settings & Connections.</strong>
         </p>
       </div>
 
-      <form onSubmit={handleUpload} className="space-y-6">
-        <div>
-          <label htmlFor="file" className="block text-sm font-medium text-gray-700 mb-2">
-            Select File
-          </label>
-          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
-            <div className="space-y-1 text-center">
-              <CloudArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <div className="flex text-sm text-gray-600">
-                <label
-                  htmlFor="file"
-                  className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
-                >
-                  <span>Upload a file</span>
-                  <input
-                    id="file"
-                    name="file"
-                    type="file"
-                    className="sr-only"
-                    onChange={handleFileChange}
-                    accept=".txt,.md,.csv,.json,.log"
-                  />
-                </label>
-                <p className="pl-1">or drag and drop</p>
+      <Card variant="elevated">
+        <CardContent padding="md">
+          <form onSubmit={handleUpload} className="space-y-6">
+            <div>
+              <label htmlFor="file" className="block text-sm font-semibold text-neutral-700 mb-2">
+                Select File
+              </label>
+              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-neutral-300 border-dashed rounded-lg hover:border-primary-400 transition-colors bg-neutral-50">
+                <div className="space-y-1 text-center">
+                  <CloudArrowUpIcon className="mx-auto h-12 w-12 text-neutral-400" />
+                  <div className="flex text-sm text-neutral-600">
+                    <label
+                      htmlFor="file"
+                      className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-700 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
+                    >
+                      <span>Upload a file</span>
+                      <input
+                        id="file"
+                        name="file"
+                        type="file"
+                        className="sr-only"
+                        onChange={handleFileChange}
+                        accept=".txt,.md,.csv,.json,.log"
+                      />
+                    </label>
+                    <p className="pl-1">or drag and drop</p>
+                  </div>
+                  <p className="text-xs text-neutral-500">TXT, MD, CSV, JSON, LOG up to 10MB</p>
+                </div>
               </div>
-              <p className="text-xs text-gray-500">TXT, MD, CSV, JSON, LOG up to 10MB</p>
+              {file && (
+                <div className="mt-3 flex items-center text-sm text-neutral-700 bg-neutral-50 p-2 rounded-lg">
+                  <DocumentTextIcon className="h-4 w-4 mr-2 text-primary-600" />
+                  <span className="font-medium">{file.name}</span>
+                  <span className="ml-2 text-neutral-500">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                </div>
+              )}
             </div>
-          </div>
-          {file && (
-            <div className="mt-2 flex items-center text-sm text-gray-600">
-              <DocumentTextIcon className="h-4 w-4 mr-2" />
-              {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="source-type" className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Source Type
+                </label>
+                <Select value={sourceType} onValueChange={setSourceType}>
+                  <SelectTrigger id="source-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sourceTypes.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label htmlFor="title" className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Title (Optional)
+                </label>
+                <Input
+                  type="text"
+                  id="title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Custom title for this file"
+                />
+              </div>
             </div>
-          )}
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="source-type" className="block text-sm font-medium text-gray-700 mb-2">
-              Source Type
-            </label>
-            <select
-              id="source-type"
-              value={sourceType}
-              onChange={(e) => setSourceType(e.target.value)}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            >
-              {sourceTypes.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
-              Title (Optional)
-            </label>
-            <input
-              type="text"
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Custom title for this file"
-              className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        <div>
-          <button
-            type="submit"
-            disabled={!file || uploading}
-            className="w-full flex justify-center items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <CloudArrowUpIcon className="h-5 w-5 mr-2" />
-            {uploading ? 'Uploading...' : 'Upload & Process'}
-          </button>
-        </div>
-      </form>
+            <div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!file || uploading}
+                isLoading={uploading}
+                leftIcon={<CloudArrowUpIcon className="h-5 w-5" />}
+                className="w-full"
+              >
+                {uploading ? 'Uploading...' : 'Upload & Process'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       {error && (
-        <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800">{error}</p>
-        </div>
+        <Card variant="outlined" className="mt-6 border-error-200 bg-error-50">
+          <CardContent padding="sm">
+            <p className="text-error-800 font-medium">{error}</p>
+          </CardContent>
+        </Card>
       )}
 
       {result && (
-        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <h3 className="text-lg font-medium text-green-800 mb-2">Upload Successful!</h3>
-          <div className="text-sm text-green-700">
-            <p>Document ID: {result.document_id}</p>
-            <p>Chunks Created: {result.chunks_created}</p>
-            <p>Status: {result.message}</p>
-          </div>
-        </div>
+        <Card variant="outlined" className="mt-6 border-success-200 bg-success-50">
+          <CardContent padding="md">
+            <h3 className="text-lg font-semibold text-success-800 mb-3">Upload Successful!</h3>
+            <div className="text-sm text-success-700 space-y-1">
+              <p><span className="font-semibold">Document ID:</span> {result.document_id}</p>
+              <p><span className="font-semibold">Chunks Created:</span> {result.chunks_created}</p>
+              <p><span className="font-semibold">Status:</span> {result.message}</p>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

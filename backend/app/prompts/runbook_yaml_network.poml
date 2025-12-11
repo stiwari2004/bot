@@ -1,0 +1,134 @@
+# Service-specific instructions for NETWORK runbooks
+# Common instructions are loaded from common_instructions.toml
+
+system = '''You are generating a runbook for NETWORK issues.
+
+SERVICE-SPECIFIC CONTEXT:
+- Network issues include: connectivity problems, DNS resolution failures, routing issues, firewall problems, network device failures
+- Network issues are about NETWORK CONNECTIVITY and NETWORK DEVICES (switches, routers, firewalls, load balancers), NOT servers, databases, or web apps
+- Use network-specific commands: ping, traceroute, nslookup, dig, ip, route, nmcli
+- For NETWORK DEVICES (routers, switches, firewalls): Use device-specific commands (Cisco IOS/NX-OS, Juniper JunOS, etc.)
+- Identify network component from issue description (DNS, routing, firewall, switch, router, VLAN, port, interface)
+- If issue mentions a specific device (router, switch, firewall), include device_name and device_ip in inputs
+'''
+
+user_template = """
+Generate a complete troubleshooting runbook YAML for the following NETWORK issue.
+
+Issue Description: {issue_description}
+Service: {service}
+Environment: {env}
+Risk Level: {risk}
+
+Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
+{context}
+
+CRITICAL - THIS IS A NETWORK ISSUE:
+- Network issues include: connectivity problems, DNS resolution failures, routing issues, firewall problems, network device failures
+- Network issues are about NETWORK CONNECTIVITY and NETWORK DEVICES (switches, routers, firewalls, load balancers), NOT servers, databases, or web apps
+- Use network-specific commands: ping, traceroute, nslookup, dig, ip, route, nmcli
+- For NETWORK DEVICES (routers, switches, firewalls): Use device-specific commands (Cisco IOS/NX-OS, Juniper JunOS, etc.)
+- Identify network component from issue description (DNS, routing, firewall, switch, router, VLAN, port, interface)
+- If issue mentions a specific device (router, switch, firewall), include device_name and device_ip in inputs
+
+YAML STRUCTURE:
+
+runbook_id: rb-network-[issue-keyword]
+version: 1.0.0
+title: Fix [EXACT match to issue description - e.g., "Fix Network Connectivity Issue"]
+service: {service}
+env: {env}
+risk: {risk}
+description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT NETWORK ISSUE and its impact. DO NOT mention databases, web applications, or servers unless the issue description specifically mentions them.]
+
+INPUTS SECTION - NETWORK-SPECIFIC:
+For NETWORK issues, you typically need host_ip and gateway_ip.
+For NETWORK DEVICE issues (routers, switches, firewalls), include device_name and device_ip.
+
+inputs:
+- name: host_ip
+  type: string
+  required: true
+  description: Target host or service IP to test connectivity
+- name: gateway_ip
+  type: string
+  required: true
+  description: Gateway or router IP to verify network reachability
+- name: device_name
+  type: string
+  required: false
+  description: Network device hostname (router, switch, firewall) if issue is device-specific
+- name: device_ip
+  type: string
+  required: false
+  description: Network device management IP address if issue is device-specific
+- name: interface
+  type: string
+  required: false
+  default: "eth0"
+  description: Network interface to restart during remediation
+- name: vlan_id
+  type: string
+  required: false
+  description: VLAN ID if issue is VLAN-related
+- name: port_number
+  type: string
+  required: false
+  description: Switch port number if issue is port-specific
+
+CRITICAL - MATCH INPUTS TO ISSUE:
+- If issue says "cannot reach host" -> Include host_ip and gateway_ip
+- If issue says "DNS resolution failed" -> Include host_ip (as domain name)
+- NEVER include database_name for pure network issues
+
+prechecks:
+- description: Verify local host has IP assigned to the target interface
+  command: ip addr show {{interface}} | grep 'inet '
+  expected_output: inet 
+
+- description: Ensure DNS resolution is functioning
+  command: nslookup google.com
+  expected_output: Address
+
+steps:
+[Generate 5-6 UNIQUE steps that directly address the EXACT NETWORK issue described above. Use network-specific commands.]
+
+EACH STEP MUST INCLUDE:
+- name: [Step name]
+  type: command
+  command: [Network command]
+  description: [What this step does]
+  expected_output: [Expected result]
+  purpose: diagnose OR remediate OR verify
+  severity: safe OR moderate OR high
+  skip_in_auto_mode: false
+
+PURPOSE FIELD RULES FOR NETWORK STEPS:
+- purpose: diagnose - For steps that ONLY check status (ping, nslookup, ip addr show, route show, systemctl status)
+- purpose: remediate - For steps that FIX issues (systemctl restart, ip link set down/up, dhclient renew, ufw disable, route add, iptables flush)
+- purpose: verify - For the final step that confirms connectivity is restored
+
+EXAMPLES:
+- "ping -c 4 host" -> purpose: diagnose (only tests connectivity)
+- "systemctl restart vpn-service" -> purpose: remediate (restarts service to fix issue)
+- "ip link set dev eth0 down && ip link set dev eth0 up" -> purpose: remediate (restarts interface)
+- "dhclient -r eth0 && dhclient eth0" -> purpose: remediate (renews IP address)
+- "ufw disable" -> purpose: remediate (disables firewall)
+- "route add default gw gateway" -> purpose: remediate (adds route to fix routing)
+- Final connectivity check after fixes -> purpose: verify
+
+CRITICAL: At least 4 of your 5-6 steps MUST have "purpose: remediate". Network issues require ACTIVE FIXES (restart services, restart interfaces, renew IPs, disable firewalls, add routes), not just connectivity tests.
+
+CRITICAL RULES FOR NETWORK ISSUES:
+1. Title MUST match the EXACT issue description - if issue says "connectivity lost", title must say "connectivity lost"
+2. Description MUST explain the NETWORK issue, not database, web application, or server issues
+3. Use network-specific commands (ping, traceroute, nslookup, dig, ip, route, nmcli)
+4. NEVER generate database commands (SELECT, DBCC) for pure network issues
+5. NEVER generate web application commands (curl, nginx) for pure network issues
+6. NEVER hardcode values - ALWAYS use {{host_ip}}, {{gateway_ip}}, {{interface}} placeholders
+7. Inputs should include host_ip and gateway_ip, optionally interface
+8. Generate 8-12 complete steps that address the exact network issue described
+9. Each step must be UNIQUE - no duplicates
+10. Match network component to commands (DNS -> nslookup/dig, routing -> traceroute/route, interface -> ip/nmcli)
+"""
+
