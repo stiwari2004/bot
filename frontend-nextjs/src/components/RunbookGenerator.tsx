@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent, type ChangeEvent } from 'react';
 import { BookOpenIcon, WrenchScrewdriverIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -120,7 +121,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
 
     try {
       const url = apiConfig.endpoints.runbooks.generateAgent();
-      
+
       // Determine service parameter: if CI type is server and OS type is set, use OS type for backward compatibility
       // Otherwise use CI type
       let serviceParam = ciType;
@@ -129,16 +130,20 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
       } else if (ciType === 'auto') {
         serviceParam = 'auto';
       }
-      
-      const params = new URLSearchParams({
+
+      const body = {
         issue_description: issueDescription,
         service: serviceParam,
         env: envType,
-        risk: riskLevel
-      });
+        risk: riskLevel,
+      };
 
-      const response = await fetch(`${url}?${params.toString()}`, {
+      const response = await authFetch(url, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {

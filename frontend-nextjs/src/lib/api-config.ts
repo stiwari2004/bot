@@ -55,7 +55,10 @@ const createEndpoints = (baseUrl: string) => ({
   },
   runbooks: {
     base: () => `${baseUrl}/api/v1/runbooks`,
-    generateAgent: () => `${baseUrl}/api/v1/runbooks/demo/generate-agent`,
+    // Authenticated, multi-tenant generate endpoint
+    generateAgent: () => `${baseUrl}/api/v1/runbooks/generate-agent`,
+    // Demo-only endpoints (used by legacy/demo flows)
+    generateAgentDemo: () => `${baseUrl}/api/v1/runbooks/demo/generate-agent`,
     detectOS: (serverName: string) => `${baseUrl}/api/v1/runbooks/demo/detect-os?server_name=${encodeURIComponent(serverName)}`,
     metrics: (runbookId: number, days?: number) => {
       const query = days ? `?days=${days}` : '';

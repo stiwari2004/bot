@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type { Ticket, TicketDetail } from '@/features/tickets/types';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -138,7 +139,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
 
     try {
       const url = apiConfig.endpoints.runbooks.generateAgent();
-      
+
       // Determine service parameter: if CI type is server and OS type is set, use OS type for backward compatibility
       // Otherwise use CI type
       let serviceParam = ciType;
@@ -147,19 +148,25 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
       } else if (ciType === 'auto') {
         serviceParam = 'auto';
       }
-      
-      const params = new URLSearchParams({
+
+      const body: any = {
         issue_description: issueDescription,
         service: serviceParam,
         env: envType,
         risk: riskLevel,
-      });
+      };
 
       if (ticket?.id) {
-        params.append('ticket_id', ticket.id.toString());
+        body.ticket_id = ticket.id;
       }
 
-      const response = await fetch(`${url}?${params.toString()}`, { method: 'POST' });
+      const response = await authFetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
       if (!response.ok) {
         let errorMessage = `Runbook generation failed: ${response.status}`;
         let errorData: any = null;
