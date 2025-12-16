@@ -460,4 +460,3 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
     document.body
   );
 }
-

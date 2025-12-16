@@ -69,10 +69,6 @@ services:
     # Force IPv4 only to avoid IPv6 connection issues with Gemini API
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=1
-    # Explicit DNS servers (use IPv4 DNS)
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     depends_on:
       postgres:
         condition: service_healthy
