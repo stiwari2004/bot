@@ -64,6 +64,11 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true
+      # Force IPv4 for external API calls (Gemini API fails on IPv6)
+      - PYTHONUNBUFFERED=1
+    # Force IPv4 only to avoid IPv6 connection issues with Gemini API
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
     depends_on:
       postgres:
         condition: service_healthy
