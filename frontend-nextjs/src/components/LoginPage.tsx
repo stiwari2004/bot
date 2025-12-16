@@ -18,6 +18,14 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { login, user, isAuthenticated } = useAuth();
+  const [isDemoHost, setIsDemoHost] = useState(false);
+
+  // Detect if we're on the public demo host (demo.resolvify.tech)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hostname = window.location.hostname;
+    setIsDemoHost(hostname === 'demo.resolvify.tech');
+  }, []);
 
   // Redirect admins after login
   useEffect(() => {
@@ -107,7 +115,7 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-neutral-300 rounded-lg placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 bg-white transition-all"
-                    placeholder="demo@example.com"
+                    placeholder={isDemoHost ? 'demo@example.com' : 'you@example.com'}
                   />
                 </div>
               </div>
@@ -135,15 +143,27 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
               </div>
             </div>
 
-            <Card variant="default" className="bg-primary-50 border-primary-200">
-              <CardContent padding="sm">
-                <p className="font-semibold text-primary-800 mb-2 text-sm">Sandbox Demo Credentials:</p>
-                <div className="space-y-1 text-xs text-primary-700">
-                  <p>Email: <code className="bg-primary-100 px-1.5 py-0.5 rounded font-mono">demo@example.com</code></p>
-                  <p>Password: <code className="bg-primary-100 px-1.5 py-0.5 rounded font-mono">demo123</code></p>
-                </div>
-              </CardContent>
-            </Card>
+            {isDemoHost && (
+              <Card variant="default" className="bg-primary-50 border-primary-200">
+                <CardContent padding="sm">
+                  <p className="font-semibold text-primary-800 mb-2 text-sm">Sandbox Demo Credentials:</p>
+                  <div className="space-y-1 text-xs text-primary-700">
+                    <p>
+                      Email:{' '}
+                      <code className="bg-primary-100 px-1.5 py-0.5 rounded font-mono">
+                        demo@example.com
+                      </code>
+                    </p>
+                    <p>
+                      Password:{' '}
+                      <code className="bg-primary-100 px-1.5 py-0.5 rounded font-mono">
+                        demo123
+                      </code>
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <div>
               <Button
@@ -158,7 +178,7 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
             </div>
 
             <div className="text-center space-y-2">
-              {onSkipLogin && (
+              {onSkipLogin && isDemoHost && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -168,9 +188,11 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
                   Continue in Demo Mode (No Login Required)
                 </Button>
               )}
-              <p className="text-xs text-neutral-500">
-                Demo mode uses public endpoints and doesn't require authentication
-              </p>
+              {isDemoHost && (
+                <p className="text-xs text-neutral-500">
+                  Demo mode uses public endpoints and doesn't require authentication
+                </p>
+              )}
             </div>
           </form>
         </CardContent>
