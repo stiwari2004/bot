@@ -147,6 +147,13 @@ async def create_ticketing_connection(
             # OAuth credentials are stored in meta_data (client_id, client_secret, redirect_uri)
             pass
         
+        # For ServiceNow, sync api_username/api_password to meta_data (ServiceNow fetcher expects credentials in meta_data)
+        if connection.tool_name == "servicenow":
+            if connection.api_username and connection.api_password:
+                meta_data["username"] = connection.api_username
+                meta_data["password"] = connection.api_password
+                logger.info(f"Synced ServiceNow credentials to meta_data for new connection. Username length: {len(connection.api_username)}")
+        
         # Create connection
         db_connection = TicketingToolConnection(
             tenant_id=tenant_id,
