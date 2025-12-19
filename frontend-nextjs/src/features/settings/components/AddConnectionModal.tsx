@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type { TicketingTool } from '../types';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -73,7 +74,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
         }
       }
 
-      const response = await fetch(apiConfig.endpoints.settings.ticketingConnections(), {
+      const response = await authFetch(apiConfig.endpoints.settings.ticketingConnections(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
