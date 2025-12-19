@@ -38,7 +38,7 @@ class Ticket(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    tenant = relationship("Tenant")
+    tenant = relationship("Tenant", back_populates="tickets")
     execution_sessions = relationship("ExecutionSession", back_populates="ticket")
     
     # Indexes

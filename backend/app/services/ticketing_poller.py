@@ -93,11 +93,8 @@ class TicketingPoller:
         
         db = SessionLocal()
         try:
-            tenant_id = 1
-            
-            # Get all active API polling connections
+            # Get all active API polling connections for all tenants
             connections = db.query(TicketingToolConnection).filter(
-                TicketingToolConnection.tenant_id == tenant_id,
                 TicketingToolConnection.is_active == True,
                 TicketingToolConnection.connection_type == "api_poll"
             ).all()
