@@ -191,7 +191,11 @@ class TicketingPoller:
             
             elif connection.tool_name == "servicenow":
                 # ServiceNow supports OAuth 2.0 or Basic Auth
-                logger.info(f"Fetching ServiceNow tickets: since={since}, limit=100")
+                # Fetch tickets by status (not by date): exclude resolved/closed/canceled
+                # ServiceNow states: 1=New, 2=In Progress, 3=On Hold, 4=Resolved, 5=Closed, 6=Canceled
+                # We want states 1, 2, 3 (active tickets)
+                status_filter = ["1", "2", "3"]  # New, In Progress, On Hold
+                logger.info(f"Fetching ServiceNow tickets: status_filter={status_filter}, limit=100 (excluding resolved/closed/canceled)")
                 logger.debug(f"ServiceNow meta_data keys: {list(meta_data.keys())}")
                 # Credentials can be in meta_data OR in connection.api_username/api_password
                 # Check both locations
@@ -209,8 +213,9 @@ class TicketingPoller:
                     password=password,
                     client_id=meta_data.get("client_id"),
                     client_secret=meta_data.get("client_secret"),
-                    since=since,
-                    limit=100
+                    status_filter=status_filter,
+                    limit=100,
+                    since=None  # Don't use date filter - fetch all active tickets
                 )
                 logger.info(f"ServiceNow fetcher returned {len(tickets)} tickets")
             
