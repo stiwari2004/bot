@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type { TicketingConnection, TicketingTool } from '../types';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -116,7 +117,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         }
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         apiConfig.endpoints.settings.ticketingConnection(connection.id),
         {
           method: 'PUT',

@@ -28,7 +28,7 @@ export function useSettings() {
 
   const fetchExecutionMode = useCallback(async () => {
     try {
-      const response = await fetch(apiConfig.endpoints.settings.executionMode());
+      const response = await authFetch(apiConfig.endpoints.settings.executionMode());
       if (!response.ok) {
         throw new Error('Failed to fetch execution mode');
       }
@@ -100,7 +100,7 @@ export function useSettings() {
 
   const fetchAvailableTools = useCallback(async () => {
     try {
-      const response = await fetch(apiConfig.endpoints.settings.ticketingTools());
+      const response = await authFetch(apiConfig.endpoints.settings.ticketingTools());
       if (!response.ok) {
         throw new Error('Failed to fetch available tools');
       }
@@ -119,7 +119,7 @@ export function useSettings() {
     setSuccess(null);
 
     try {
-      const response = await fetch(apiConfig.endpoints.settings.executionMode(), {
+      const response = await authFetch(apiConfig.endpoints.settings.executionMode(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
