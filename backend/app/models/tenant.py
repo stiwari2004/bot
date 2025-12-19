@@ -47,6 +47,7 @@ class Tenant(Base):
     
     # Relationships
     users = relationship("User", back_populates="tenant")
+    tickets = relationship("Ticket", back_populates="tenant")
     billing_config = relationship("TenantBillingConfig", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
     subscription = relationship("TenantSubscription", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
     parent_tenant = relationship("Tenant", remote_side=[id], backref="sub_tenants")
