@@ -1,306 +1,278 @@
-# Security Hardening Guide - Immediate Action Required
+# Security Hardening Guide - Prevent Malware Reinfection
 
-## 🚨 Critical Situation: CVE-2025-55182 (React2Shell) Exploitation
+## Root Cause Analysis
 
-Your VPS is being repeatedly compromised due to a vulnerability in your Next.js application. **Reimaging alone will NOT fix this** - the vulnerability must be patched first.
+If malware keeps coming back after reimaging, the infection vector is likely one of these:
 
----
+1. **Weak SSH credentials** (password or key-based)
+2. **Exposed services** (web apps, databases, Docker APIs)
+3. **Compromised Docker images** or containers
+4. **Vulnerable application code** (SQL injection, RCE, etc.)
+5. **Compromised user accounts** with sudo access
+6. **Backdoors in application code** or configuration files
 
-## ⚠️ Why Reimaging Alone Won't Work
+## Immediate Security Hardening Steps
 
-1. **The vulnerability is in your application code**, not just the server
-2. Attackers exploit the Next.js vulnerability to install malware
-3. Even after cleanup, the vulnerable code remains
-4. **You'll be compromised again within hours/days**
-
----
-
-## ✅ Step-by-Step Recovery Plan
-
-### **Phase 1: Patch Application (DO THIS FIRST - Before Reimaging)**
-
-#### 1. Update Next.js to Latest Patched Version
+### 1. Secure SSH Access
 
 ```bash
-cd frontend-nextjs
-npm update next@latest
-npm update eslint-config-next@latest
-npm audit fix
-```
-
-#### 2. Review and Fix Security Issues
-
-Your codebase has several critical vulnerabilities that need immediate attention:
-
-**Critical (P0) - Fix Before Reimaging:**
-- [ ] **MF-1**: Remove hardcoded `SECRET_KEY` in `backend/app/core/config.py`
-- [ ] **MF-19**: Remove default database credentials
-- [ ] **MF-2**: Fix SQL injection in vector store queries
-- [ ] **MF-4**: Add command injection protection in infrastructure connectors
-- [ ] **MF-7**: Remove credential encryption fallback (always require key)
-
-**High Priority (P1) - Fix Before Production:**
-- [ ] **MF-5**: Disable DEBUG mode by default
-- [ ] **MF-6**: Restrict CORS to specific origins
-- [ ] **MF-8**: Run Docker containers as non-root user (backend already has this)
-- [ ] **MF-9**: Add WebSocket authentication
-- [ ] **MF-10**: Add API rate limiting (already partially done)
-- [ ] **MF-12**: Add file upload validation
-
-#### 3. Commit and Push Patched Code
-
-```bash
-git add frontend-nextjs/package.json frontend-nextjs/package-lock.json
-git commit -m "SECURITY: Update Next.js to patch CVE-2025-55182"
-git push origin main
-```
-
----
-
-### **Phase 2: Reimage VPS (After Patching)**
-
-**ONLY AFTER** you've patched the application:
-
-1. **Backup essential data:**
-   ```bash
-   # Backup database
-   docker compose -f docker-compose.production.yml exec postgres pg_dump -U postgres troubleshooting_ai > backup.sql
-   
-   # Backup environment files
-   cp backend/.env backend/.env.backup
-   ```
-
-2. **Reimage the VPS** through Hostinger control panel
-
-3. **Restore with patched code:**
-   ```bash
-   # Clone fresh repository
-   git clone https://github.com/stiwari2004/bot.git
-   cd bot
-   
-   # Restore environment
-   cp backend/.env.backup backend/.env
-   
-   # Restore database
-   docker compose -f docker-compose.production.yml up -d postgres
-   docker compose -f docker-compose.production.yml exec postgres psql -U postgres troubleshooting_ai < backup.sql
-   
-   # Start services with patched code
-   docker compose -f docker-compose.production.yml up -d --build
-   ```
-
----
-
-### **Phase 3: Implement Security Hardening**
-
-#### 1. Firewall Configuration
-
-```bash
-# Install and configure UFW
-sudo apt install ufw
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP
-sudo ufw allow 443/tcp   # HTTPS
-sudo ufw enable
-```
-
-#### 2. Fail2Ban for SSH Protection
-
-```bash
-sudo apt install fail2ban
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
-```
-
-#### 3. Disable Root Login via SSH
-
-```bash
-# Edit SSH config
+# Disable password authentication (use keys only)
 sudo nano /etc/ssh/sshd_config
-
 # Set:
-PermitRootLogin no
-PasswordAuthentication no  # Use SSH keys only
+# PasswordAuthentication no
+# PermitRootLogin no  # Or use PermitRootLogin prohibit-password
+# PubkeyAuthentication yes
 
 # Restart SSH
 sudo systemctl restart sshd
+
+# Check for weak SSH keys
+find /home -name "authorized_keys" -exec ls -la {} \;
+find /root -name "authorized_keys" -exec ls -la {} \;
+
+# Remove any suspicious authorized_keys entries
 ```
 
-#### 4. Nginx Security Headers
-
-Add to your Nginx configs:
-
-```nginx
-# Security headers
-add_header X-Frame-Options "SAMEORIGIN" always;
-add_header X-Content-Type-Options "nosniff" always;
-add_header X-XSS-Protection "1; mode=block" always;
-add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';" always;
-
-# Hide server version
-server_tokens off;
-```
-
-#### 5. Rate Limiting in Nginx
-
-Add to each server block:
-
-```nginx
-# Rate limiting
-limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
-limit_req_zone $binary_remote_addr zone=login_limit:10m rate=5r/m;
-
-location /api {
-    limit_req zone=api_limit burst=20 nodelay;
-    # ... existing proxy_pass config
-}
-
-location /api/v1/auth/login {
-    limit_req zone=login_limit burst=3 nodelay;
-    # ... existing proxy_pass config
-}
-```
-
-#### 6. Docker Security
-
-- ✅ Backend already runs as non-root user
-- Add to frontend Dockerfile:
-  ```dockerfile
-  RUN useradd -m -u 1000 appuser && \
-      chown -R appuser:appuser /app
-  USER appuser
-  ```
-
-#### 7. Environment Variable Security
-
-- Never commit `.env` files
-- Use strong, unique passwords
-- Rotate secrets regularly
-- Use environment-specific configs
-
-#### 8. Monitoring and Alerts
+### 2. Audit User Accounts
 
 ```bash
-# Install monitoring tools
-sudo apt install logwatch
-sudo apt install rkhunter
-sudo apt install chkrootkit
+# Check all users with shell access
+cat /etc/passwd | grep -E "/bin/(bash|sh)$"
 
-# Schedule daily scans
-sudo crontab -e
-# Add: 0 2 * * * /usr/bin/rkhunter --check --skip-keypress
+# Check users with sudo access
+grep -E "^[^#].*ALL.*NOPASSWD" /etc/sudoers
+grep -E "^[^#].*ALL.*NOPASSWD" /etc/sudoers.d/*
+
+# Check for suspicious users
+awk -F: '$3 == 0 {print $1}' /etc/passwd  # Users with UID 0
 ```
 
----
+### 3. Secure Docker
 
-## 🔄 Ongoing Security Maintenance
+```bash
+# Check Docker socket permissions
+ls -la /var/run/docker.sock
 
-### Weekly Tasks:
-- [ ] Review application logs for suspicious activity
-- [ ] Check for failed login attempts
-- [ ] Review Docker container logs
-- [ ] Check disk space (cryptominers can fill disks)
+# If world-writable, fix it:
+sudo chmod 660 /var/run/docker.sock
+sudo chown root:docker /var/run/docker.sock
 
-### Monthly Tasks:
-- [ ] Update all dependencies: `npm audit fix` and `pip list --outdated`
-- [ ] Review and rotate API keys and passwords
-- [ ] Review firewall rules
-- [ ] Check for security advisories for your stack
+# Disable Docker API if exposed
+# Check if Docker API is listening:
+netstat -tuln | grep 2375 || ss -tuln | grep 2375
 
-### Automated Monitoring:
+# If found, disable it in /etc/docker/daemon.json:
+# {
+#   "hosts": ["unix:///var/run/docker.sock"]
+# }
+```
 
-Set up alerts for:
-- Unusual CPU/memory usage (cryptominers)
-- Unusual network traffic
-- Failed authentication attempts
-- New processes running as root
-- Changes to system files
+### 4. Scan for Backdoors in Code
 
----
+```bash
+# Check for suspicious code patterns
+cd /home/opsbot/bot
 
-## 🤔 Should You Change VPS Providers?
+# Look for base64 encoded strings (common in backdoors)
+find . -type f \( -name "*.py" -o -name "*.sh" -o -name "*.js" \) -exec grep -l "base64\|eval\|exec\|system\|subprocess" {} \;
 
-**Short answer: Not necessary, but consider it if:**
-- Hostinger doesn't provide adequate security support
-- You need better DDoS protection
-- You need managed security services
+# Check for suspicious network connections in code
+grep -r "curl.*http\|wget.*http\|nc.*-e\|bash.*-i" --include="*.sh" --include="*.py" .
 
-**However, the real issue is your application security**, not the provider. Even on AWS/Azure/GCP, a vulnerable application will be compromised.
+# Check for hardcoded credentials
+grep -r "password.*=\|PASSWORD.*=\|secret.*=\|SECRET.*=" --include="*.py" --include="*.js" --include="*.env" . | grep -v ".git"
 
-**Better alternatives if switching:**
-- **DigitalOcean**: Good security, clear documentation
-- **Linode (Akamai)**: Strong security focus
-- **Hetzner**: Good value, European data centers
-- **AWS Lightsail**: Managed security features
-- **Vultr**: Good security, global presence
+# Check Docker images for vulnerabilities
+docker images
+docker scan <image_name>  # If Docker Scout is available
+```
 
----
+### 5. Firewall Configuration
 
-## 📋 Quick Security Checklist
+```bash
+# Install and configure UFW (if not already installed)
+sudo apt update
+sudo apt install ufw -y
 
-Before going live again:
+# Deny all incoming by default
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
 
-- [ ] Next.js updated to latest version
-- [ ] All P0 security fixes applied
-- [ ] Firewall configured (UFW)
-- [ ] Fail2Ban installed
-- [ ] SSH root login disabled
-- [ ] Strong passwords/keys for all services
-- [ ] Nginx security headers added
-- [ ] Rate limiting configured
-- [ ] Docker containers run as non-root
-- [ ] Environment variables secured
-- [ ] Monitoring tools installed
-- [ ] Regular backup schedule configured
+# Allow only necessary ports
+sudo ufw allow 22/tcp   # SSH
+sudo ufw allow 80/tcp   # HTTP
+sudo ufw allow 443/tcp  # HTTPS
 
----
+# Enable firewall
+sudo ufw enable
+sudo ufw status verbose
 
-## 🆘 If Compromised Again
+# Block Docker API if exposed
+sudo ufw deny 2375/tcp
+sudo ufw deny 2376/tcp
+```
 
-1. **Immediately**: Stop all services
-   ```bash
-   docker compose -f docker-compose.production.yml down
-   ```
+### 6. Application Security
 
-2. **Check for backdoors:**
-   ```bash
-   # Check for suspicious processes
-   ps aux | grep -E 'xmrig|miner|crypto|\.system'
-   
-   # Check for suspicious files
-   find /tmp /var/tmp -type f -mtime -1
-   
-   # Check cron jobs
-   crontab -l
-   sudo crontab -l -u root
-   ```
+```bash
+# Check for exposed environment variables
+docker compose -f docker-compose.production.yml config | grep -i "password\|secret\|key\|token"
 
-3. **Check systemd services:**
-   ```bash
-   systemctl list-units --type=service --state=running
-   ```
+# Review application logs for suspicious activity
+docker compose -f docker-compose.production.yml logs backend --tail=1000 | grep -iE "error|exception|unauthorized|forbidden|injection"
 
-4. **Review logs:**
-   ```bash
-   journalctl -u docker --since "24 hours ago"
-   docker compose logs --tail=1000
-   ```
+# Check database for suspicious data
+docker compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai -c "SELECT * FROM users WHERE role = 'super_admin';"
+```
 
-5. **If found, document everything, then reimage**
+### 7. Monitor for Intrusions
 
----
+```bash
+# Install fail2ban to prevent brute force attacks
+sudo apt install fail2ban -y
 
-## 📚 Resources
+# Configure fail2ban for SSH
+sudo nano /etc/fail2ban/jail.local
+# Add:
+# [sshd]
+# enabled = true
+# port = 22
+# filter = sshd
+# logpath = /var/log/auth.log
+# maxretry = 3
+# bantime = 3600
 
-- [Next.js Security Best Practices](https://nextjs.org/docs/app/building-your-application/configuring/security-headers)
-- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+
+# Check fail2ban status
+sudo fail2ban-client status sshd
+```
+
+### 8. Regular Security Audits
+
+```bash
+# Create a security audit script
+cat > /root/security-audit.sh << 'EOF'
+#!/bin/bash
+echo "=== Security Audit ==="
+echo "Date: $(date)"
+echo ""
+
+echo "[1] Failed login attempts:"
+grep "Failed password" /var/log/auth.log | tail -20
+
+echo ""
+echo "[2] Successful SSH logins:"
+grep "Accepted" /var/log/auth.log | tail -20
+
+echo ""
+echo "[3] Suspicious processes:"
+ps aux | grep -iE "xmrig|miner|crypto|\.system|4thepool|watcher" | grep -v grep
+
+echo ""
+echo "[4] Network connections:"
+netstat -tuln | grep LISTEN || ss -tuln | grep LISTEN
+
+echo ""
+echo "[5] Docker containers:"
+docker ps -a
+
+echo ""
+echo "[6] Disk usage:"
+df -h
+
+echo ""
+echo "[7] Recent file changes in /tmp:"
+find /tmp -type f -mtime -1 -ls 2>/dev/null | head -20
+EOF
+
+chmod +x /root/security-audit.sh
+
+# Schedule daily audit
+echo "0 2 * * * /root/security-audit.sh >> /var/log/security-audit.log 2>&1" | sudo crontab -
+```
+
+### 9. Application-Level Security
+
+```bash
+# Review your application code for:
+# - SQL injection vulnerabilities
+# - Command injection (os.system, subprocess with user input)
+# - File upload vulnerabilities
+# - Authentication bypasses
+# - Hardcoded credentials
+
+# Check backend code
+cd /home/opsbot/bot/backend
+grep -r "os.system\|subprocess\|eval\|exec" --include="*.py" . | grep -v "__pycache__"
+
+# Check for SQL injection risks
+grep -r "f\".*SELECT\|f\".*INSERT\|f\".*UPDATE\|f\".*DELETE" --include="*.py" .
+```
+
+### 10. Docker Security Best Practices
+
+```bash
+# Run containers as non-root user
+# Update docker-compose.production.yml to include:
+# services:
+#   backend:
+#     user: "1000:1000"  # Non-root user
+
+# Scan Docker images regularly
+docker images | grep -v REPOSITORY | awk '{print $1}' | xargs -I {} docker scan {}
+
+# Use specific image tags (not :latest)
+# Update docker-compose.production.yml to use specific versions
+
+# Limit container resources
+# Add to docker-compose.production.yml:
+# services:
+#   backend:
+#     deploy:
+#       resources:
+#         limits:
+#           cpus: '2'
+#           memory: 2G
+```
+
+## Prevention Checklist
+
+- [ ] SSH password authentication disabled
+- [ ] SSH root login disabled (or key-only)
+- [ ] Firewall (UFW) enabled and configured
+- [ ] Fail2ban installed and configured
+- [ ] Docker socket permissions secured
+- [ ] Docker API not exposed to network
+- [ ] All user accounts audited
+- [ ] Application code scanned for vulnerabilities
+- [ ] Environment variables secured (no hardcoded secrets)
+- [ ] Regular security audits scheduled
+- [ ] Log monitoring enabled
+- [ ] Containers run as non-root users
+- [ ] Docker images use specific tags (not :latest)
+
+## Ongoing Monitoring
+
+1. **Set up log monitoring** - Use tools like `logwatch` or `rsyslog` to monitor system logs
+2. **Regular security audits** - Run the audit script daily
+3. **Update regularly** - Keep system and Docker images updated
+4. **Monitor resource usage** - Unusual CPU/memory spikes can indicate malware
+5. **Review application logs** - Check for suspicious API calls or errors
+
+## If Malware is Found Again
+
+1. **Immediately disconnect from network** (if possible)
+2. **Run detection script**: `./scripts/detect-malware.sh`
+3. **Run removal script**: `./scripts/remove-malware.sh`
+4. **Identify infection vector** - Check logs around the time of infection
+5. **Patch the vulnerability** - Fix the security hole that allowed infection
+6. **Change all credentials** - SSH keys, database passwords, API keys
+7. **Reimage if necessary** - If backdoor is too deep, reimage again
+
+## Additional Resources
+
 - [Docker Security Best Practices](https://docs.docker.com/engine/security/)
-- [Nginx Security Headers](https://www.nginx.com/blog/http-strict-transport-security-hsts-and-nginx/)
-
----
-
-**Remember: Security is an ongoing process, not a one-time fix.**
-
+- [Linux Server Hardening](https://www.cyberciti.biz/tips/linux-security.html)
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
