@@ -100,12 +100,19 @@ if resolution:
     api_router.include_router(resolution.router, prefix="/resolution", tags=["resolution"])
 
 # Super Admin endpoints (platform-level management)
+# Import super_admin_auth separately so it loads even if super_admin doesn't exist
 try:
-    from app.api.v1.endpoints import super_admin_auth, super_admin
+    from app.api.v1.endpoints import super_admin_auth
     api_router.include_router(super_admin_auth.router, prefix="/super-admin/auth", tags=["super-admin-auth"])
+except ImportError:
+    pass  # Super admin auth module not available
+
+# Import super_admin endpoints separately (if they exist)
+try:
+    from app.api.v1.endpoints import super_admin
     api_router.include_router(super_admin.router, prefix="/super-admin", tags=["super-admin"])
 except ImportError:
-    pass  # Super admin modules not available
+    pass  # Super admin management endpoints not available (auth still works)
 
 # Billing endpoints (Super Admin only)
 try:
