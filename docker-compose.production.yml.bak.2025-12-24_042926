@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: troubleshooting_ai
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-8aeb9119ba31480faff7dbff6883443}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_STRONG_PASSWORD}
     # Postgres is only needed by backend/worker inside the Docker network.
     # Remove host port exposure to avoid conflicts with any host Postgres.
     # If you need host access, change to a non-conflicting port like "5433:5432".
@@ -42,23 +42,6 @@ services:
     restart: unless-stopped
     networks:
       - app-network
-
-
-  proxy:
-      image: nginx:1.27-alpine
-      container_name: bot-proxy
-      volumes:
-        - ./proxy/conf.d:/etc/nginx/conf.d:ro
-        - /etc/letsencrypt:/etc/letsencrypt:ro
-      ports:
-        - "8080:80"
-        - "8443:443"
-      depends_on:
-        - backend
-        - frontend
-      restart: unless-stopped
-      networks:
-        - app-network
 
   # FastAPI Backend
   backend:
@@ -148,7 +131,5 @@ volumes:
 
 networks:
   app-network:
-    name: bot_app-network
-    external: true
-
+    driver: bridge
 
