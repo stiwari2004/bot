@@ -46,3 +46,5 @@ echo "3. Manually trigger sync: POST /api/v1/settings/ticketing-connections/{id}
 echo "4. Check full logs: docker compose -f docker-compose.production.yml logs backend --tail=500 | grep -i servicenow"
 echo ""
 
+
+

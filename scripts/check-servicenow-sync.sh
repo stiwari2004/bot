@@ -70,3 +70,5 @@ echo "3. Check backend logs: docker compose -f docker-compose.production.yml log
 echo "4. Manually trigger sync: POST /api/v1/settings/ticketing-connections/{id}/sync"
 echo ""
 
+
+
