@@ -344,7 +344,20 @@ class TicketingPoller:
             )
             
         except Exception as e:
-            logger.error(f"Error polling {connection.tool_name} connection {connection.id}: {e}", exc_info=True)
+            error_msg = str(e)
+            logger.error(f"Error polling {connection.tool_name} connection {connection.id}: {error_msg}", exc_info=True)
+            
+            # Check if it's a ServiceNow hibernation error - handle more gracefully
+            if connection.tool_name == "servicenow" and "hibernat" in error_msg.lower():
+                logger.warning(
+                    f"ServiceNow connection {connection.id} instance is hibernated. "
+                    "Skipping this polling cycle. Connection will be retried on next cycle."
+                )
+                # Mark as error but don't raise - allow other connections to continue
+                connection.last_sync_status = "error"
+                connection.last_error = "Instance hibernated - will retry on next poll"
+                db.commit()
+                return  # Skip this connection, continue with others
             
             # CRITICAL: Persist refreshed tokens even if fetch_tickets() failed
             # This ensures we don't lose refreshed tokens due to API errors
