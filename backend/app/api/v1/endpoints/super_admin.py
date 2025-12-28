@@ -1,0 +1,530 @@
+"""
+Super Admin endpoints - Platform-level management
+"""
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, EmailStr
+
+from app.core.database import get_db
+from app.models.tenant import Tenant
+from app.models.user import User
+from app.services.super_admin_auth import get_current_super_admin
+from app.services.auth import get_password_hash
+from app.models.super_admin import SuperAdmin
+from app.core.logging import get_logger
+
+router = APIRouter()
+logger = get_logger(__name__)
+
+
+# Schemas
+class TenantCreate(BaseModel):
+    name: str
+    subdomain_slug: Optional[str] = None
+    description: Optional[str] = None
+    deployment_type: str = "saas"
+    is_active: bool = True
+    contact_email: Optional[EmailStr] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class TenantUpdate(BaseModel):
+    name: Optional[str] = None
+    subdomain_slug: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    contact_email: Optional[EmailStr] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class TenantResponse(BaseModel):
+    id: int
+    name: str
+    subdomain_slug: Optional[str]
+    description: Optional[str]
+    deployment_type: str
+    is_active: bool
+    contact_email: Optional[str]
+    contact_name: Optional[str]
+    contact_phone: Optional[str]
+    created_at: str
+    updated_at: Optional[str]
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: Optional[str] = None
+    role: str = "user"
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    full_name: Optional[str]
+    role: str
+    is_active: bool
+    last_login: Optional[str]
+    created_at: str
+
+
+# Overview endpoint
+@router.get("/overview")
+async def get_overview(
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Get platform overview statistics"""
+    try:
+        # Count tenants
+        total_tenants = db.query(Tenant).count()
+        active_tenants = db.query(Tenant).filter(Tenant.is_active == True).count()
+        
+        # Count users
+        total_users = db.query(User).count()
+        active_users = db.query(User).filter(User.is_active == True).count()
+        
+        # Count users by role
+        users_by_role = db.query(
+            User.role,
+            func.count(User.id).label('count')
+        ).group_by(User.role).all()
+        role_counts = {role: count for role, count in users_by_role}
+        
+        return {
+            "tenants": {
+                "total": total_tenants,
+                "active": active_tenants,
+                "inactive": total_tenants - active_tenants
+            },
+            "users": {
+                "total": total_users,
+                "active": active_users,
+                "inactive": total_users - active_users,
+                "by_role": role_counts
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching overview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch overview: {str(e)}")
+
+
+# Tenant management endpoints
+@router.get("/tenants", response_model=List[TenantResponse])
+async def list_tenants(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    is_active: Optional[bool] = None,
+    deployment_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """List all tenants"""
+    try:
+        query = db.query(Tenant)
+        
+        if is_active is not None:
+            query = query.filter(Tenant.is_active == is_active)
+        if deployment_type:
+            query = query.filter(Tenant.deployment_type == deployment_type)
+        
+        tenants = query.offset(skip).limit(limit).all()
+        
+        return [
+            {
+                "id": t.id,
+                "name": t.name,
+                "subdomain_slug": t.subdomain_slug,
+                "description": t.description,
+                "deployment_type": t.deployment_type,
+                "is_active": t.is_active,
+                "contact_email": t.contact_email,
+                "contact_name": t.contact_name,
+                "contact_phone": t.contact_phone,
+                "created_at": t.created_at.isoformat() if t.created_at else "",
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            }
+            for t in tenants
+        ]
+    except Exception as e:
+        logger.error(f"Error listing tenants: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list tenants: {str(e)}")
+
+
+@router.get("/tenants/{tenant_id}", response_model=TenantResponse)
+async def get_tenant(
+    tenant_id: int,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Get a specific tenant"""
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "subdomain_slug": tenant.subdomain_slug,
+            "description": tenant.description,
+            "deployment_type": tenant.deployment_type,
+            "is_active": tenant.is_active,
+            "contact_email": tenant.contact_email,
+            "contact_name": tenant.contact_name,
+            "contact_phone": tenant.contact_phone,
+            "created_at": tenant.created_at.isoformat() if tenant.created_at else "",
+            "updated_at": tenant.updated_at.isoformat() if tenant.updated_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting tenant: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get tenant: {str(e)}")
+
+
+@router.post("/tenants", response_model=TenantResponse)
+async def create_tenant(
+    tenant_data: TenantCreate,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Create a new tenant"""
+    try:
+        # Check if tenant name already exists
+        existing = db.query(Tenant).filter(Tenant.name == tenant_data.name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Tenant with name '{tenant_data.name}' already exists")
+        
+        # Check subdomain slug if provided
+        if tenant_data.subdomain_slug:
+            existing_slug = db.query(Tenant).filter(Tenant.subdomain_slug == tenant_data.subdomain_slug).first()
+            if existing_slug:
+                raise HTTPException(status_code=400, detail=f"Tenant with subdomain '{tenant_data.subdomain_slug}' already exists")
+        
+        # Create tenant
+        tenant = Tenant(
+            name=tenant_data.name,
+            subdomain_slug=tenant_data.subdomain_slug,
+            description=tenant_data.description,
+            deployment_type=tenant_data.deployment_type,
+            is_active=tenant_data.is_active,
+            contact_email=tenant_data.contact_email,
+            contact_name=tenant_data.contact_name,
+            contact_phone=tenant_data.contact_phone,
+        )
+        
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+        
+        logger.info(f"Super admin {current_admin.email} created tenant: {tenant.name} (ID: {tenant.id})")
+        
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "subdomain_slug": tenant.subdomain_slug,
+            "description": tenant.description,
+            "deployment_type": tenant.deployment_type,
+            "is_active": tenant.is_active,
+            "contact_email": tenant.contact_email,
+            "contact_name": tenant.contact_name,
+            "contact_phone": tenant.contact_phone,
+            "created_at": tenant.created_at.isoformat() if tenant.created_at else "",
+            "updated_at": tenant.updated_at.isoformat() if tenant.updated_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating tenant: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create tenant: {str(e)}")
+
+
+@router.put("/tenants/{tenant_id}", response_model=TenantResponse)
+async def update_tenant(
+    tenant_id: int,
+    tenant_data: TenantUpdate,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Update a tenant"""
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        # Update fields
+        if tenant_data.name is not None:
+            # Check if new name conflicts
+            existing = db.query(Tenant).filter(
+                Tenant.name == tenant_data.name,
+                Tenant.id != tenant_id
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail=f"Tenant with name '{tenant_data.name}' already exists")
+            tenant.name = tenant_data.name
+        
+        if tenant_data.subdomain_slug is not None:
+            # Check if new slug conflicts
+            existing = db.query(Tenant).filter(
+                Tenant.subdomain_slug == tenant_data.subdomain_slug,
+                Tenant.id != tenant_id
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail=f"Tenant with subdomain '{tenant_data.subdomain_slug}' already exists")
+            tenant.subdomain_slug = tenant_data.subdomain_slug
+        
+        if tenant_data.description is not None:
+            tenant.description = tenant_data.description
+        if tenant_data.is_active is not None:
+            tenant.is_active = tenant_data.is_active
+        if tenant_data.contact_email is not None:
+            tenant.contact_email = tenant_data.contact_email
+        if tenant_data.contact_name is not None:
+            tenant.contact_name = tenant_data.contact_name
+        if tenant_data.contact_phone is not None:
+            tenant.contact_phone = tenant_data.contact_phone
+        
+        db.commit()
+        db.refresh(tenant)
+        
+        logger.info(f"Super admin {current_admin.email} updated tenant: {tenant.name} (ID: {tenant.id})")
+        
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "subdomain_slug": tenant.subdomain_slug,
+            "description": tenant.description,
+            "deployment_type": tenant.deployment_type,
+            "is_active": tenant.is_active,
+            "contact_email": tenant.contact_email,
+            "contact_name": tenant.contact_name,
+            "contact_phone": tenant.contact_phone,
+            "created_at": tenant.created_at.isoformat() if tenant.created_at else "",
+            "updated_at": tenant.updated_at.isoformat() if tenant.updated_at else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating tenant: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update tenant: {str(e)}")
+
+
+@router.delete("/tenants/{tenant_id}")
+async def delete_tenant(
+    tenant_id: int,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Delete (deactivate) a tenant"""
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        # Soft delete - deactivate instead of hard delete
+        tenant.is_active = False
+        db.commit()
+        
+        logger.info(f"Super admin {current_admin.email} deactivated tenant: {tenant.name} (ID: {tenant.id})")
+        
+        return {"message": f"Tenant '{tenant.name}' has been deactivated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting tenant: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete tenant: {str(e)}")
+
+
+# Tenant user management endpoints
+@router.get("/tenants/{tenant_id}/users", response_model=List[UserResponse])
+async def list_tenant_users(
+    tenant_id: int,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """List all users for a tenant"""
+    try:
+        # Verify tenant exists
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        users = db.query(User).filter(User.tenant_id == tenant_id).all()
+        
+        return [
+            {
+                "id": u.id,
+                "email": u.email,
+                "full_name": u.full_name,
+                "role": u.role,
+                "is_active": u.is_active,
+                "last_login": u.last_login.isoformat() if u.last_login else None,
+                "created_at": u.created_at.isoformat() if u.created_at else "",
+            }
+            for u in users
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing tenant users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list users: {str(e)}")
+
+
+@router.post("/tenants/{tenant_id}/users", response_model=UserResponse)
+async def create_tenant_user(
+    tenant_id: int,
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Create a new user for a tenant"""
+    try:
+        # Verify tenant exists
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        # Check if user email already exists
+        existing = db.query(User).filter(User.email == user_data.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"User with email '{user_data.email}' already exists")
+        
+        # Create user
+        user = User(
+            tenant_id=tenant_id,
+            email=user_data.email,
+            password_hash=get_password_hash(user_data.password),
+            full_name=user_data.full_name,
+            role=user_data.role,
+            is_active=True
+        )
+        
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"Super admin {current_admin.email} created user: {user.email} for tenant: {tenant.name}")
+        
+        return {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "last_login": user.last_login.isoformat() if user.last_login else None,
+            "created_at": user.created_at.isoformat() if user.created_at else "",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating user: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
+
+
+@router.put("/tenants/{tenant_id}/users/{user_id}", response_model=UserResponse)
+async def update_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Update a user for a tenant"""
+    try:
+        # Verify tenant exists
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        # Get user
+        user = db.query(User).filter(
+            User.id == user_id,
+            User.tenant_id == tenant_id
+        ).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Update fields
+        if user_data.full_name is not None:
+            user.full_name = user_data.full_name
+        if user_data.role is not None:
+            user.role = user_data.role
+        if user_data.password is not None:
+            user.password_hash = get_password_hash(user_data.password)
+        if user_data.is_active is not None:
+            user.is_active = user_data.is_active
+        
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"Super admin {current_admin.email} updated user: {user.email} for tenant: {tenant.name}")
+        
+        return {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "last_login": user.last_login.isoformat() if user.last_login else None,
+            "created_at": user.created_at.isoformat() if user.created_at else "",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
+
+
+@router.delete("/tenants/{tenant_id}/users/{user_id}")
+async def delete_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Delete (deactivate) a user"""
+    try:
+        # Verify tenant exists
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        # Get user
+        user = db.query(User).filter(
+            User.id == user_id,
+            User.tenant_id == tenant_id
+        ).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Soft delete - deactivate instead of hard delete
+        user.is_active = False
+        db.commit()
+        
+        logger.info(f"Super admin {current_admin.email} deactivated user: {user.email} for tenant: {tenant.name}")
+        
+        return {"message": f"User '{user.email}' has been deactivated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting user: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
+
