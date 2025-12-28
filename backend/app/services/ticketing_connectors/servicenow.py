@@ -189,19 +189,50 @@ class ServiceNowTicketFetcher:
                     logger.error(f"401 Response body: {response.text[:200]}")
                     logger.error(f"Response headers: {dict(response.headers)}")
                 logger.debug(f"ServiceNow API response status: {response.status_code}")
-                response.raise_for_status()
+                
+                # Check Content-Type header
+                content_type = response.headers.get("Content-Type", "").lower()
+                response_text = response.text
+                
+                # Check if ServiceNow instance is hibernated (returns HTML instead of JSON)
+                if "text/html" in content_type or (response_text and response_text.strip().startswith("<html")):
+                    if "hibernat" in response_text.lower() or "Instance Hibernating" in response_text:
+                        logger.warning(f"ServiceNow instance appears to be hibernated (returned HTML hibernation page)")
+                        logger.warning(f"Response preview: {response_text[:200]}")
+                        raise Exception(
+                            "ServiceNow instance is hibernated. "
+                            "Developer instances hibernate after inactivity. "
+                            "Please wake up your ServiceNow instance by accessing it in a browser, "
+                            "then try again in a few minutes."
+                        )
+                    else:
+                        logger.warning(f"ServiceNow returned HTML instead of JSON (status: {response.status_code})")
+                        logger.warning(f"Response preview: {response_text[:200]}")
+                        raise Exception(
+                            f"ServiceNow API returned HTML instead of JSON (status: {response.status_code}). "
+                            "This may indicate the instance is hibernated or the API endpoint is incorrect."
+                        )
                 
                 # Check if response has content before parsing JSON
-                response_text = response.text
                 if not response_text or not response_text.strip():
                     logger.error(f"ServiceNow API returned empty response (status: {response.status_code})")
                     raise Exception(f"ServiceNow API returned empty response (status: {response.status_code})")
+                
+                # Raise for status after content checks (to get better error messages)
+                response.raise_for_status()
                 
                 try:
                     data = response.json()
                 except (ValueError, json.JSONDecodeError) as e:
                     logger.error(f"Failed to parse ServiceNow JSON response: {e}")
+                    logger.error(f"Content-Type: {content_type}")
                     logger.error(f"Response text (first 500 chars): {response_text[:500]}")
+                    # Check if it's HTML that we missed
+                    if response_text.strip().startswith("<"):
+                        raise Exception(
+                            "ServiceNow API returned HTML instead of JSON. "
+                            "This may indicate the instance is hibernated or the API endpoint is incorrect."
+                        )
                     raise Exception(f"ServiceNow API returned invalid JSON: {str(e)}")
                 
                 incidents = data.get("result", [])
