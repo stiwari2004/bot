@@ -2,6 +2,9 @@
 API v1 router configuration
 """
 from fastapi import APIRouter
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 from app.api.v1.endpoints import (
     auth,
     documents,
@@ -111,8 +114,12 @@ except ImportError:
 try:
     from app.api.v1.endpoints import super_admin
     api_router.include_router(super_admin.router, prefix="/super-admin", tags=["super-admin"])
-except ImportError:
-    pass  # Super admin management endpoints not available (auth still works)
+    logger.info("Super admin endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Super admin management endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading super admin endpoints: {e}", exc_info=True)
+    # Don't fail the entire app if super admin endpoints fail to load
 
 # Billing endpoints (Super Admin only)
 try:
