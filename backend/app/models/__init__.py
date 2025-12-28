@@ -34,6 +34,18 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     MonitoringToolConnection = None
 
+# RBAC models
+try:
+    from app.models.permission import Permission
+    from app.models.role import Role
+    from app.models.role_permission import RolePermission
+    from app.models.user_permission import UserPermission
+except ImportError:  # pragma: no cover - optional dependency
+    Permission = None
+    Role = None
+    RolePermission = None
+    UserPermission = None
+
 
 # Export for backward compatibility
 __all__ = [
@@ -61,4 +73,7 @@ if TicketingToolConnection:
 
 if MonitoringToolConnection:
     __all__.append("MonitoringToolConnection")
+
+if Permission:
+    __all__.extend(["Permission", "Role", "RolePermission", "UserPermission"])
 

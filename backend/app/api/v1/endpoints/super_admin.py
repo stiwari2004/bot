@@ -59,12 +59,14 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     full_name: Optional[str] = None
-    role: str = "user"
+    role: str = "user"  # Legacy role string
+    role_id: Optional[int] = None  # New RBAC role ID
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[str] = None  # Legacy role string
+    role_id: Optional[int] = None  # New RBAC role ID
     password: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -73,7 +75,9 @@ class UserResponse(BaseModel):
     id: int
     email: str
     full_name: Optional[str]
-    role: str
+    role: str  # Legacy role string
+    role_id: Optional[int]  # New RBAC role ID
+    role_name: Optional[str]  # Role name from RBAC
     is_active: bool
     last_login: Optional[str]
     created_at: str
@@ -366,18 +370,25 @@ async def list_tenant_users(
         
         users = db.query(User).filter(User.tenant_id == tenant_id).all()
         
-        return [
-            {
+        result = []
+        for u in users:
+            # Load role relationship
+            role_name = None
+            if u.role_obj:
+                role_name = u.role_obj.name
+            
+            result.append({
                 "id": u.id,
                 "email": u.email,
                 "full_name": u.full_name,
                 "role": u.role,
+                "role_id": u.role_id,
+                "role_name": role_name,
                 "is_active": u.is_active,
                 "last_login": u.last_login.isoformat() if u.last_login else None,
                 "created_at": u.created_at.isoformat() if u.created_at else "",
-            }
-            for u in users
-        ]
+            })
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -404,6 +415,13 @@ async def create_tenant_user(
         if existing:
             raise HTTPException(status_code=400, detail=f"User with email '{user_data.email}' already exists")
         
+        # Validate role_id if provided
+        if user_data.role_id:
+            from app.models.role import Role
+            role = db.query(Role).filter(Role.id == user_data.role_id).first()
+            if not role:
+                raise HTTPException(status_code=400, detail=f"Role with ID {user_data.role_id} not found")
+        
         # Create user
         user = User(
             tenant_id=tenant_id,
@@ -411,12 +429,18 @@ async def create_tenant_user(
             password_hash=get_password_hash(user_data.password),
             full_name=user_data.full_name,
             role=user_data.role,
+            role_id=user_data.role_id,
             is_active=True
         )
         
         db.add(user)
         db.commit()
         db.refresh(user)
+        
+        # Load role relationship
+        role_name = None
+        if user.role_obj:
+            role_name = user.role_obj.name
         
         logger.info(f"Super admin {current_admin.email} created user: {user.email} for tenant: {tenant.name}")
         
@@ -425,6 +449,8 @@ async def create_tenant_user(
             "email": user.email,
             "full_name": user.full_name,
             "role": user.role,
+            "role_id": user.role_id,
+            "role_name": role_name,
             "is_active": user.is_active,
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "created_at": user.created_at.isoformat() if user.created_at else "",
@@ -465,6 +491,13 @@ async def update_tenant_user(
             user.full_name = user_data.full_name
         if user_data.role is not None:
             user.role = user_data.role
+        if user_data.role_id is not None:
+            # Validate role_id if provided
+            from app.models.role import Role
+            role = db.query(Role).filter(Role.id == user_data.role_id).first()
+            if not role:
+                raise HTTPException(status_code=400, detail=f"Role with ID {user_data.role_id} not found")
+            user.role_id = user_data.role_id
         if user_data.password is not None:
             user.password_hash = get_password_hash(user_data.password)
         if user_data.is_active is not None:
@@ -473,6 +506,11 @@ async def update_tenant_user(
         db.commit()
         db.refresh(user)
         
+        # Load role relationship
+        role_name = None
+        if user.role_obj:
+            role_name = user.role_obj.name
+        
         logger.info(f"Super admin {current_admin.email} updated user: {user.email} for tenant: {tenant.name}")
         
         return {
@@ -480,6 +518,8 @@ async def update_tenant_user(
             "email": user.email,
             "full_name": user.full_name,
             "role": user.role,
+            "role_id": user.role_id,
+            "role_name": role_name,
             "is_active": user.is_active,
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "created_at": user.created_at.isoformat() if user.created_at else "",

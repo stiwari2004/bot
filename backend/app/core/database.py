@@ -79,6 +79,10 @@ async def init_db():
             from app.models import monitoring_tool_connection  # Monitoring tool connections
         except ImportError:
             pass
+        try:
+            from app.models import permission, role, role_permission, user_permission  # RBAC models
+        except ImportError:
+            pass
         
         # Enable required PostgreSQL extensions
         with engine.connect() as conn:

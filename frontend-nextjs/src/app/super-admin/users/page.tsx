@@ -28,9 +28,21 @@ interface User {
   email: string;
   full_name: string | null;
   role: string;
+  role_id: number | null;
+  role_name: string | null;
   is_active: boolean;
   last_login: string | null;
   created_at: string | null;
+}
+
+interface Role {
+  id: number;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  is_system_role: boolean;
+  is_custom: boolean;
+  permission_count: number;
 }
 
 export default function UsersPage() {
@@ -44,11 +56,13 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editUserId, setEditUserId] = useState<number | null>(null);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     full_name: '',
-    role: 'user',
+    role: 'user',  // Legacy role
+    role_id: null as number | null,  // New RBAC role
   });
 
   const fetchTenants = async () => {
@@ -99,11 +113,28 @@ export default function UsersPage() {
   useEffect(() => {
     if (token) {
       fetchTenants();
+      fetchRoles();
     } else {
       setError('Not authenticated. Please log in as Super Admin.');
       setLoading(false);
     }
   }, [token]);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await fetch(apiConfig.endpoints.roles.list(), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRoles(data.filter((r: Role) => r.is_active));
+      }
+    } catch (err) {
+      console.error('Failed to fetch roles:', err);
+    }
+  };
 
   useEffect(() => {
     if (selectedTenantId && token) {
@@ -155,6 +186,7 @@ export default function UsersPage() {
       password: '',
       full_name: user.full_name || '',
       role: user.role,
+      role_id: user.role_id,
     });
     setShowCreateModal(true);
   };
@@ -190,6 +222,7 @@ export default function UsersPage() {
         const payload: any = {
           full_name: formData.full_name || null,
           role: formData.role,
+          role_id: formData.role_id,
           is_active: true,
         };
         if (formData.password) {
@@ -219,6 +252,7 @@ export default function UsersPage() {
             password: formData.password,
             full_name: formData.full_name || null,
             role: formData.role,
+            role_id: formData.role_id,
           }),
         });
         if (!response.ok) {
@@ -373,17 +407,27 @@ export default function UsersPage() {
                           <TableCell className="font-medium">{user.email}</TableCell>
                           <TableCell>{user.full_name || '-'}</TableCell>
                           <TableCell>
-                            <Badge
-                              variant={
-                                user.role === 'admin'
-                                  ? 'warning'
-                                  : user.role === 'viewer'
-                                  ? 'secondary'
-                                  : 'primary'
-                              }
-                            >
-                              {user.role}
-                            </Badge>
+                            <div className="flex flex-col space-y-1">
+                              {user.role_name && (
+                                <Badge variant="primary">
+                                  {user.role_name}
+                                </Badge>
+                              )}
+                              {user.role && (
+                                <Badge
+                                  variant={
+                                    user.role === 'admin'
+                                      ? 'warning'
+                                      : user.role === 'viewer'
+                                      ? 'secondary'
+                                      : 'primary'
+                                  }
+                                  className="text-xs"
+                                >
+                                  {user.role} (legacy)
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant={user.is_active ? 'success' : 'error'}>

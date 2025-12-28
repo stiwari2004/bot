@@ -121,6 +121,14 @@ except Exception as e:
     logger.error(f"Error loading super admin endpoints: {e}", exc_info=True)
     # Don't fail the entire app if super admin endpoints fail to load
 
+# RBAC endpoints (Super Admin only)
+try:
+    from app.api.v1.endpoints import permissions, roles
+    api_router.include_router(permissions.router, prefix="/permissions", tags=["permissions"])
+    api_router.include_router(roles.router, prefix="/roles", tags=["roles"])
+except ImportError:
+    pass
+
 # Billing endpoints (Super Admin only)
 try:
     from app.api.v1.endpoints import billing

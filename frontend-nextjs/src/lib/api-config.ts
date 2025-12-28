@@ -154,6 +154,20 @@ const createEndpoints = (baseUrl: string) => ({
     updateTenantUser: (tenantId: number, userId: number) => `${baseUrl}/api/v1/super-admin/tenants/${tenantId}/users/${userId}`,
     deleteTenantUser: (tenantId: number, userId: number) => `${baseUrl}/api/v1/super-admin/tenants/${tenantId}/users/${userId}`,
   },
+  permissions: {
+    list: () => `${baseUrl}/api/v1/permissions`,
+    get: (id: number) => `${baseUrl}/api/v1/permissions/${id}`,
+    initialize: () => `${baseUrl}/api/v1/permissions/initialize`,
+  },
+  roles: {
+    list: () => `${baseUrl}/api/v1/roles`,
+    get: (id: number) => `${baseUrl}/api/v1/roles/${id}`,
+    create: () => `${baseUrl}/api/v1/roles`,
+    update: (id: number) => `${baseUrl}/api/v1/roles/${id}`,
+    delete: (id: number) => `${baseUrl}/api/v1/roles/${id}`,
+    getPermissions: (id: number) => `${baseUrl}/api/v1/roles/${id}/permissions`,
+    initialize: () => `${baseUrl}/api/v1/roles/initialize`,
+  },
   decision: {
     recommendation: (ticketId: number) => `${baseUrl}/api/v1/decision/demo/tickets/${ticketId}/recommendation`,
     patterns: (ticketId: number) => `${baseUrl}/api/v1/decision/demo/tickets/${ticketId}/patterns`,
