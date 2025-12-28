@@ -388,6 +388,14 @@ class ConnectorController(BaseController):
                     "api_supported": False
                 },
                 {
+                    "type": "solarwinds",
+                    "name": "SolarWinds Orion",
+                    "status": "implemented",
+                    "description": "Network and infrastructure monitoring platform",
+                    "webhook_supported": False,
+                    "api_supported": True
+                },
+                {
                     "type": "splunk",
                     "name": "Splunk",
                     "status": "implemented",
@@ -404,9 +412,11 @@ class ConnectorController(BaseController):
                 },
                 {
                     "type": "solarwinds",
-                    "name": "SolarWinds",
-                    "status": "planned",
-                    "description": "Infrastructure monitoring platform"
+                    "name": "SolarWinds Orion",
+                    "status": "implemented",
+                    "description": "Network and infrastructure monitoring platform",
+                    "webhook_supported": False,
+                    "api_supported": True
                 },
                 {
                     "type": "manageengine",

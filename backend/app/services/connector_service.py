@@ -193,6 +193,12 @@ class ConnectorService:
             PrometheusConnector = None
             SplunkConnector = None
         
+        try:
+            from app.services.monitoring_connectors.solarwinds import SolarWindsConnector
+            solarwinds_connector = SolarWindsConnector()
+        except ImportError:
+            solarwinds_connector = None
+        
         self.connectors = {
             "datadog": DatadogConnector(),
             "servicenow": ServiceNowConnector(),
@@ -200,7 +206,7 @@ class ConnectorService:
             "azure_monitor": AzureMonitorConnector() if AzureMonitorConnector else None,
             "splunk": SplunkConnector() if SplunkConnector else None,
             "zabbix": None,  # TODO: Implement
-            "solarwinds": None,  # TODO: Implement
+            "solarwinds": solarwinds_connector,
             "manageengine": None,  # TODO: Implement
             "zendesk": None,  # TODO: Implement
             "bmcremedy": None,  # TODO: Implement

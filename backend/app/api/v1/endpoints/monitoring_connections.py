@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 
 class MonitoringConnectionCreate(BaseModel):
-    tool_name: str  # datadog, prometheus, azure_monitor, splunk
+    tool_name: str  # datadog, prometheus, azure_monitor, splunk, solarwinds
     connection_type: str  # webhook, api
     api_base_url: Optional[str] = None
     api_key: Optional[str] = None
@@ -194,8 +194,53 @@ async def delete_monitoring_connection(
     return {"message": "Monitoring tool connection deleted successfully"}
 
 
+@router.post("/monitoring-connections/{connection_id}/test")
+async def test_monitoring_connection(
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Test a monitoring tool connection"""
+    tenant_id = current_user.tenant_id
 
+    db_connection = (
+        db.query(MonitoringToolConnection)
+        .filter(
+            MonitoringToolConnection.id == connection_id,
+            MonitoringToolConnection.tenant_id == tenant_id,
+        )
+        .first()
+    )
 
+    if not db_connection:
+        raise HTTPException(status_code=404, detail="Monitoring connection not found")
+
+    try:
+        if db_connection.tool_name == "solarwinds":
+            from app.services.monitoring_connectors.solarwinds import SolarWindsConnector
+            from app.services.monitoring_connectors.solarwinds_types import SolarWindsConnectionConfig
+            import json
+            
+            meta_data = json.loads(db_connection.meta_data) if db_connection.meta_data else {}
+            config = SolarWindsConnectionConfig(
+                api_base_url=db_connection.api_base_url or meta_data.get("api_base_url", ""),
+                username=meta_data.get("username") or db_connection.api_username,
+                password=meta_data.get("password") or db_connection.api_password,
+                api_key=meta_data.get("api_key") or db_connection.api_key,
+                oauth_client_id=meta_data.get("client_id"),
+                oauth_client_secret=meta_data.get("client_secret"),
+            )
+            
+            connector = SolarWindsConnector()
+            result = await connector.test_connection(config)
+            await connector.close()
+            
+            return result
+        else:
+            return {"success": False, "message": f"Test connection not implemented for {db_connection.tool_name}"}
+    except Exception as e:
+        logger.error(f"Error testing monitoring connection: {e}", exc_info=True)
+        return {"success": False, "message": f"Connection test failed: {str(e)}"}
 
 
 

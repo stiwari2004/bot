@@ -101,6 +101,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Ticketing poller service disabled (ENABLE_TICKETING_POLLER=false)")
     
+    # Start alert poller service (optional, can be disabled via env var)
+    enable_alert_poller = os.getenv("ENABLE_ALERT_POLLER", "true").lower() in ("1", "true", "yes")
+    if enable_alert_poller:
+        try:
+            from app.services.alert_poller import start_poller as start_alert_poller
+            await start_alert_poller()
+            logger.info("Alert poller service started")
+        except Exception as e:
+            logger.error(f"Failed to start alert poller: {e}", exc_info=True)
+    else:
+        logger.info("Alert poller service disabled (ENABLE_ALERT_POLLER=false)")
+    
     yield
     # Shutdown
     logger.info("Shutting down Troubleshooting AI Agent")
@@ -127,6 +139,17 @@ async def lifespan(app: FastAPI):
             logger.warning("Ticketing poller service stop timed out")
     except Exception as e:
         logger.warning(f"Error stopping ticketing poller: {e}")
+    
+    # Stop alert poller service
+    try:
+        from app.services.alert_poller import stop_poller as stop_alert_poller
+        try:
+            await asyncio.wait_for(stop_alert_poller(), timeout=5.0)
+            logger.info("Alert poller service stopped")
+        except asyncio.TimeoutError:
+            logger.warning("Alert poller service stop timed out")
+    except Exception as e:
+        logger.warning(f"Error stopping alert poller: {e}")
 
 
 # Create FastAPI application
