@@ -106,3 +106,5 @@ async def initialize_permissions(
         logger.error(f"Error initializing permissions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to initialize permissions: {str(e)}")
 
+
+

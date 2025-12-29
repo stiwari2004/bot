@@ -42,6 +42,7 @@ interface Role {
   description: string | null;
   is_system_role: boolean;
   is_custom: boolean;
+  is_active: boolean;
   permission_count: number;
 }
 
@@ -122,7 +123,13 @@ export default function UsersPage() {
 
   const fetchRoles = async () => {
     try {
-      const response = await fetch(apiConfig.endpoints.roles.list(), {
+      const rolesEndpoint = apiConfig.endpoints?.roles;
+      if (!rolesEndpoint || typeof rolesEndpoint.list !== 'function') {
+        console.warn('Roles endpoints not available');
+        setRoles([]);
+        return;
+      }
+      const response = await fetch(rolesEndpoint.list(), {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -130,9 +137,13 @@ export default function UsersPage() {
       if (response.ok) {
         const data = await response.json();
         setRoles(data.filter((r: Role) => r.is_active));
+      } else {
+        console.warn('Failed to fetch roles:', response.status);
+        setRoles([]);
       }
     } catch (err) {
       console.error('Failed to fetch roles:', err);
+      setRoles([]);
     }
   };
 
@@ -172,6 +183,7 @@ export default function UsersPage() {
         password: '',
         full_name: '',
         role: 'user',
+        role_id: null,
       });
       fetchUsers(selectedTenantId);
     } catch (err) {
@@ -267,6 +279,7 @@ export default function UsersPage() {
         password: '',
         full_name: '',
         role: 'user',
+        role_id: null,
       });
       fetchUsers(selectedTenantId);
     } catch (err) {
@@ -305,6 +318,7 @@ export default function UsersPage() {
                   password: '',
                   full_name: '',
                   role: 'user',
+                  role_id: null,
                 });
                 setShowCreateModal(true);
               }}

@@ -140,7 +140,7 @@ export function SolarWindsConnectionForm({
       }
 
       const url = existingConnection
-        ? apiConfig.endpoints.settings.updateMonitoringConnection(existingConnection.id)
+        ? apiConfig.endpoints.settings.monitoringConnection(existingConnection.id)
         : apiConfig.endpoints.settings.monitoringConnections();
       
       const method = existingConnection ? 'PUT' : 'POST';
@@ -196,9 +196,11 @@ export function SolarWindsConnectionForm({
             </label>
             <Select
               value={formData.auth_method}
-              onValueChange={(value: 'basic' | 'api_key' | 'oauth') =>
-                setFormData({ ...formData, auth_method: value })
-              }
+              onValueChange={(value: string) => {
+                if (value === 'basic' || value === 'api_key' || value === 'oauth') {
+                  setFormData({ ...formData, auth_method: value as 'basic' | 'api_key' | 'oauth' });
+                }
+              }}
             >
               <SelectTrigger>
                 <SelectValue />

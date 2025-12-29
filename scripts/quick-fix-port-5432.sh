@@ -58,3 +58,5 @@ echo "✅ Port 5432 should now be available!"
 echo ""
 echo "Now try: docker-compose up -d"
 
+
+

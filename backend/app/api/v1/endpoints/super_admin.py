@@ -99,12 +99,17 @@ async def get_overview(
         total_users = db.query(User).count()
         active_users = db.query(User).filter(User.is_active == True).count()
         
-        # Count users by role
-        users_by_role = db.query(
-            User.role,
-            func.count(User.id).label('count')
-        ).group_by(User.role).all()
-        role_counts = {role: count for role, count in users_by_role}
+        # Count users by role (gracefully handle if role column doesn't exist)
+        role_counts = {}
+        try:
+            users_by_role = db.query(
+                User.role,
+                func.count(User.id).label('count')
+            ).group_by(User.role).all()
+            role_counts = {role: count for role, count in users_by_role}
+        except Exception as role_error:
+            logger.warning(f"Could not fetch users by role: {role_error}")
+            # Continue without role breakdown
         
         return {
             "tenants": {
@@ -372,10 +377,14 @@ async def list_tenant_users(
         
         result = []
         for u in users:
-            # Load role relationship
+            # Load role relationship (gracefully handle if Role table doesn't exist)
             role_name = None
-            if u.role_obj:
-                role_name = u.role_obj.name
+            try:
+                if u.role_id and hasattr(u, 'role_obj') and u.role_obj:
+                    role_name = u.role_obj.name
+            except Exception:
+                # Role relationship not available (table might not exist)
+                pass
             
             result.append({
                 "id": u.id,

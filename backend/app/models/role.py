@@ -38,3 +38,5 @@ class Role(Base):
     def __repr__(self):
         return f"<Role(id={self.id}, name='{self.name}', is_system={self.is_system_role}, is_custom={self.is_custom})>"
 
+
+

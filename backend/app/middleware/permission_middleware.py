@@ -192,3 +192,5 @@ def require_all_permissions(*permission_names: str):
         return wrapper
     return decorator
 
+
+

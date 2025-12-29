@@ -56,3 +56,5 @@ echo "   2. Restart backend: docker-compose -f docker-compose.production.yml res
 echo "   3. Check logs: docker-compose -f docker-compose.production.yml logs backend | grep -i error"
 echo ""
 
+
+

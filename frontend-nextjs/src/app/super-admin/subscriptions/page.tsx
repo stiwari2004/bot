@@ -25,6 +25,8 @@ interface Subscription {
   id: number;
   tenant_id: number;
   tenant_name: string;
+  license_plan_id: number | null;
+  license_plan_name: string | null;
   max_seats: number;
   max_nodes: number;
   current_seats: number;
@@ -46,6 +48,15 @@ interface Subscription {
   notes: string | null;
 }
 
+interface LicensePlan {
+  id: number;
+  plan_key: string;
+  plan_name: string;
+  default_max_seats: number;
+  default_max_nodes: number;
+  default_monthly_price: string | null;
+}
+
 interface Tenant {
   id: number;
   name: string;
@@ -56,6 +67,7 @@ export default function SubscriptionsPage() {
   const { token } = useSuperAdminAuth();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [licensePlans, setLicensePlans] = useState<LicensePlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
@@ -63,6 +75,7 @@ export default function SubscriptionsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [formData, setFormData] = useState({
     tenant_id: 0,
+    license_plan_id: 0,
     max_seats: 14,
     max_nodes: 1000,
     subscription_name: '',
@@ -78,12 +91,29 @@ export default function SubscriptionsPage() {
   useEffect(() => {
     fetchSubscriptions();
     fetchTenants();
+    fetchLicensePlans();
   }, []);
+
+  const fetchLicensePlans = async () => {
+    try {
+      const response = await fetch(apiConfig.endpoints.superAdmin.licensePlans(), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLicensePlans(data.filter((p: LicensePlan) => p.plan_name)); // Filter out invalid plans
+      }
+    } catch (err) {
+      console.error('Failed to fetch license plans:', err);
+    }
+  };
 
   const fetchSubscriptions = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${apiConfig.baseURL || ''}/api/v1/subscriptions/subscriptions`, {
+      const response = await fetch(`${apiConfig.baseURL || ''}/api/v1/subscriptions`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -133,6 +163,11 @@ export default function SubscriptionsPage() {
         auto_renew: formData.auto_renew,
       };
       
+      // Include license plan if selected
+      if (formData.license_plan_id > 0) {
+        payload.license_plan_id = formData.license_plan_id;
+      }
+      
       if (formData.subscription_name) {
         payload.subscription_name = formData.subscription_name;
       }
@@ -143,7 +178,7 @@ export default function SubscriptionsPage() {
         payload.notes = formData.notes;
       }
       
-      const response = await fetch(`${apiConfig.baseURL || ''}/api/v1/subscriptions/subscriptions`, {
+      const response = await fetch(`${apiConfig.baseURL || ''}/api/v1/subscriptions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -157,6 +192,7 @@ export default function SubscriptionsPage() {
         setShowCreateModal(false);
         setFormData({
           tenant_id: 0,
+          license_plan_id: 0,
           max_seats: 14,
           max_nodes: 1000,
           subscription_name: '',
@@ -185,6 +221,7 @@ export default function SubscriptionsPage() {
     setError(null);
     try {
       const payload: any = {};
+      if (formData.license_plan_id !== selectedSubscription.license_plan_id) payload.license_plan_id = formData.license_plan_id || null;
       if (formData.max_seats !== selectedSubscription.max_seats) payload.max_seats = formData.max_seats;
       if (formData.max_nodes !== selectedSubscription.max_nodes) payload.max_nodes = formData.max_nodes;
       if (formData.subscription_name !== selectedSubscription.subscription_name) payload.subscription_name = formData.subscription_name;
@@ -195,7 +232,7 @@ export default function SubscriptionsPage() {
       if (formData.auto_renew !== selectedSubscription.auto_renew) payload.auto_renew = formData.auto_renew;
       if (formData.notes !== selectedSubscription.notes) payload.notes = formData.notes;
       
-      const response = await fetch(`${apiConfig.baseURL || ''}/api/v1/subscriptions/subscriptions/${selectedSubscription.id}`, {
+      const response = await fetch(`${apiConfig.baseURL || ''}/api/v1/subscriptions/${selectedSubscription.id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -222,6 +259,7 @@ export default function SubscriptionsPage() {
     setSelectedSubscription(subscription);
     setFormData({
       tenant_id: subscription.tenant_id,
+      license_plan_id: subscription.license_plan_id || 0,
       max_seats: subscription.max_seats,
       max_nodes: subscription.max_nodes,
       subscription_name: subscription.subscription_name || '',
@@ -234,6 +272,25 @@ export default function SubscriptionsPage() {
       notes: subscription.notes || '',
     });
     setShowEditModal(true);
+  };
+
+  const handleLicensePlanChange = (planId: number) => {
+    const plan = licensePlans.find(p => p.id === planId);
+    if (plan) {
+      setFormData({
+        ...formData,
+        license_plan_id: planId,
+        max_seats: plan.default_max_seats,
+        max_nodes: plan.default_max_nodes,
+        monthly_price: plan.default_monthly_price && plan.default_monthly_price !== 'custom' ? parseFloat(plan.default_monthly_price) : formData.monthly_price,
+        subscription_name: plan.plan_name,
+      });
+    } else {
+      setFormData({
+        ...formData,
+        license_plan_id: 0,
+      });
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -308,6 +365,7 @@ export default function SubscriptionsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Tenant</TableHead>
+                    <TableHead>Plan</TableHead>
                     <TableHead>Subscription</TableHead>
                     <TableHead>Seats</TableHead>
                     <TableHead>Nodes</TableHead>
@@ -320,7 +378,7 @@ export default function SubscriptionsPage() {
                 <TableBody>
                   {subscriptions.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-neutral-500">
+                      <TableCell colSpan={9} className="text-center py-8 text-neutral-500">
                         No subscriptions found. Create your first subscription to get started.
                       </TableCell>
                     </TableRow>
@@ -328,6 +386,13 @@ export default function SubscriptionsPage() {
                     subscriptions.map((sub) => (
                       <TableRow key={sub.id}>
                         <TableCell className="font-medium">{sub.tenant_name}</TableCell>
+                        <TableCell>
+                          {sub.license_plan_name ? (
+                            <Badge variant="primary">{sub.license_plan_name}</Badge>
+                          ) : (
+                            <span className="text-neutral-500 text-sm">Custom</span>
+                          )}
+                        </TableCell>
                         <TableCell>{sub.subscription_name || 'Standard Subscription'}</TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
@@ -426,6 +491,29 @@ export default function SubscriptionsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-2">
+                      License Plan (Optional)
+                    </label>
+                    <Select
+                      value={formData.license_plan_id.toString()}
+                      onValueChange={(value) => handleLicensePlanChange(parseInt(value))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select license plan (or leave blank for custom)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">Custom (No Plan)</SelectItem>
+                        {licensePlans.map((plan) => (
+                          <SelectItem key={plan.id} value={plan.id.toString()}>
+                            {plan.plan_name} ({plan.default_max_seats === 999999 ? 'Unlimited' : plan.default_max_seats} seats, {plan.default_max_nodes === 999999 ? 'Unlimited' : plan.default_max_nodes} nodes)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-neutral-500 mt-1">Selecting a plan will auto-fill limits and pricing</p>
                   </div>
                   
                   <div>
@@ -601,6 +689,29 @@ export default function SubscriptionsPage() {
                   <div className="p-4 bg-neutral-50 rounded-lg">
                     <p className="text-sm text-neutral-600 mb-2">Tenant: <span className="font-medium">{selectedSubscription.tenant_name}</span></p>
                     <p className="text-sm text-neutral-600">Current Usage: {selectedSubscription.current_seats} seats, {selectedSubscription.current_nodes} nodes</p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-2">
+                      License Plan (Optional)
+                    </label>
+                    <Select
+                      value={formData.license_plan_id.toString()}
+                      onValueChange={(value) => handleLicensePlanChange(parseInt(value))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select license plan (or leave blank for custom)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">Custom (No Plan)</SelectItem>
+                        {licensePlans.map((plan) => (
+                          <SelectItem key={plan.id} value={plan.id.toString()}>
+                            {plan.plan_name} ({plan.default_max_seats === 999999 ? 'Unlimited' : plan.default_max_seats} seats, {plan.default_max_nodes === 999999 ? 'Unlimited' : plan.default_max_nodes} nodes)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-neutral-500 mt-1">Changing plan will update limits and pricing</p>
                   </div>
                   
                   <div>

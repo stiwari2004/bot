@@ -150,6 +150,10 @@ const createEndpoints = (baseUrl: string) => ({
     clusterDevices: (clusterId: string) => `${baseUrl}/api/v1/network/clusters/${clusterId}/devices`,
   },
   superAdmin: {
+    licensePlans: () => `${baseUrl}/api/v1/license-plans/license-plans`,
+    licensePlan: (planId: number) => `${baseUrl}/api/v1/license-plans/license-plans/${planId}`,
+    initializeLicensePlans: () => `${baseUrl}/api/v1/license-plans/license-plans/initialize`,
+    licensePlanFeatures: () => `${baseUrl}/api/v1/license-plans/license-plans/features/list`,
     auth: {
       login: () => `${baseUrl}/api/v1/super-admin/auth/login`,
       me: () => `${baseUrl}/api/v1/super-admin/auth/me`,

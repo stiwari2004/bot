@@ -46,3 +46,5 @@ class SolarWindsConnectionConfig:
     oauth_token: Optional[str] = None
     oauth_token_expires: Optional[datetime] = None
 
+
+

@@ -129,6 +129,13 @@ try:
 except ImportError:
     pass
 
+# License Plan endpoints (Super Admin only)
+try:
+    from app.api.v1.endpoints import license_plans
+    api_router.include_router(license_plans.router, prefix="/license-plans", tags=["license-plans"])
+except ImportError:
+    pass
+
 # Billing endpoints (Super Admin only)
 try:
     from app.api.v1.endpoints import billing

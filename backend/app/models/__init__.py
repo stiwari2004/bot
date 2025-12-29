@@ -46,6 +46,12 @@ except ImportError:  # pragma: no cover - optional dependency
     RolePermission = None
     UserPermission = None
 
+# License plan models
+try:
+    from app.models.license_plan import LicensePlan
+except ImportError:  # pragma: no cover - optional dependency
+    LicensePlan = None
+
 
 # Export for backward compatibility
 __all__ = [
@@ -76,4 +82,7 @@ if MonitoringToolConnection:
 
 if Permission:
     __all__.extend(["Permission", "Role", "RolePermission", "UserPermission"])
+
+if LicensePlan:
+    __all__.append("LicensePlan")
 

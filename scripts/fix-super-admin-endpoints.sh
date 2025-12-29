@@ -115,3 +115,5 @@ echo "   3. If endpoints still return 404, check backend logs for import errors:
 echo "      docker-compose -f docker-compose.production.yml logs backend | grep -i error"
 echo ""
 
+
+

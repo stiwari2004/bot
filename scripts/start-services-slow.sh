@@ -56,3 +56,5 @@ echo ""
 echo "💡 Check logs if services are unhealthy:"
 echo "   docker-compose logs [service_name]"
 
+
+

@@ -34,3 +34,5 @@ class UserPermission(Base):
     def __repr__(self):
         return f"<UserPermission(user_id={self.user_id}, permission_id={self.permission_id}, granted={self.is_granted})>"
 
+
+

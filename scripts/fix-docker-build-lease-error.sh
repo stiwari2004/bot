@@ -54,3 +54,5 @@ echo "   1. Check disk space: df -h"
 echo "   2. Check Docker logs: journalctl -u docker -n 50"
 echo "   3. Increase Docker timeout if needed"
 
+
+

@@ -108,3 +108,5 @@ echo ""
 echo "💡 If services are unhealthy, check logs:"
 echo "   docker-compose -f $COMPOSE_FILE logs [service_name]"
 
+
+

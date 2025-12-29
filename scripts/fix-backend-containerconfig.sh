@@ -58,3 +58,5 @@ echo "   2. If still 404, check logs for import errors:"
 echo "      docker-compose -f docker-compose.production.yml logs backend | grep -i 'super\|error'"
 echo ""
 
+
+

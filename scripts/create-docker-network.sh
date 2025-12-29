@@ -26,3 +26,5 @@ docker network inspect $NETWORK_NAME --format '{{.Name}}: {{.Driver}} ({{.Scope}
 echo ""
 echo "✅ Network is ready for docker-compose.production.yml"
 
+
+

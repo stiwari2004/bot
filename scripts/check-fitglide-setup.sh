@@ -80,3 +80,5 @@ echo "   - If Strapi is in Docker: Check docker-compose.yml or container config"
 echo "   - If Strapi is on host: Check /path/to/strapi/config/database.js"
 echo "   - Check Strapi's DATABASE_URL or connection string"
 
+
+

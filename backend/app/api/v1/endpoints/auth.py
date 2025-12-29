@@ -28,41 +28,52 @@ async def login(
     from app.core.logging import get_logger
     logger = get_logger(__name__)
     
-    # Check if user exists first
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user:
-        logger.warning(f"Login attempt with non-existent email: {form_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    try:
+        # Check if user exists first
+        user = db.query(User).filter(User.email == form_data.username).first()
+        if not user:
+            logger.warning(f"Login attempt with non-existent email: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        if not user.is_active:
+            logger.warning(f"Login attempt for inactive user: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account is inactive. Please contact your administrator.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Now authenticate
+        user = authenticate_user(db, form_data.username, form_data.password)
+        if not user:
+            logger.warning(f"Login attempt with incorrect password for: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.email, "tenant_id": user.tenant_id},
+            expires_delta=access_token_expires
         )
-    
-    if not user.is_active:
-        logger.warning(f"Login attempt for inactive user: {form_data.username}")
+        
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        # Re-raise HTTP exceptions (401, etc.)
+        raise
+    except Exception as e:
+        # Log any unexpected errors
+        logger.error(f"Unexpected error during login for {form_data.username}: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is inactive. Please contact your administrator.",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during login. Please try again or contact support."
         )
-    
-    # Now authenticate
-    user = authenticate_user(db, form_data.username, form_data.password)
-    if not user:
-        logger.warning(f"Login attempt with incorrect password for: {form_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email, "tenant_id": user.tenant_id},
-        expires_delta=access_token_expires
-    )
-    
-    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.get("/me", response_model=UserResponse)

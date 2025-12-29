@@ -15,6 +15,9 @@ class TenantSubscription(Base):
     id = Column(Integer, primary_key=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     
+    # License Plan Reference
+    license_plan_id = Column(Integer, ForeignKey("license_plans.id", ondelete="SET NULL"), nullable=True, index=True, comment="Reference to license plan (Free, Starter, etc.)")
+    
     # Subscription Limits
     max_seats = Column(Integer, nullable=False, comment="Maximum number of user seats allowed")
     max_nodes = Column(Integer, nullable=False, comment="Maximum number of infrastructure nodes allowed")
@@ -49,6 +52,7 @@ class TenantSubscription(Base):
     
     # Relationships
     tenant = relationship("Tenant", back_populates="subscription")
+    license_plan = relationship("LicensePlan", back_populates="subscriptions")
     
     # Indexes
     __table_args__ = (

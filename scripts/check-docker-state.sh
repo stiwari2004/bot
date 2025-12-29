@@ -35,3 +35,5 @@ echo ""
 
 echo "⚠️  If you see corrupted containers, run: ./scripts/fix-all-docker-containers.sh"
 
+
+

@@ -102,3 +102,5 @@ echo ""
 echo "Now try starting Docker Compose again:"
 echo "   docker-compose up -d"
 
+
+

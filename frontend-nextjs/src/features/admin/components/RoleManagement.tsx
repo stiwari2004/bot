@@ -140,13 +140,13 @@ export function RoleManagement({ token, tenantId }: RoleManagementProps) {
                   <TableCell className="font-mono text-sm">{role.name}</TableCell>
                   <TableCell>{role.display_name || role.name}</TableCell>
                   <TableCell>
-                    <Badge variant={role.is_system_role ? 'default' : 'secondary'}>
+                    <Badge variant={role.is_system_role ? 'primary' : 'secondary'}>
                       {role.is_system_role ? 'System' : 'Custom'}
                     </Badge>
                   </TableCell>
                   <TableCell>{role.permission_count}</TableCell>
                   <TableCell>
-                    <Badge variant={role.is_active ? 'success' : 'destructive'}>
+                    <Badge variant={role.is_active ? 'success' : 'error'}>
                       {role.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>

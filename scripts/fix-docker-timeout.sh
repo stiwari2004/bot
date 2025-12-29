@@ -73,3 +73,5 @@ echo "   2. Increase timeout further: export COMPOSE_HTTP_TIMEOUT=600"
 echo "   3. Start services one by one: docker-compose up -d postgres redis"
 echo "   4. Check logs: docker-compose logs [service_name]"
 
+
+

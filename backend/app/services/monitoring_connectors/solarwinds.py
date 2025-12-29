@@ -363,3 +363,5 @@ class SolarWindsConnector:
         """Close HTTP client"""
         await self.client.aclose()
 
+
+

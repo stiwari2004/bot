@@ -103,3 +103,5 @@ echo "   Restart: docker-compose -f docker-compose.production.yml restart [servi
 echo ""
 echo "⚠️  Remember: Always use -f docker-compose.production.yml for production!"
 
+
+

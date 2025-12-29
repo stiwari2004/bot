@@ -56,7 +56,7 @@ class PermissionInfo(BaseModel):
     description: Optional[str]
 
 
-@router.get("/roles", response_model=List[RoleResponse])
+@router.get("/", response_model=List[RoleResponse])
 async def list_roles(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -69,21 +69,31 @@ async def list_roles(
 ):
     """List all roles"""
     try:
-        roles = RoleService.list_roles(
-            db=db,
-            tenant_id=tenant_id,
-            include_system=include_system,
-            include_custom=include_custom,
-            is_active=is_active
-        )
+        # Check if Role table exists
+        try:
+            roles = RoleService.list_roles(
+                db=db,
+                tenant_id=tenant_id,
+                include_system=include_system,
+                include_custom=include_custom,
+                is_active=is_active
+            )
+        except Exception as table_error:
+            # Role table might not exist yet
+            logger.warning(f"Role table not available: {table_error}")
+            return []
         
         # Apply pagination
         paginated_roles = roles[skip:skip+limit]
         
         result = []
         for role in paginated_roles:
-            permissions = RoleService.get_role_permissions(db, role.id)
-            permission_count = len(permissions)
+            try:
+                permissions = RoleService.get_role_permissions(db, role.id)
+                permission_count = len(permissions)
+            except Exception:
+                permission_count = 0
+            
             result.append({
                 "id": role.id,
                 "name": role.name,
@@ -99,12 +109,14 @@ async def list_roles(
             })
         
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error listing roles: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list roles: {str(e)}")
 
 
-@router.get("/roles/{role_id}", response_model=RoleResponse)
+@router.get("/{role_id}", response_model=RoleResponse)
 async def get_role(
     role_id: int,
     db: Session = Depends(get_db),
@@ -138,7 +150,7 @@ async def get_role(
         raise HTTPException(status_code=500, detail=f"Failed to get role: {str(e)}")
 
 
-@router.get("/roles/{role_id}/permissions", response_model=List[PermissionInfo])
+@router.get("/{role_id}/permissions", response_model=List[PermissionInfo])
 async def get_role_permissions(
     role_id: int,
     db: Session = Depends(get_db),
@@ -169,7 +181,7 @@ async def get_role_permissions(
         raise HTTPException(status_code=500, detail=f"Failed to get role permissions: {str(e)}")
 
 
-@router.post("/roles", response_model=RoleResponse)
+@router.post("/", response_model=RoleResponse)
 async def create_role(
     role_data: RoleCreate,
     db: Session = Depends(get_db),
@@ -208,7 +220,7 @@ async def create_role(
         raise HTTPException(status_code=500, detail=f"Failed to create role: {str(e)}")
 
 
-@router.put("/roles/{role_id}", response_model=RoleResponse)
+@router.put("/{role_id}", response_model=RoleResponse)
 async def update_role(
     role_id: int,
     role_data: RoleUpdate,
@@ -248,7 +260,7 @@ async def update_role(
         raise HTTPException(status_code=500, detail=f"Failed to update role: {str(e)}")
 
 
-@router.delete("/roles/{role_id}")
+@router.delete("/{role_id}")
 async def delete_role(
     role_id: int,
     db: Session = Depends(get_db),
@@ -270,7 +282,7 @@ async def delete_role(
         raise HTTPException(status_code=500, detail=f"Failed to delete role: {str(e)}")
 
 
-@router.post("/roles/initialize")
+@router.post("/initialize")
 async def initialize_roles(
     db: Session = Depends(get_db),
     current_admin: SuperAdmin = Depends(get_current_super_admin)

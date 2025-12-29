@@ -60,3 +60,5 @@ echo "   1. Check database connection: docker-compose -f $COMPOSE_FILE logs post
 echo "   2. Restart backend: docker-compose -f $COMPOSE_FILE restart backend"
 echo "   3. Check backend logs: docker-compose -f $COMPOSE_FILE logs backend"
 
+
+

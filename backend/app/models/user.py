@@ -6,6 +6,15 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
+# Import RBAC models to ensure they're registered before User relationships are set up
+try:
+    from app.models.role import Role
+    from app.models.user_permission import UserPermission
+except ImportError:
+    # RBAC models not available - relationships will be set up later
+    Role = None
+    UserPermission = None
+
 
 class User(Base):
     __tablename__ = "users"
@@ -27,8 +36,9 @@ class User(Base):
     
     # Relationships
     tenant = relationship("Tenant", back_populates="users")
-    role_obj = relationship("Role", foreign_keys=[role_id], back_populates="users")
-    user_permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
+    # RBAC relationships - lazy loaded to avoid errors if tables don't exist
+    role_obj = relationship("Role", foreign_keys=[role_id], back_populates="users", lazy="select", uselist=False)
+    user_permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan", lazy="select")
     
     def __repr__(self):
         return f"<User(id={self.id}, email='{self.email}', tenant_id={self.tenant_id}, role_id={self.role_id})>"

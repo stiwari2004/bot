@@ -130,3 +130,5 @@ If they need to share:
 3. Check Strapi's database configuration file
 4. Determine if they need separate or shared PostgreSQL
 
+
+

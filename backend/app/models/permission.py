@@ -28,3 +28,5 @@ class Permission(Base):
     def __repr__(self):
         return f"<Permission(id={self.id}, name='{self.name}', action='{self.action}', resource='{self.resource}')>"
 
+
+

@@ -11,6 +11,7 @@ import {
   ArrowRightOnRectangleIcon,
   CurrencyDollarIcon,
   KeyIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 
 export default function SuperAdminDashboard() {
@@ -181,6 +182,16 @@ export default function SuperAdminDashboard() {
               <div>
                 <p className="font-medium text-neutral-900">Subscription Management</p>
                 <p className="text-sm text-neutral-600">Manage seat and node limits</p>
+              </div>
+            </button>
+            <button
+              onClick={() => router.push('/super-admin/license-plans')}
+              className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition text-left"
+            >
+              <SparklesIcon className="h-6 w-6 text-primary-600" />
+              <div>
+                <p className="font-medium text-neutral-900">License Plans</p>
+                <p className="text-sm text-neutral-600">Create and manage subscription plans</p>
               </div>
             </button>
             <button

@@ -11,6 +11,7 @@ from decimal import Decimal
 from app.core.database import get_db
 from app.models.tenant import Tenant
 from app.models.tenant_subscription import TenantSubscription
+from app.models.license_plan import LicensePlan
 from app.models.super_admin import SuperAdmin
 from app.services.super_admin_auth import get_current_super_admin
 from app.services.subscription.subscription_tracker import SubscriptionTracker
@@ -24,6 +25,7 @@ logger = get_logger(__name__)
 class SubscriptionCreate(BaseModel):
     """Request model for creating subscription"""
     tenant_id: int = Field(..., description="Tenant ID to assign subscription to")
+    license_plan_id: Optional[int] = Field(None, description="License plan ID (Free, Starter, Professional, Enterprise). If provided, will use plan defaults.")
     max_seats: int = Field(..., gt=0, description="Maximum number of user seats")
     max_nodes: int = Field(..., gt=0, description="Maximum number of infrastructure nodes")
     subscription_name: Optional[str] = Field(None, description="Custom subscription name")
@@ -38,6 +40,7 @@ class SubscriptionCreate(BaseModel):
 
 class SubscriptionUpdate(BaseModel):
     """Request model for updating subscription"""
+    license_plan_id: Optional[int] = Field(None, description="License plan ID. If provided, will update limits to plan defaults.")
     max_seats: Optional[int] = Field(None, gt=0, description="Maximum number of user seats")
     max_nodes: Optional[int] = Field(None, gt=0, description="Maximum number of infrastructure nodes")
     subscription_name: Optional[str] = None
@@ -56,6 +59,8 @@ class SubscriptionResponse(BaseModel):
     id: int
     tenant_id: int
     tenant_name: str
+    license_plan_id: Optional[int]
+    license_plan_name: Optional[str]
     max_seats: int
     max_nodes: int
     current_seats: int
@@ -79,7 +84,7 @@ class SubscriptionResponse(BaseModel):
     updated_at: Optional[datetime]
 
 
-@router.post("/subscriptions", response_model=SubscriptionResponse)
+@router.post("/", response_model=SubscriptionResponse)
 async def create_subscription(
     subscription_data: SubscriptionCreate,
     db: Session = Depends(get_db),
@@ -98,13 +103,29 @@ async def create_subscription(
     if existing:
         raise HTTPException(status_code=400, detail=f"Tenant already has a subscription. Update existing subscription instead.")
     
+    # If license_plan_id is provided, load plan and use defaults
+    license_plan = None
+    if subscription_data.license_plan_id:
+        license_plan = db.query(LicensePlan).filter(
+            LicensePlan.id == subscription_data.license_plan_id,
+            LicensePlan.is_active == True
+        ).first()
+        if not license_plan:
+            raise HTTPException(status_code=404, detail="License plan not found or inactive")
+    
+    # Use plan defaults if license plan is provided, otherwise use provided values
+    max_seats = license_plan.default_max_seats if license_plan else subscription_data.max_seats
+    max_nodes = license_plan.default_max_nodes if license_plan else subscription_data.max_nodes
+    monthly_price = Decimal(license_plan.default_monthly_price) if license_plan and license_plan.default_monthly_price and license_plan.default_monthly_price != "custom" else subscription_data.monthly_price
+    
     # Create subscription
     subscription = TenantSubscription(
         tenant_id=subscription_data.tenant_id,
-        max_seats=subscription_data.max_seats,
-        max_nodes=subscription_data.max_nodes,
-        subscription_name=subscription_data.subscription_name,
-        monthly_price=subscription_data.monthly_price,
+        license_plan_id=subscription_data.license_plan_id,
+        max_seats=max_seats,
+        max_nodes=max_nodes,
+        subscription_name=subscription_data.subscription_name or (license_plan.plan_name if license_plan else None),
+        monthly_price=monthly_price,
         seat_overage_rate=subscription_data.seat_overage_rate,
         node_overage_rate=subscription_data.node_overage_rate,
         is_enforced=subscription_data.is_enforced,
@@ -126,10 +147,18 @@ async def create_subscription(
     
     logger.info(f"Super admin {current_admin.email} created subscription for tenant {tenant.name}: {subscription_data.max_seats} seats, {subscription_data.max_nodes} nodes")
     
+    # Get license plan name if available
+    license_plan_name = None
+    if subscription.license_plan_id:
+        plan = db.query(LicensePlan).filter(LicensePlan.id == subscription.license_plan_id).first()
+        license_plan_name = plan.plan_name if plan else None
+    
     return SubscriptionResponse(
         id=subscription.id,
         tenant_id=subscription.tenant_id,
         tenant_name=tenant.name,
+        license_plan_id=subscription.license_plan_id,
+        license_plan_name=license_plan_name,
         max_seats=subscription.max_seats,
         max_nodes=subscription.max_nodes,
         current_seats=subscription.current_seats,
@@ -154,7 +183,7 @@ async def create_subscription(
     )
 
 
-@router.get("/subscriptions", response_model=List[SubscriptionResponse])
+@router.get("/", response_model=List[SubscriptionResponse])
 async def list_subscriptions(
     tenant_id: Optional[int] = Query(None, description="Filter by tenant ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
@@ -162,28 +191,44 @@ async def list_subscriptions(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """List all subscriptions"""
-    query = db.query(TenantSubscription)
-    
-    if tenant_id:
-        query = query.filter(TenantSubscription.tenant_id == tenant_id)
-    if status:
-        query = query.filter(TenantSubscription.status == status)
-    
-    subscriptions = query.all()
-    
-    # Update usage for all subscriptions
-    tracker = SubscriptionTracker(db)
-    results = []
-    for sub in subscriptions:
-        tracker.update_usage(sub.tenant_id)
-        db.refresh(sub)
+    try:
+        query = db.query(TenantSubscription)
         
-        tenant = db.query(Tenant).filter(Tenant.id == sub.tenant_id).first()
+        if tenant_id:
+            query = query.filter(TenantSubscription.tenant_id == tenant_id)
+        if status:
+            query = query.filter(TenantSubscription.status == status)
+        
+        subscriptions = query.all()
+        
+        # Update usage for all subscriptions
+        tracker = SubscriptionTracker(db)
+        results = []
+        for sub in subscriptions:
+            try:
+                tracker.update_usage(sub.tenant_id)
+                db.refresh(sub)
+            except Exception as e:
+                logger.warning(f"Error updating usage for tenant {sub.tenant_id}: {e}")
+            
+            tenant = db.query(Tenant).filter(Tenant.id == sub.tenant_id).first()
+            
+            # Get license plan name if available (gracefully handle if LicensePlan table doesn't exist)
+            license_plan_name = None
+            try:
+                if sub.license_plan_id:
+                    plan = db.query(LicensePlan).filter(LicensePlan.id == sub.license_plan_id).first()
+                    license_plan_name = plan.plan_name if plan else None
+            except Exception as e:
+                logger.warning(f"Could not fetch license plan {sub.license_plan_id}: {e}")
+                license_plan_name = None
         
         results.append(SubscriptionResponse(
             id=sub.id,
             tenant_id=sub.tenant_id,
             tenant_name=tenant.name if tenant else "Unknown",
+            license_plan_id=sub.license_plan_id,
+            license_plan_name=license_plan_name,
             max_seats=sub.max_seats,
             max_nodes=sub.max_nodes,
             current_seats=sub.current_seats,
@@ -205,12 +250,15 @@ async def list_subscriptions(
             notes=sub.notes,
             created_at=sub.created_at,
             updated_at=sub.updated_at
-        ))
-    
-    return results
+            ))
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error listing subscriptions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list subscriptions: {str(e)}")
 
 
-@router.get("/subscriptions/{subscription_id}", response_model=SubscriptionResponse)
+@router.get("/{subscription_id}", response_model=SubscriptionResponse)
 async def get_subscription(
     subscription_id: int,
     db: Session = Depends(get_db),
@@ -231,10 +279,18 @@ async def get_subscription(
     
     tenant = db.query(Tenant).filter(Tenant.id == subscription.tenant_id).first()
     
+    # Get license plan name if available
+    license_plan_name = None
+    if subscription.license_plan_id:
+        plan = db.query(LicensePlan).filter(LicensePlan.id == subscription.license_plan_id).first()
+        license_plan_name = plan.plan_name if plan else None
+    
     return SubscriptionResponse(
         id=subscription.id,
         tenant_id=subscription.tenant_id,
         tenant_name=tenant.name if tenant else "Unknown",
+        license_plan_id=subscription.license_plan_id,
+        license_plan_name=license_plan_name,
         max_seats=subscription.max_seats,
         max_nodes=subscription.max_nodes,
         current_seats=subscription.current_seats,
@@ -274,6 +330,24 @@ async def update_subscription(
     if not subscription:
         raise HTTPException(status_code=404, detail="Subscription not found")
     
+    # If license_plan_id is provided, load plan and update defaults
+    if subscription_data.license_plan_id is not None:
+        license_plan = db.query(LicensePlan).filter(
+            LicensePlan.id == subscription_data.license_plan_id,
+            LicensePlan.is_active == True
+        ).first()
+        if not license_plan:
+            raise HTTPException(status_code=404, detail="License plan not found or inactive")
+        
+        subscription.license_plan_id = subscription_data.license_plan_id
+        # Update limits to plan defaults if not explicitly provided
+        if subscription_data.max_seats is None:
+            subscription.max_seats = license_plan.default_max_seats
+        if subscription_data.max_nodes is None:
+            subscription.max_nodes = license_plan.default_max_nodes
+        if subscription_data.monthly_price is None and license_plan.default_monthly_price and license_plan.default_monthly_price != "custom":
+            subscription.monthly_price = Decimal(license_plan.default_monthly_price)
+    
     # Update fields
     if subscription_data.max_seats is not None:
         subscription.max_seats = subscription_data.max_seats
@@ -308,12 +382,20 @@ async def update_subscription(
     
     tenant = db.query(Tenant).filter(Tenant.id == subscription.tenant_id).first()
     
+    # Get license plan name if available
+    license_plan_name = None
+    if subscription.license_plan_id:
+        plan = db.query(LicensePlan).filter(LicensePlan.id == subscription.license_plan_id).first()
+        license_plan_name = plan.plan_name if plan else None
+    
     logger.info(f"Super admin {current_admin.email} updated subscription {subscription_id}")
     
     return SubscriptionResponse(
         id=subscription.id,
         tenant_id=subscription.tenant_id,
         tenant_name=tenant.name if tenant else "Unknown",
+        license_plan_id=subscription.license_plan_id,
+        license_plan_name=license_plan_name,
         max_seats=subscription.max_seats,
         max_nodes=subscription.max_nodes,
         current_seats=subscription.current_seats,
@@ -338,7 +420,7 @@ async def update_subscription(
     )
 
 
-@router.get("/subscriptions/tenant/{tenant_id}/usage")
+@router.get("/tenant/{tenant_id}/usage")
 async def get_tenant_usage(
     tenant_id: int,
     db: Session = Depends(get_db),
