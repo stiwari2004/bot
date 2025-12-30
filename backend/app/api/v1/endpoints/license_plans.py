@@ -7,14 +7,23 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models.license_plan import LicensePlan
 from app.models.super_admin import SuperAdmin
 from app.services.super_admin_auth import get_current_super_admin
-from app.services.license_service import LicenseService
 from app.core.logging import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+# Import with error handling for missing models
+try:
+    from app.models.license_plan import LicensePlan
+    from app.services.license_service import LicenseService
+    LICENSE_PLAN_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"License plan models not available: {e}")
+    LicensePlan = None
+    LicenseService = None
+    LICENSE_PLAN_AVAILABLE = False
 
 
 class LicensePlanCreate(BaseModel):
@@ -66,6 +75,8 @@ async def list_license_plans(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """List all license plans"""
+    if not LICENSE_PLAN_AVAILABLE or LicensePlan is None:
+        raise HTTPException(status_code=503, detail="License plan functionality not available. Database tables may not be initialized.")
     try:
         query = db.query(LicensePlan)
         
@@ -109,6 +120,8 @@ async def get_license_plan(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """Get a specific license plan"""
+    if not LICENSE_PLAN_AVAILABLE or LicensePlan is None:
+        raise HTTPException(status_code=503, detail="License plan functionality not available. Database tables may not be initialized.")
     try:
         plan = db.query(LicensePlan).filter(LicensePlan.id == plan_id).first()
         if not plan:
@@ -143,6 +156,8 @@ async def create_license_plan(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """Create a new custom license plan"""
+    if not LICENSE_PLAN_AVAILABLE or LicensePlan is None:
+        raise HTTPException(status_code=503, detail="License plan functionality not available. Database tables may not be initialized.")
     try:
         # Check if plan_key already exists
         existing = db.query(LicensePlan).filter(LicensePlan.plan_key == plan_data.plan_key).first()
@@ -199,6 +214,8 @@ async def update_license_plan(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """Update a license plan (custom plans only)"""
+    if not LICENSE_PLAN_AVAILABLE or LicensePlan is None:
+        raise HTTPException(status_code=503, detail="License plan functionality not available. Database tables may not be initialized.")
     try:
         plan = db.query(LicensePlan).filter(LicensePlan.id == plan_id).first()
         if not plan:
@@ -258,6 +275,8 @@ async def initialize_license_plans(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """Initialize default license plans (idempotent)"""
+    if not LICENSE_PLAN_AVAILABLE or LicenseService is None:
+        raise HTTPException(status_code=503, detail="License plan functionality not available. Database tables may not be initialized.")
     try:
         LicenseService.initialize_default_plans(db)
         return {"message": "Default license plans initialized successfully"}
@@ -272,6 +291,8 @@ async def list_available_features(
     current_admin: SuperAdmin = Depends(get_current_super_admin)
 ):
     """List all available features that can be assigned to plans"""
+    if not LICENSE_PLAN_AVAILABLE or LicenseService is None:
+        raise HTTPException(status_code=503, detail="License plan functionality not available. Database tables may not be initialized.")
     return {
         "features": LicenseService.FEATURES
     }
