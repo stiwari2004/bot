@@ -55,7 +55,7 @@ class LicensePlanResponse(BaseModel):
     created_at: str
 
 
-@router.get("/license-plans", response_model=List[LicensePlanResponse])
+@router.get("/", response_model=List[LicensePlanResponse])
 async def list_license_plans(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -102,7 +102,7 @@ async def list_license_plans(
         raise HTTPException(status_code=500, detail=f"Failed to list license plans: {str(e)}")
 
 
-@router.get("/license-plans/{plan_id}", response_model=LicensePlanResponse)
+@router.get("/{plan_id}", response_model=LicensePlanResponse)
 async def get_license_plan(
     plan_id: int,
     db: Session = Depends(get_db),
@@ -136,7 +136,7 @@ async def get_license_plan(
         raise HTTPException(status_code=500, detail=f"Failed to get license plan: {str(e)}")
 
 
-@router.post("/license-plans", response_model=LicensePlanResponse)
+@router.post("/", response_model=LicensePlanResponse)
 async def create_license_plan(
     plan_data: LicensePlanCreate,
     db: Session = Depends(get_db),
@@ -191,7 +191,7 @@ async def create_license_plan(
         raise HTTPException(status_code=500, detail=f"Failed to create license plan: {str(e)}")
 
 
-@router.put("/license-plans/{plan_id}", response_model=LicensePlanResponse)
+@router.put("/{plan_id}", response_model=LicensePlanResponse)
 async def update_license_plan(
     plan_id: int,
     plan_data: LicensePlanUpdate,
@@ -252,7 +252,7 @@ async def update_license_plan(
         raise HTTPException(status_code=500, detail=f"Failed to update license plan: {str(e)}")
 
 
-@router.post("/license-plans/initialize")
+@router.post("/initialize")
 async def initialize_license_plans(
     db: Session = Depends(get_db),
     current_admin: SuperAdmin = Depends(get_current_super_admin)
@@ -266,7 +266,7 @@ async def initialize_license_plans(
         raise HTTPException(status_code=500, detail=f"Failed to initialize license plans: {str(e)}")
 
 
-@router.get("/license-plans/features/list")
+@router.get("/features/list")
 async def list_available_features(
     db: Session = Depends(get_db),
     current_admin: SuperAdmin = Depends(get_current_super_admin)
