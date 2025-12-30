@@ -95,19 +95,15 @@ async def get_overview(
         total_tenants = db.query(Tenant).count()
         active_tenants = db.query(Tenant).filter(Tenant.is_active == True).count()
         
-        # Count users (handle case where role_id column might not exist)
+        # Count users - use raw SQL to avoid role_id column issues
+        from sqlalchemy import text
         try:
-            # Try to query with role_id - if it fails, the column doesn't exist
-            total_users = db.query(func.count(User.id)).scalar() or 0
-            active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+            total_users = db.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
+            active_users = db.execute(text("SELECT COUNT(*) FROM users WHERE is_active = true")).scalar() or 0
         except Exception as e:
-            # If role_id column doesn't exist, use raw SQL
-            logger.warning(f"Error counting users (possibly missing role_id column): {e}")
-            from sqlalchemy import text
-            result = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
-            total_users = result or 0
-            active_result = db.execute(text("SELECT COUNT(*) FROM users WHERE is_active = true")).scalar()
-            active_users = active_result or 0
+            logger.warning(f"Error counting users: {e}")
+            total_users = 0
+            active_users = 0
         
         # Count users by role (gracefully handle if role column doesn't exist)
         role_counts = {}
@@ -383,14 +379,39 @@ async def list_tenant_users(
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
         
-        users = db.query(User).filter(User.tenant_id == tenant_id).all()
+        # Use raw SQL to avoid role_id column issues
+        from sqlalchemy import text
+        try:
+            # Try to query with role_id column
+            users = db.query(User).filter(User.tenant_id == tenant_id).all()
+        except Exception as e:
+            # If role_id doesn't exist, use raw SQL
+            logger.warning(f"Error querying users (possibly missing role_id column): {e}")
+            user_rows = db.execute(
+                text("SELECT id, email, full_name, role, is_active, last_login, created_at FROM users WHERE tenant_id = :tenant_id"),
+                {"tenant_id": tenant_id}
+            ).fetchall()
+            users = []
+            for row in user_rows:
+                # Create a simple object-like structure
+                class SimpleUser:
+                    def __init__(self, row):
+                        self.id = row[0]
+                        self.email = row[1]
+                        self.full_name = row[2]
+                        self.role = row[3]
+                        self.role_id = None  # Not available
+                        self.is_active = row[4]
+                        self.last_login = row[5]
+                        self.created_at = row[6]
+                users.append(SimpleUser(row))
         
         result = []
         for u in users:
             # Load role relationship (gracefully handle if Role table doesn't exist)
             role_name = None
             try:
-                if u.role_id and hasattr(u, 'role_obj') and u.role_obj:
+                if hasattr(u, 'role_id') and u.role_id and hasattr(u, 'role_obj') and u.role_obj:
                     role_name = u.role_obj.name
             except Exception:
                 # Role relationship not available (table might not exist)
@@ -401,7 +422,7 @@ async def list_tenant_users(
                 "email": u.email,
                 "full_name": u.full_name,
                 "role": u.role,
-                "role_id": u.role_id,
+                "role_id": getattr(u, 'role_id', None),
                 "role_name": role_name,
                 "is_active": u.is_active,
                 "last_login": u.last_login.isoformat() if u.last_login else None,
