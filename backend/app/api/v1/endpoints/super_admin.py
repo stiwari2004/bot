@@ -95,9 +95,19 @@ async def get_overview(
         total_tenants = db.query(Tenant).count()
         active_tenants = db.query(Tenant).filter(Tenant.is_active == True).count()
         
-        # Count users
-        total_users = db.query(User).count()
-        active_users = db.query(User).filter(User.is_active == True).count()
+        # Count users (handle case where role_id column might not exist)
+        try:
+            # Try to query with role_id - if it fails, the column doesn't exist
+            total_users = db.query(func.count(User.id)).scalar() or 0
+            active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+        except Exception as e:
+            # If role_id column doesn't exist, use raw SQL
+            logger.warning(f"Error counting users (possibly missing role_id column): {e}")
+            from sqlalchemy import text
+            result = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+            total_users = result or 0
+            active_result = db.execute(text("SELECT COUNT(*) FROM users WHERE is_active = true")).scalar()
+            active_users = active_result or 0
         
         # Count users by role (gracefully handle if role column doesn't exist)
         role_counts = {}
