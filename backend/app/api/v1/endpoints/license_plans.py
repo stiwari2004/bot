@@ -65,7 +65,6 @@ class LicensePlanResponse(BaseModel):
 
 
 @router.get("", response_model=List[LicensePlanResponse])
-@router.get("/", response_model=List[LicensePlanResponse])
 async def list_license_plans(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -151,7 +150,6 @@ async def get_license_plan(
 
 
 @router.post("", response_model=LicensePlanResponse)
-@router.post("/", response_model=LicensePlanResponse)
 async def create_license_plan(
     plan_data: LicensePlanCreate,
     db: Session = Depends(get_db),

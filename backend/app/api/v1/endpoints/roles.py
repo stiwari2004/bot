@@ -57,7 +57,6 @@ class PermissionInfo(BaseModel):
 
 
 @router.get("", response_model=List[RoleResponse])
-@router.get("/", response_model=List[RoleResponse])
 async def list_roles(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -183,7 +182,7 @@ async def get_role_permissions(
 
 
 @router.post("", response_model=RoleResponse)
-@router.post("/", response_model=RoleResponse)
+@router.post("", response_model=RoleResponse)
 async def create_role(
     role_data: RoleCreate,
     db: Session = Depends(get_db),

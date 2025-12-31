@@ -159,7 +159,8 @@ app = FastAPI(
     title="Troubleshooting AI Agent",
     description="AI-powered IT infrastructure troubleshooting and runbook generation",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    redirect_slashes=False  # Disable automatic trailing slash redirects to prevent HTTP redirect issues
 )
 
 # Add rate limiting if enabled (MF-10)

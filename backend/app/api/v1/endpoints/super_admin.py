@@ -385,8 +385,9 @@ async def list_tenant_users(
             # Try to query with role_id column
             users = db.query(User).filter(User.tenant_id == tenant_id).all()
         except Exception as e:
-            # If role_id doesn't exist, use raw SQL
+            # If role_id doesn't exist, rollback the transaction and use raw SQL
             logger.warning(f"Error querying users (possibly missing role_id column): {e}")
+            db.rollback()  # Rollback the aborted transaction
             user_rows = db.execute(
                 text("SELECT id, email, full_name, role, is_active, last_login, created_at FROM users WHERE tenant_id = :tenant_id"),
                 {"tenant_id": tenant_id}
