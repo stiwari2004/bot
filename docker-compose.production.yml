@@ -133,8 +133,8 @@ services:
     environment:
       - NODE_ENV=production
       # Leave empty to use same-origin (nginx proxies /api to backend)
-      # Or set to https://demo.resolvify.tech if you want explicit domain
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
+      # This ensures relative URLs which work with HTTPS
+      - NEXT_PUBLIC_API_BASE_URL=
     restart: unless-stopped
     depends_on:
       - backend

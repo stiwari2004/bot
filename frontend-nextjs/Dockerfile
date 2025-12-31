@@ -25,6 +25,9 @@ RUN npm rebuild || true
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_DISABLE_TURBOPACK=1
 ENV IN_DOCKER=1
+ENV DOCKER=1
+# Ensure NEXT_PUBLIC_API_BASE_URL is empty for relative URLs (handled by nginx)
+ENV NEXT_PUBLIC_API_BASE_URL=
 RUN npm run build
 
 EXPOSE 3000
