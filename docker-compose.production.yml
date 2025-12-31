@@ -127,6 +127,8 @@ services:
       dockerfile: Dockerfile
       args:
         - NODE_ENV=production
+        # CRITICAL: Force empty NEXT_PUBLIC_API_BASE_URL at build time
+        - NEXT_PUBLIC_API_BASE_URL=
     # Frontend port - change if 3000 is in use by other apps
     ports:
       - "3004:3000"  # Host 3004 to match nginx upstream; change if needed
