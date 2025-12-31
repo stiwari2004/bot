@@ -64,6 +64,7 @@ class LicensePlanResponse(BaseModel):
     created_at: str
 
 
+@router.get("", response_model=List[LicensePlanResponse])
 @router.get("/", response_model=List[LicensePlanResponse])
 async def list_license_plans(
     skip: int = Query(0, ge=0),
@@ -149,6 +150,7 @@ async def get_license_plan(
         raise HTTPException(status_code=500, detail=f"Failed to get license plan: {str(e)}")
 
 
+@router.post("", response_model=LicensePlanResponse)
 @router.post("/", response_model=LicensePlanResponse)
 async def create_license_plan(
     plan_data: LicensePlanCreate,

@@ -56,6 +56,7 @@ class PermissionInfo(BaseModel):
     description: Optional[str]
 
 
+@router.get("", response_model=List[RoleResponse])
 @router.get("/", response_model=List[RoleResponse])
 async def list_roles(
     skip: int = Query(0, ge=0),
@@ -181,6 +182,7 @@ async def get_role_permissions(
         raise HTTPException(status_code=500, detail=f"Failed to get role permissions: {str(e)}")
 
 
+@router.post("", response_model=RoleResponse)
 @router.post("/", response_model=RoleResponse)
 async def create_role(
     role_data: RoleCreate,

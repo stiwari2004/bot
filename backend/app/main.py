@@ -175,18 +175,26 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to handle X-Forwarded-Proto for HTTPS redirects"""
     async def dispatch(self, request: Request, call_next):
         # If X-Forwarded-Proto is https, update the request URL scheme
-        if request.headers.get("X-Forwarded-Proto") == "https":
+        forwarded_proto = request.headers.get("X-Forwarded-Proto")
+        if forwarded_proto == "https":
             request.scope["scheme"] = "https"
+            logger.debug(f"Updated request scheme to https for {request.url.path}")
         
         response = await call_next(request)
         
         # Fix redirect location headers to use HTTPS if X-Forwarded-Proto is https
         if response.status_code in (301, 302, 303, 307, 308):
             location = response.headers.get("location")
-            if location and request.headers.get("X-Forwarded-Proto") == "https":
-                # Replace http:// with https:// in redirect location
-                if location.startswith("http://"):
-                    response.headers["location"] = location.replace("http://", "https://", 1)
+            if location:
+                logger.info(f"Redirect detected: {response.status_code} -> {location}")
+                if forwarded_proto == "https" and location.startswith("http://"):
+                    old_location = location
+                    new_location = location.replace("http://", "https://", 1)
+                    response.headers["location"] = new_location
+                    logger.info(f"Fixed redirect location: {old_location} -> {new_location}")
+                elif forwarded_proto == "https" and not location.startswith("http"):
+                    # Relative URL - should be fine, but log it
+                    logger.debug(f"Redirect location is relative: {location}")
         
         return response
 
