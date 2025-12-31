@@ -153,6 +153,8 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
+# Configure to work behind reverse proxy (nginx)
+# root_path is used when FastAPI is behind a proxy at a subpath
 app = FastAPI(
     title="Troubleshooting AI Agent",
     description="AI-powered IT infrastructure troubleshooting and runbook generation",
@@ -165,8 +167,33 @@ if limiter and RateLimitExceeded and _rate_limit_exceeded_handler:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Middleware to handle X-Forwarded-Proto for HTTPS redirects behind nginx
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class ProxyHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware to handle X-Forwarded-Proto for HTTPS redirects"""
+    async def dispatch(self, request: Request, call_next):
+        # If X-Forwarded-Proto is https, update the request URL scheme
+        if request.headers.get("X-Forwarded-Proto") == "https":
+            request.scope["scheme"] = "https"
+        
+        response = await call_next(request)
+        
+        # Fix redirect location headers to use HTTPS if X-Forwarded-Proto is https
+        if response.status_code in (301, 302, 303, 307, 308):
+            location = response.headers.get("location")
+            if location and request.headers.get("X-Forwarded-Proto") == "https":
+                # Replace http:// with https:// in redirect location
+                if location.startswith("http://"):
+                    response.headers["location"] = location.replace("http://", "https://", 1)
+        
+        return response
+
 # Request ID middleware (must be first)
 app.add_middleware(RequestIDMiddleware)
+# Proxy headers middleware (before CORS, after RequestID)
+app.add_middleware(ProxyHeadersMiddleware)
 
 # CORS middleware - Security: Restrict methods and headers
 # In sandbox/dev mode, allow all localhost origins for easier testing
