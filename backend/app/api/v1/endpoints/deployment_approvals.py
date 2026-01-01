@@ -143,7 +143,7 @@ async def get_deployment_approval(
             "rejection_reason": approval.rejection_reason,
             "deployed_at": approval.deployed_at.isoformat() if approval.deployed_at else None,
             "deployment_log": approval.deployment_log,
-            "metadata": approval.metadata,
+            "metadata": approval.approval_metadata,
             "created_at": approval.created_at.isoformat() if approval.created_at else None,
         }
     except HTTPException:
@@ -187,7 +187,7 @@ async def create_deployment_approval(
             reference_name=request.reference_name,
             status="pending",
             requested_by=current_user.id,
-            metadata=request.metadata
+            approval_metadata=request.metadata
         )
         
         db.add(approval)

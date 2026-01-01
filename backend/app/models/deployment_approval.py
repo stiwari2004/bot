@@ -24,7 +24,7 @@ class DeploymentApproval(Base):
     rejection_reason = Column(Text, nullable=True)
     deployed_at = Column(DateTime(timezone=True), nullable=True)
     deployment_log = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=True)  # Additional metadata (diffs, etc.)
+    approval_metadata = Column(JSON, nullable=True)  # Additional metadata (diffs, etc.)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
