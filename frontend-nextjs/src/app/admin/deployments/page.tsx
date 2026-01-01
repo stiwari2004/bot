@@ -291,7 +291,7 @@ export default function DeploymentsPage() {
                           {approving === approval.id ? 'Approving...' : 'Approve'}
                         </Button>
                         <Button
-                          variant="error"
+                          variant="danger"
                           onClick={() => handleReject(approval.id)}
                           disabled={rejecting === approval.id}
                           leftIcon={<XCircleIcon className="h-4 w-4" />}

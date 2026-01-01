@@ -134,27 +134,39 @@ docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U pos
 
 # Start backend to create tables
 docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans backend
-echo "Waiting for dev backend to initialize schema..."
-sleep 15
+echo "Waiting for dev backend to initialize schema and create tables..."
+echo "This may take 30-60 seconds..."
 
-# Verify tables were created
-if docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
-    echo -e "${GREEN}✓ Dev runbooks table exists${NC}"
-else
-    echo -e "${YELLOW}⚠ Dev runbooks table not created yet, waiting longer...${NC}"
-    sleep 10
+# Wait for backend to create tables (check every 5 seconds, max 12 times = 60 seconds)
+for i in {1..12}; do
+    sleep 5
     if docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ Dev runbooks table exists${NC}"
-    else
-        echo -e "${RED}✗ Dev runbooks table still missing. Check backend logs.${NC}"
-        docker-compose -f docker-compose.dev.yml -p bot-dev logs backend | tail -20
+        echo -e "${GREEN}✓ Dev runbooks table exists (waited ${i}*5 seconds)${NC}"
+        break
     fi
-fi
+    if [ $i -eq 12 ]; then
+        echo -e "${RED}✗ Dev runbooks table still missing after 60 seconds.${NC}"
+        echo "Checking backend logs..."
+        docker-compose -f docker-compose.dev.yml -p bot-dev logs backend | tail -30
+        echo ""
+        echo "You may need to wait longer or check for errors in backend logs."
+    else
+        echo "  Waiting for tables... ($i/12)"
+    fi
+done
 
-# Run dev migrations
-echo "Running dev database migrations..."
-docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql 2>&1 | grep -v "already exists" || true
-docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" || true
+# Only run migrations if tables exist
+if docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
+    echo ""
+    echo "Running dev database migrations..."
+    docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql 2>&1 | grep -v "already exists" | grep -v "ERROR" || true
+    docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" | grep -v "ERROR" || true
+    echo -e "${GREEN}✓ Migrations applied${NC}"
+else
+    echo -e "${YELLOW}⚠ Skipping migrations - tables not ready yet${NC}"
+    echo "You can run migrations manually later:"
+    echo "  docker-compose -f docker-compose.dev.yml -p bot-dev exec postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql"
+fi
 
 # Start dev worker and frontend
 docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans worker frontend
