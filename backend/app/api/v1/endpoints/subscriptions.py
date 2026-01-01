@@ -84,7 +84,7 @@ class SubscriptionResponse(BaseModel):
     updated_at: Optional[datetime]
 
 
-@router.post("/", response_model=SubscriptionResponse)
+@router.post("", response_model=SubscriptionResponse)
 async def create_subscription(
     subscription_data: SubscriptionCreate,
     db: Session = Depends(get_db),
@@ -183,7 +183,7 @@ async def create_subscription(
     )
 
 
-@router.get("/", response_model=List[SubscriptionResponse])
+@router.get("", response_model=List[SubscriptionResponse])
 async def list_subscriptions(
     tenant_id: Optional[int] = Query(None, description="Filter by tenant ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
