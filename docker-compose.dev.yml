@@ -57,6 +57,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - FRONTEND_BASE_URL=https://dev.resolvify.tech
+      - BACKEND_BASE_URL=https://dev.resolvify.tech
     depends_on:
       postgres:
         condition: service_healthy

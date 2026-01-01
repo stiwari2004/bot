@@ -20,6 +20,14 @@ class StructuredFormatter(logging.Formatter):
     
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON"""
+        # Get environment from settings
+        try:
+            from app.core.config import get_settings
+            settings = get_settings()
+            environment = settings.ENVIRONMENT
+        except Exception:
+            environment = "unknown"
+        
         log_data = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "level": record.levelname,
@@ -28,6 +36,7 @@ class StructuredFormatter(logging.Formatter):
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
+            "environment": environment,
         }
         
         # Add request ID if available

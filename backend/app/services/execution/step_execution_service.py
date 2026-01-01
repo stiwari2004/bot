@@ -19,6 +19,7 @@ from app.services.execution.step_event_publisher import StepEventPublisher
 from app.services.execution.step_self_healing import StepSelfHealing
 from app.services.execution.step_precheck_handler import StepPrecheckHandler
 from app.services.execution.step_session_finalizer import StepSessionFinalizer
+from app.services.ticket_step_tracker import get_ticket_step_tracker
 
 logger = get_logger(__name__)
 
@@ -276,6 +277,40 @@ class StepExecutionService:
             db.commit()
             db.refresh(step)
             
+            # Track step in ticket metadata and external systems
+            if session.ticket_id:
+                try:
+                    step_tracker = get_ticket_step_tracker()
+                    # Track in ticket metadata (synchronous, uses current db session)
+                    step_tracker.track_step_in_ticket(
+                        db=db,
+                        ticket_id=session.ticket_id,
+                        step=step,
+                        connector_type=connector_type
+                    )
+                    # Add comment to external ticketing system (async, don't block)
+                    # Create background task with new db session
+                    async def add_external_comment():
+                        from app.core.database import SessionLocal
+                        background_db = SessionLocal()
+                        try:
+                            await step_tracker.add_step_comment_to_external_ticket(
+                                db=background_db,
+                                ticket_id=session.ticket_id,
+                                step=step,
+                                connector_type=connector_type
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to add external comment: {e}", exc_info=True)
+                        finally:
+                            background_db.close()
+                    
+                    # Schedule background task (fire and forget)
+                    asyncio.create_task(add_external_comment())
+                except Exception as e:
+                    logger.warning(f"Failed to track step in ticket: {e}", exc_info=True)
+                    # Don't fail step execution if tracking fails
+            
             # Publish telemetry events (matching worker format)
             # IMPORTANT: Publish output event BEFORE completion event so frontend sees output first
             await self.event_publisher.publish_step_output(
@@ -464,6 +499,41 @@ class StepExecutionService:
                 step.error = error_text
                 step.completed_at = datetime.now(timezone.utc)
                 db.commit()
+                db.refresh(step)
+                
+                # Track failed step in ticket metadata and external systems
+                if session.ticket_id:
+                    try:
+                        step_tracker = get_ticket_step_tracker()
+                        # Track in ticket metadata (synchronous, uses current db session)
+                        step_tracker.track_step_in_ticket(
+                            db=db,
+                            ticket_id=session.ticket_id,
+                            step=step,
+                            connector_type=connector_type
+                        )
+                        # Add comment to external ticketing system (async, don't block)
+                        # Create background task with new db session
+                        async def add_external_comment():
+                            from app.core.database import SessionLocal
+                            background_db = SessionLocal()
+                            try:
+                                await step_tracker.add_step_comment_to_external_ticket(
+                                    db=background_db,
+                                    ticket_id=session.ticket_id,
+                                    step=step,
+                                    connector_type=connector_type
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to add external comment for failed step: {e}", exc_info=True)
+                            finally:
+                                background_db.close()
+                        
+                        # Schedule background task (fire and forget)
+                        asyncio.create_task(add_external_comment())
+                    except Exception as e:
+                        logger.warning(f"Failed to track failed step in ticket: {e}", exc_info=True)
+                        # Don't fail step execution if tracking fails
                 
                 # CRITICAL: Connection errors always stop execution (regardless of step type)
                 # Connection errors indicate infrastructure issues that need immediate attention

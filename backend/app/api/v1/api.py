@@ -164,4 +164,18 @@ try:
 except ImportError:
     pass  # Client admin module not available
 
+# Dev Runbook Management endpoints
+try:
+    from app.api.v1.endpoints import dev_runbooks
+    api_router.include_router(dev_runbooks.router, tags=["dev-runbooks"])
+except ImportError:
+    pass  # Dev runbooks module not available
+
+# Deployment Approval endpoints
+try:
+    from app.api.v1.endpoints import deployment_approvals
+    api_router.include_router(deployment_approvals.router, prefix="/deployment-approvals", tags=["deployment-approvals"])
+except ImportError:
+    pass  # Deployment approvals module not available
+
 

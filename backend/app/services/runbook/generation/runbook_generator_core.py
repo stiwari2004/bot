@@ -86,6 +86,11 @@ class RunbookGeneratorService:
         confidence = self.content_builder.calculate_confidence(search_results)
         
         # Step 4: Create runbook record
+        # Determine environment based on ENVIRONMENT config
+        from app.core.config import get_settings
+        settings = get_settings()
+        runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
+        
         runbook = Runbook(
             tenant_id=tenant_id,
             title=f"Runbook: {issue_description[:100]}...",
@@ -97,7 +102,8 @@ class RunbookGeneratorService:
                 "generated_by": "rag_pipeline"
             }),
             confidence=confidence,
-            is_active="active"
+            is_active="active",
+            environment=runbook_environment
         )
         
         db.add(runbook)
@@ -629,6 +635,11 @@ class RunbookGeneratorService:
 ```
 """
 
+        # Determine environment based on ENVIRONMENT config
+        from app.core.config import get_settings
+        settings = get_settings()
+        runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
+        
         runbook = Runbook(
             tenant_id=tenant_id,
             title=f"Runbook: {spec.get('title')}",
@@ -643,7 +654,8 @@ class RunbookGeneratorService:
                 "generation_mode": generation_mode
             }),
             confidence=0.75,
-            is_active="active"
+            is_active="active",
+            environment=runbook_environment
         )
 
         db.add(runbook)

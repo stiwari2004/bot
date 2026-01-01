@@ -718,6 +718,262 @@ class TicketingIntegrationService:
         except Exception as e:
             logger.error(f"Error updating ServiceNow incident: {e}", exc_info=True)
             return False
+    
+    async def add_ticket_comment(
+        self,
+        db: Session,
+        ticket: Ticket,
+        comment: str
+    ) -> bool:
+        """
+        Add a comment to external ticketing system without changing status
+        
+        Args:
+            db: Database session
+            ticket: Ticket object
+            comment: Comment text to add
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not ticket.external_id:
+            logger.debug(f"Ticket {ticket.id} has no external_id, skipping comment")
+            return False
+        
+        logger.info(f"Adding comment to external ticket {ticket.external_id} (internal ticket {ticket.id})")
+        
+        # Find ticketing tool connection
+        tool_name_map = {
+            "servicenow": "servicenow",
+            "manageengine": "manageengine",
+            "zoho": "zoho"
+        }
+        
+        expected_tool_name = tool_name_map.get(ticket.source.lower(), ticket.source.lower())
+        
+        connection = db.query(TicketingToolConnection).filter(
+            TicketingToolConnection.tenant_id == ticket.tenant_id,
+            TicketingToolConnection.is_active == True,
+            TicketingToolConnection.tool_name.ilike(f"%{expected_tool_name}%")
+        ).first()
+        
+        if not connection:
+            logger.warning(f"No active ticketing connection found for tenant {ticket.tenant_id}")
+            return False
+        
+        try:
+            # Add comment based on tool type
+            if connection.tool_name.lower() == "manageengine":
+                return await self._add_manageengine_comment(
+                    connection=connection,
+                    external_id=ticket.external_id,
+                    comment=comment
+                )
+            elif connection.tool_name.lower() == "zoho":
+                return await self._add_zoho_comment(
+                    connection=connection,
+                    external_id=ticket.external_id,
+                    comment=comment
+                )
+            elif connection.tool_name.lower() == "servicenow":
+                return await self._add_servicenow_comment(
+                    connection=connection,
+                    external_id=ticket.external_id,
+                    comment=comment
+                )
+            else:
+                logger.warning(f"Ticketing tool {connection.tool_name} not supported for comments")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error adding comment to ticket {ticket.id} in external system: {e}", exc_info=True)
+            return False
+        finally:
+            # Update external_ticket_updated_at timestamp
+            ticket.external_ticket_updated_at = datetime.now(timezone.utc)
+            db.commit()
+    
+    async def _add_manageengine_comment(
+        self,
+        connection: TicketingToolConnection,
+        external_id: str,
+        comment: str
+    ) -> bool:
+        """Add comment to ManageEngine ticket"""
+        try:
+            from app.services.ticketing_connectors.manageengine import ManageEngineTicketFetcher
+            import httpx
+            import json
+            
+            fetcher = ManageEngineTicketFetcher()
+            if isinstance(connection.meta_data, str):
+                connection_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            else:
+                connection_meta = connection.meta_data if isinstance(connection.meta_data, dict) else {}
+            
+            access_token = await fetcher._get_valid_token(connection_meta)
+            api_domain = connection.api_base_url or connection_meta.get("api_domain", "")
+            if not api_domain.startswith("http"):
+                api_domain = f"https://{api_domain}"
+            
+            # ManageEngine API v3 - Add comment
+            comment_url = f"{api_domain}/api/v3/tickets/{external_id}/comments"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            comment_data = {
+                "content": comment,
+                "isPublic": True
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(comment_url, headers=headers, json=comment_data)
+                
+                if response.status_code in [200, 201]:
+                    logger.info(f"Successfully added comment to ManageEngine ticket {external_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to add comment to ManageEngine ticket: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error adding ManageEngine comment: {e}", exc_info=True)
+            return False
+    
+    async def _add_zoho_comment(
+        self,
+        connection: TicketingToolConnection,
+        external_id: str,
+        comment: str
+    ) -> bool:
+        """Add comment to Zoho ticket"""
+        try:
+            from app.services.ticketing_connectors.zoho import ZohoTicketFetcher
+            import httpx
+            import json
+            
+            fetcher = ZohoTicketFetcher()
+            if isinstance(connection.meta_data, str):
+                connection_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            else:
+                connection_meta = connection.meta_data if isinstance(connection.meta_data, dict) else {}
+            
+            access_token = await fetcher._get_valid_token(connection_meta)
+            api_domain = connection.api_base_url or connection_meta.get("api_domain") or "https://desk.zoho.com"
+            if not api_domain.startswith("http"):
+                api_domain = f"https://{api_domain}"
+            
+            org_id = connection_meta.get("org_id")
+            if not org_id:
+                logger.error("Zoho org_id not found in connection metadata")
+                return False
+            
+            comment_url = f"{api_domain}/api/v1/tickets/{external_id}/comments"
+            headers = {
+                "Authorization": f"Zoho-oauthtoken {access_token}",
+                "Content-Type": "application/json",
+                "orgId": org_id
+            }
+            
+            comment_data = {
+                "content": comment,
+                "isPublic": True
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(comment_url, headers=headers, json=comment_data)
+                
+                if response.status_code in [200, 201]:
+                    logger.info(f"Successfully added comment to Zoho ticket {external_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to add comment to Zoho ticket: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error adding Zoho comment: {e}", exc_info=True)
+            return False
+    
+    async def _add_servicenow_comment(
+        self,
+        connection: TicketingToolConnection,
+        external_id: str,
+        comment: str
+    ) -> bool:
+        """Add comment to ServiceNow incident"""
+        try:
+            from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
+            import httpx
+            import base64
+            
+            fetcher = ServiceNowTicketFetcher()
+            if isinstance(connection.meta_data, str):
+                connection_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            else:
+                connection_meta = connection.meta_data if isinstance(connection.meta_data, dict) else {}
+            
+            api_base_url = connection.api_base_url or connection_meta.get("api_base_url", "")
+            if not api_base_url.startswith("http"):
+                api_base_url = f"https://{api_base_url}"
+            api_base_url = api_base_url.rstrip("/")
+            
+            # ServiceNow uses basic auth or OAuth
+            username = connection_meta.get("username") or connection_meta.get("user")
+            password = connection_meta.get("password")
+            
+            if username and password:
+                # Basic auth
+                auth_string = f"{username}:{password}"
+                auth_bytes = auth_string.encode("utf-8")
+                auth_b64 = base64.b64encode(auth_bytes).decode("utf-8")
+                headers = {
+                    "Authorization": f"Basic {auth_b64}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            else:
+                logger.error("ServiceNow authentication credentials not found")
+                return False
+            
+            # ServiceNow uses sys_id for updates, but we might have incident number
+            # Try to get sys_id if we have incident number
+            if not external_id.startswith("sys_"):
+                # Query for sys_id using incident number
+                query_url = f"{api_base_url}/api/now/table/incident?sysparm_query=number={external_id}&sysparm_fields=sys_id"
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    query_response = await client.get(query_url, headers=headers)
+                    if query_response.status_code == 200:
+                        result = query_response.json()
+                        if result.get("result") and len(result["result"]) > 0:
+                            external_id = result["result"][0]["sys_id"]
+                        else:
+                            logger.warning(f"ServiceNow incident {external_id} not found")
+                            return False
+                    else:
+                        logger.error(f"Failed to query ServiceNow incident: {query_response.status_code}")
+                        return False
+            
+            # Add comment using journal entry
+            comment_url = f"{api_base_url}/api/now/table/incident/{external_id}"
+            request_data = {
+                "comments": comment
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.patch(comment_url, headers=headers, json=request_data)
+                
+                if response.status_code in [200, 204]:
+                    logger.info(f"Successfully added comment to ServiceNow incident {external_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to add comment to ServiceNow incident: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error adding ServiceNow comment: {e}", exc_info=True)
+            return False
 
 
 # Global instance

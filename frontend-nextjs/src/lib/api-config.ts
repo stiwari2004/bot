@@ -230,6 +230,20 @@ const createEndpoints = (baseUrl: string) => ({
     activateNode: (nodeId: number) => `${baseUrl}/api/v1/client-admin/nodes/${nodeId}/activate`,
     deactivateNode: (nodeId: number) => `${baseUrl}/api/v1/client-admin/nodes/${nodeId}/deactivate`,
   },
+  dev: {
+    runbooks: {
+      list: (statusFilter?: string) => {
+        const query = statusFilter ? `?status_filter=${statusFilter}` : '';
+        return `${baseUrl}/api/v1/dev/runbooks${query}`;
+      },
+      get: (runbookId: number) => `${baseUrl}/api/v1/dev/runbooks/${runbookId}`,
+      promote: (runbookId: number, dryRun?: boolean) => {
+        const query = dryRun ? '?dry_run=true' : '';
+        return `${baseUrl}/api/v1/dev/runbooks/${runbookId}/promote${query}`;
+      },
+      pendingPromotion: () => `${baseUrl}/api/v1/dev/runbooks/pending-promotion`,
+    },
+  },
 });
 
 export const apiConfig = {

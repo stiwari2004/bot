@@ -52,6 +52,16 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     LicensePlan = None
 
+try:
+    from app.models.runbook import Runbook
+except ImportError:  # pragma: no cover - optional dependency
+    Runbook = None
+
+try:
+    from app.models.deployment_approval import DeploymentApproval
+except ImportError:  # pragma: no cover - optional dependency
+    DeploymentApproval = None
+
 
 # Export for backward compatibility
 __all__ = [
@@ -85,4 +95,10 @@ if Permission:
 
 if LicensePlan:
     __all__.append("LicensePlan")
+
+if Runbook:
+    __all__.append("Runbook")
+
+if DeploymentApproval:
+    __all__.append("DeploymentApproval")
 

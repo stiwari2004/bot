@@ -19,6 +19,9 @@ class Runbook(Base):
     parent_version_id = Column(Integer, ForeignKey("runbooks.id"), nullable=True)
     status = Column(String(20), default="draft")  # draft, approved, archived
     is_active = Column(String(10), default="active")  # active, archived, draft
+    environment = Column(String(20), default="production")  # dev or production
+    promoted_from_id = Column(Integer, ForeignKey("runbooks.id", ondelete="SET NULL"), nullable=True)  # Reference to dev runbook that was promoted
+    promoted_at = Column(DateTime(timezone=True), nullable=True)  # Timestamp when promoted from dev to production
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -27,12 +30,17 @@ class Runbook(Base):
     parent_version = relationship("Runbook", remote_side=[id])
     executions = relationship("Execution", back_populates="runbook")
     
+    # Relationships
+    promoted_from = relationship("Runbook", remote_side=[id], foreign_keys=[promoted_from_id])
+    
     # Indexes
     __table_args__ = (
         Index('idx_runbooks_tenant', 'tenant_id'),
         Index('idx_runbooks_title', 'title'),
         Index('idx_runbooks_confidence', 'confidence'),
         Index('idx_runbooks_parent', 'parent_version_id'),
+        Index('idx_runbooks_environment', 'environment'),
+        Index('idx_runbooks_promoted_from', 'promoted_from_id'),
     )
     
     def __repr__(self):
