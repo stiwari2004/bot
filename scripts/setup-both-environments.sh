@@ -27,15 +27,19 @@ echo ""
 # Step 2: Clean up any conflicting containers
 echo -e "${YELLOW}Step 2: Cleaning up conflicting containers...${NC}"
 
-# Remove any dev containers with wrong names
+# Remove ALL bot containers first (we'll restart them properly)
+echo "Removing all existing bot containers..."
+docker ps -a --filter "name=bot" --format "{{.Names}}" | xargs -r docker rm -f 2>/dev/null || true
+
+# Specifically remove containers with ContainerConfig errors
+docker rm -f bot_postgres_1 bot_redis_1 bot_backend_1 bot_worker_1 bot_frontend_1 2>/dev/null || true
 docker rm -f bot-dev-postgres bot-dev-redis bot-dev-backend bot-dev-worker bot-dev-frontend 2>/dev/null || true
 
-# Remove any orphaned containers
-docker ps -a | grep "bot.*postgres" | grep -v "bot-dev-postgres" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-docker ps -a | grep "bot.*redis" | grep -v "bot-dev-redis" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-docker ps -a | grep "bot.*backend" | grep -v "bot-dev-backend" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-docker ps -a | grep "bot.*worker" | grep -v "bot-dev-worker" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-docker ps -a | grep "bot.*frontend" | grep -v "bot-dev-frontend" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+# Remove any containers with corrupted metadata
+docker ps -a | grep "bot" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+
+# Clean up dangling images
+docker image prune -f
 
 echo -e "${GREEN}✓ Cleanup complete${NC}"
 echo ""
@@ -63,16 +67,16 @@ echo ""
 
 echo -e "${YELLOW}Starting production services...${NC}"
 
-# Start production in order
-docker-compose -f docker-compose.production.yml up -d postgres redis
+# Start production in order with --remove-orphans to clean up
+docker-compose -f docker-compose.production.yml up -d --remove-orphans postgres redis
 echo "Waiting for production postgres and redis..."
 sleep 5
 
-docker-compose -f docker-compose.production.yml up -d backend
+docker-compose -f docker-compose.production.yml up -d --remove-orphans backend
 echo "Waiting for production backend..."
 sleep 10
 
-docker-compose -f docker-compose.production.yml up -d worker frontend proxy
+docker-compose -f docker-compose.production.yml up -d --remove-orphans worker frontend proxy
 echo "Waiting for production worker and frontend..."
 sleep 5
 
@@ -118,8 +122,8 @@ echo ""
 
 echo -e "${YELLOW}Starting dev services...${NC}"
 
-# Start dev in order
-docker-compose -f docker-compose.dev.yml up -d postgres redis
+# Start dev in order with --remove-orphans to clean up
+docker-compose -f docker-compose.dev.yml up -d --remove-orphans postgres redis
 echo "Waiting for dev postgres and redis..."
 sleep 5
 
@@ -128,7 +132,7 @@ echo "Ensuring dev database exists..."
 docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -c "CREATE DATABASE troubleshooting_ai_dev;" 2>&1 | grep -v "already exists" || true
 
 # Start backend to create tables
-docker-compose -f docker-compose.dev.yml up -d backend
+docker-compose -f docker-compose.dev.yml up -d --remove-orphans backend
 echo "Waiting for dev backend to initialize schema..."
 sleep 15
 
@@ -152,7 +156,7 @@ docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d tr
 docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" || true
 
 # Start dev worker and frontend
-docker-compose -f docker-compose.dev.yml up -d worker frontend
+docker-compose -f docker-compose.dev.yml up -d --remove-orphans worker frontend
 echo "Waiting for dev worker and frontend..."
 sleep 5
 
