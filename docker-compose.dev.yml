@@ -4,6 +4,7 @@ services:
   # PostgreSQL with pgvector extension (dev instance)
   postgres:
     image: pgvector/pgvector:pg15
+    container_name: bot-dev-postgres
     environment:
       POSTGRES_DB: troubleshooting_ai_dev
       POSTGRES_USER: postgres
@@ -26,6 +27,7 @@ services:
 
   redis:
     image: redis:7.2-alpine
+    container_name: bot-dev-redis
     command: ["redis-server", "--appendonly", "yes"]
     # Redis is only needed by backend/worker inside the Docker network.
     # Remove host port exposure to avoid conflicts with any host Redis.
@@ -39,6 +41,7 @@ services:
 
   # FastAPI Backend
   backend:
+    container_name: bot-dev-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -74,6 +77,7 @@ services:
       - app-dev-network
 
   worker:
+    container_name: bot-dev-worker
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -97,6 +101,7 @@ services:
 
   # Next.js Frontend
   frontend:
+    container_name: bot-dev-frontend
     build:
       context: ./frontend-nextjs
       dockerfile: Dockerfile
@@ -125,5 +130,6 @@ volumes:
 
 networks:
   app-dev-network:
+    name: bot_app-dev-network
     driver: bridge
 
