@@ -19,7 +19,7 @@ NC='\033[0m'
 # Step 1: Stop everything first
 echo -e "${YELLOW}Step 1: Stopping all containers...${NC}"
 docker-compose -f docker-compose.production.yml down 2>/dev/null || true
-docker-compose -f docker-compose.dev.yml down 2>/dev/null || true
+docker-compose -f docker-compose.dev.yml -p bot-dev down 2>/dev/null || true
 
 echo -e "${GREEN}✓ All containers stopped${NC}"
 echo ""
@@ -123,52 +123,53 @@ echo ""
 echo -e "${YELLOW}Starting dev services...${NC}"
 
 # Start dev in order with --remove-orphans to clean up
-docker-compose -f docker-compose.dev.yml up -d --remove-orphans postgres redis
+# CRITICAL: Use -p bot-dev to avoid conflicts with production project name
+docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans postgres redis
 echo "Waiting for dev postgres and redis..."
 sleep 5
 
 # Create dev database if it doesn't exist
 echo "Ensuring dev database exists..."
-docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -c "CREATE DATABASE troubleshooting_ai_dev;" 2>&1 | grep -v "already exists" || true
+docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -c "CREATE DATABASE troubleshooting_ai_dev;" 2>&1 | grep -v "already exists" || true
 
 # Start backend to create tables
-docker-compose -f docker-compose.dev.yml up -d --remove-orphans backend
+docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans backend
 echo "Waiting for dev backend to initialize schema..."
 sleep 15
 
 # Verify tables were created
-if docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
+if docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Dev runbooks table exists${NC}"
 else
     echo -e "${YELLOW}⚠ Dev runbooks table not created yet, waiting longer...${NC}"
     sleep 10
-    if docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
+    if docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -c "\d runbooks" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ Dev runbooks table exists${NC}"
     else
         echo -e "${RED}✗ Dev runbooks table still missing. Check backend logs.${NC}"
-        docker-compose -f docker-compose.dev.yml logs backend | tail -20
+        docker-compose -f docker-compose.dev.yml -p bot-dev logs backend | tail -20
     fi
 fi
 
 # Run dev migrations
 echo "Running dev database migrations..."
-docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql 2>&1 | grep -v "already exists" || true
-docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" || true
+docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql 2>&1 | grep -v "already exists" || true
+docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" || true
 
 # Start dev worker and frontend
-docker-compose -f docker-compose.dev.yml up -d --remove-orphans worker frontend
+docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans worker frontend
 echo "Waiting for dev worker and frontend..."
 sleep 5
 
 # Verify dev
 echo ""
 echo -e "${YELLOW}Verifying dev services...${NC}"
-if docker-compose -f docker-compose.dev.yml ps | grep -q "Up"; then
+if docker-compose -f docker-compose.dev.yml -p bot-dev ps | grep -q "Up"; then
     echo -e "${GREEN}✓ Dev services started${NC}"
-    docker-compose -f docker-compose.dev.yml ps
+    docker-compose -f docker-compose.dev.yml -p bot-dev ps
 else
     echo -e "${RED}✗ Dev services failed to start${NC}"
-    docker-compose -f docker-compose.dev.yml logs --tail=20
+    docker-compose -f docker-compose.dev.yml -p bot-dev logs --tail=20
 fi
 
 echo ""
@@ -184,7 +185,7 @@ docker-compose -f docker-compose.production.yml ps
 
 echo ""
 echo -e "${YELLOW}Dev Containers:${NC}"
-docker-compose -f docker-compose.dev.yml ps
+docker-compose -f docker-compose.dev.yml -p bot-dev ps
 
 echo ""
 echo -e "${YELLOW}Container Name Summary:${NC}"

@@ -70,31 +70,32 @@ docker-compose -f docker-compose.production.yml ps
 
 echo ""
 
-# Step 5: Start Dev
+# Step 5: Start Dev (WITH EXPLICIT PROJECT NAME -p bot-dev)
 echo -e "${BLUE}=========================================="
-echo "Starting DEV"
+echo "Starting DEV (with project name: bot-dev)"
 echo "==========================================${NC}"
 echo ""
 
-docker-compose -f docker-compose.dev.yml up -d --remove-orphans postgres redis
+# CRITICAL: Use -p bot-dev to avoid conflicts with production
+docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans postgres redis
 sleep 5
 
 # Create dev database
-docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -c "CREATE DATABASE troubleshooting_ai_dev;" 2>&1 | grep -v "already exists" || true
+docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -c "CREATE DATABASE troubleshooting_ai_dev;" 2>&1 | grep -v "already exists" || true
 
-docker-compose -f docker-compose.dev.yml up -d --remove-orphans backend
+docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans backend
 sleep 15
 
 # Run dev migrations
 echo "Running dev migrations..."
-docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql 2>&1 | grep -v "already exists" || true
-docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" || true
+docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_runbook_environment.sql 2>&1 | grep -v "already exists" || true
+docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev < backend/sql/add_deployment_approvals_table.sql 2>&1 | grep -v "already exists" || true
 
-docker-compose -f docker-compose.dev.yml up -d --remove-orphans worker frontend
+docker-compose -f docker-compose.dev.yml -p bot-dev up -d --remove-orphans worker frontend
 
 echo ""
 echo -e "${YELLOW}Dev status:${NC}"
-docker-compose -f docker-compose.dev.yml ps
+docker-compose -f docker-compose.dev.yml -p bot-dev ps
 
 echo ""
 
