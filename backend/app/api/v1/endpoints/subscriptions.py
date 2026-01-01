@@ -222,34 +222,34 @@ async def list_subscriptions(
             except Exception as e:
                 logger.warning(f"Could not fetch license plan {sub.license_plan_id}: {e}")
                 license_plan_name = None
-        
-        results.append(SubscriptionResponse(
-            id=sub.id,
-            tenant_id=sub.tenant_id,
-            tenant_name=tenant.name if tenant else "Unknown",
-            license_plan_id=sub.license_plan_id,
-            license_plan_name=license_plan_name,
-            max_seats=sub.max_seats,
-            max_nodes=sub.max_nodes,
-            current_seats=sub.current_seats,
-            current_nodes=sub.current_nodes,
-            seats_remaining=sub.seats_remaining,
-            nodes_remaining=sub.nodes_remaining,
-            seats_exceeded=sub.seats_exceeded,
-            nodes_exceeded=sub.nodes_exceeded,
-            subscription_name=sub.subscription_name,
-            monthly_price=float(sub.monthly_price),
-            seat_overage_rate=float(sub.seat_overage_rate),
-            node_overage_rate=float(sub.node_overage_rate),
-            status=sub.status,
-            is_enforced=sub.is_enforced,
-            is_active=sub.is_active,
-            started_at=sub.started_at,
-            expires_at=sub.expires_at,
-            auto_renew=sub.auto_renew,
-            notes=sub.notes,
-            created_at=sub.created_at,
-            updated_at=sub.updated_at
+            
+            results.append(SubscriptionResponse(
+                id=sub.id,
+                tenant_id=sub.tenant_id,
+                tenant_name=tenant.name if tenant else "Unknown",
+                license_plan_id=sub.license_plan_id,
+                license_plan_name=license_plan_name,
+                max_seats=sub.max_seats,
+                max_nodes=sub.max_nodes,
+                current_seats=sub.current_seats,
+                current_nodes=sub.current_nodes,
+                seats_remaining=sub.seats_remaining,
+                nodes_remaining=sub.nodes_remaining,
+                seats_exceeded=sub.seats_exceeded,
+                nodes_exceeded=sub.nodes_exceeded,
+                subscription_name=sub.subscription_name,
+                monthly_price=float(sub.monthly_price),
+                seat_overage_rate=float(sub.seat_overage_rate),
+                node_overage_rate=float(sub.node_overage_rate),
+                status=sub.status,
+                is_enforced=sub.is_enforced,
+                is_active=sub.is_active,
+                started_at=sub.started_at,
+                expires_at=sub.expires_at,
+                auto_renew=sub.auto_renew,
+                notes=sub.notes,
+                created_at=sub.created_at,
+                updated_at=sub.updated_at
             ))
         
         return results
