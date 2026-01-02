@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.core.input_sanitizer import sanitize_for_logging
 from app.models.ticket import Ticket
-from app.models.execution_step import ExecutionStep
+from app.models.execution_session import ExecutionStep
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 import json

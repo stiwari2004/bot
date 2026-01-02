@@ -15,8 +15,7 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.ticket import Ticket
 from app.models.runbook import Runbook
-from app.models.execution_session import ExecutionSession
-from app.models.execution_step import ExecutionStep
+from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.models.execution_feedback import ExecutionFeedback
 from app.models.document import Document
 from app.models.chunk import Chunk
