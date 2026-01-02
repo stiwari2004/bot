@@ -24,18 +24,41 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install dependencies
         working-directory: ./backend
         run: |
           python -m pip install --upgrade pip
+          # Install CPU-only PyTorch first to avoid CUDA dependencies (saves ~3GB)
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # Install sentence-transformers with CPU-only PyTorch
+          pip install sentence-transformers --no-deps
+          pip install transformers tokenizers safetensors huggingface-hub scikit-learn scipy numpy
+          # Install remaining dependencies
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov
+          # Clean up pip cache to free space
+          pip cache purge || true
 
       - name: Run tests
         working-directory: ./backend
         run: |
           pytest tests/ -v --cov=app --cov-report=xml --tb=short || true
         continue-on-error: true
+
+      - name: Clean up after tests
+        if: always()
+        run: |
+          pip cache purge || true
+          df -h
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
@@ -82,12 +105,29 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install dependencies
         working-directory: ./backend
         run: |
           python -m pip install --upgrade pip
+          # Install CPU-only PyTorch first to avoid CUDA dependencies (saves ~3GB)
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # Install sentence-transformers with CPU-only PyTorch
+          pip install sentence-transformers --no-deps
+          pip install transformers tokenizers safetensors huggingface-hub scikit-learn scipy numpy
+          # Install remaining dependencies
           pip install -r requirements.txt
           pip install pyyaml
+          # Clean up pip cache to free space
+          pip cache purge || true
 
       - name: Validate runbook YAML files
         working-directory: ./backend
