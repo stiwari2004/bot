@@ -208,9 +208,15 @@ app.add_middleware(ProxyHeadersMiddleware)
 # In sandbox/dev mode, allow all localhost origins for easier testing
 cors_origins = settings.ALLOWED_HOSTS
 if settings.ENVIRONMENT.lower() in ("sandbox", "development", "dev"):
-    # Allow all localhost origins in sandbox/dev
-    cors_origins = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8000", "http://localhost:8001"]
-    logger.info(f"CORS: Allowing all localhost origins for {settings.ENVIRONMENT} environment")
+    # Allow all localhost origins and dev domain in sandbox/dev
+    cors_origins = [
+        "http://localhost:3000", 
+        "http://localhost:3001", 
+        "http://localhost:8000", 
+        "http://localhost:8001",
+        "https://dev.resolvify.tech"
+    ]
+    logger.info(f"CORS: Allowing localhost and dev domain origins for {settings.ENVIRONMENT} environment")
 
 app.add_middleware(
     CORSMiddleware,
