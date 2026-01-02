@@ -87,6 +87,10 @@ async def init_db():
             from app.models import license_plan  # License plan models
         except ImportError:
             pass
+        try:
+            from app.models import deployment_approval  # Deployment approval models
+        except ImportError:
+            pass
         
         # Enable required PostgreSQL extensions
         with engine.connect() as conn:
