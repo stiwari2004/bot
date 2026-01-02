@@ -20,6 +20,7 @@ const createEndpoints = (baseUrl: string) => ({
   auth: {
     login: () => `${baseUrl}/api/v1/auth/login`,
     me: () => `${baseUrl}/api/v1/auth/me`,
+    changePassword: () => `${baseUrl}/api/v1/auth/change-password`,
   },
   agent: {
     pendingApprovals: () => `${baseUrl}/api/v1/agent/pending-approvals`,

@@ -30,6 +30,7 @@ class User(Base):
     role_id = Column(Integer, ForeignKey("roles.id", ondelete="SET NULL"), nullable=True, index=True)  # New RBAC system
     
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)  # Force password change at next login
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -31,6 +31,7 @@ interface User {
   role_id: number | null;
   role_name: string | null;
   is_active: boolean;
+  must_change_password?: boolean;
   last_login: string | null;
   created_at: string | null;
 }
@@ -64,6 +65,7 @@ export default function UsersPage() {
     full_name: '',
     role: 'user',  // Legacy role
     role_id: null as number | null,  // New RBAC role
+    must_change_password: false,
   });
 
   const fetchTenants = async () => {
@@ -184,6 +186,7 @@ export default function UsersPage() {
         full_name: '',
         role: 'user',
         role_id: null,
+        must_change_password: false,
       });
       fetchUsers(selectedTenantId);
     } catch (err) {
@@ -199,6 +202,7 @@ export default function UsersPage() {
       full_name: user.full_name || '',
       role: user.role,
       role_id: user.role_id,
+      must_change_password: user.must_change_password || false,
     });
     setShowCreateModal(true);
   };
@@ -236,6 +240,7 @@ export default function UsersPage() {
           role: formData.role,
           role_id: formData.role_id,
           is_active: true,
+          must_change_password: formData.must_change_password,
         };
         if (formData.password) {
           payload.password = formData.password;
@@ -280,6 +285,7 @@ export default function UsersPage() {
         full_name: '',
         role: 'user',
         role_id: null,
+        must_change_password: false,
       });
       fetchUsers(selectedTenantId);
     } catch (err) {
@@ -562,6 +568,20 @@ export default function UsersPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {editUserId && (
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="must_change_password"
+                        checked={formData.must_change_password}
+                        onChange={(e) => setFormData({ ...formData, must_change_password: e.target.checked })}
+                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-neutral-300 rounded"
+                      />
+                      <label htmlFor="must_change_password" className="text-sm font-medium text-neutral-700">
+                        Require password change at next login
+                      </label>
+                    </div>
+                  )}
                   <div className="flex justify-end space-x-3 pt-4">
                     <Button variant="outline" onClick={() => setShowCreateModal(false)}>
                       Cancel

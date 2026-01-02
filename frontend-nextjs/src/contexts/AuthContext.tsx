@@ -21,6 +21,7 @@ interface User {
 interface AuthContextType {
   token: string | null;
   user: User | null;
+  mustChangePassword: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
@@ -32,6 +33,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchUserInfo = useCallback(async (authToken: string) => {
@@ -127,6 +129,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('No access token received from server');
       }
 
+      // Check if password change is required
+      const requiresPasswordChange = data.must_change_password === true;
+      setMustChangePassword(requiresPasswordChange);
+
       localStorage.setItem('auth_token', authToken);
       setToken(authToken);
       await fetchUserInfo(authToken);
@@ -143,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('auth_token');
     setToken(null);
     setUser(null);
+    setMustChangePassword(false);
   };
 
   return (
@@ -150,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         token,
         user,
+        mustChangePassword,
         login,
         logout,
         isAuthenticated: !!token,

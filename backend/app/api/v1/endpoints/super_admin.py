@@ -69,6 +69,7 @@ class UserUpdate(BaseModel):
     role_id: Optional[int] = None  # New RBAC role ID
     password: Optional[str] = None
     is_active: Optional[bool] = None
+    must_change_password: Optional[bool] = None  # Force password change at next login
 
 
 class UserResponse(BaseModel):
@@ -79,6 +80,7 @@ class UserResponse(BaseModel):
     role_id: Optional[int]  # New RBAC role ID
     role_name: Optional[str]  # Role name from RBAC
     is_active: bool
+    must_change_password: Optional[bool] = False
     last_login: Optional[str]
     created_at: str
 
@@ -426,6 +428,7 @@ async def list_tenant_users(
                 "role_id": getattr(u, 'role_id', None),
                 "role_name": role_name,
                 "is_active": u.is_active,
+                "must_change_password": getattr(u, 'must_change_password', False) or False,
                 "last_login": u.last_login.isoformat() if u.last_login else None,
                 "created_at": u.created_at.isoformat() if u.created_at else "",
             })
@@ -493,6 +496,7 @@ async def create_tenant_user(
             "role_id": user.role_id,
             "role_name": role_name,
             "is_active": user.is_active,
+            "must_change_password": user.must_change_password or False,
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "created_at": user.created_at.isoformat() if user.created_at else "",
         }
@@ -541,8 +545,12 @@ async def update_tenant_user(
             user.role_id = user_data.role_id
         if user_data.password is not None:
             user.password_hash = get_password_hash(user_data.password)
+            # Clear must_change_password flag when password is manually changed by admin
+            user.must_change_password = False
         if user_data.is_active is not None:
             user.is_active = user_data.is_active
+        if user_data.must_change_password is not None:
+            user.must_change_password = user_data.must_change_password
         
         db.commit()
         db.refresh(user)
@@ -562,6 +570,7 @@ async def update_tenant_user(
             "role_id": user.role_id,
             "role_name": role_name,
             "is_active": user.is_active,
+            "must_change_password": user.must_change_password or False,
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "created_at": user.created_at.isoformat() if user.created_at else "",
         }

@@ -9,8 +9,8 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.schemas.auth import Token, UserCreate, UserResponse
-from app.services.auth import authenticate_user, create_access_token, get_current_user
+from app.schemas.auth import Token, UserCreate, UserResponse, PasswordChangeRequest
+from app.services.auth import authenticate_user, create_access_token, get_current_user, get_password_hash, verify_password
 from app.models.user import User
 from app.core.rate_limiting import rate_limit
 
@@ -57,13 +57,21 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        # Update last_login
+        user.last_login = datetime.utcnow()
+        db.commit()
+        
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": user.email, "tenant_id": user.tenant_id},
             expires_delta=access_token_expires
         )
         
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "must_change_password": user.must_change_password or False
+        }
     except HTTPException:
         # Re-raise HTTP exceptions (401, etc.)
         raise
@@ -98,6 +106,7 @@ async def read_users_me(
         full_name=current_user.full_name,
         role=current_user.role,
         is_active=current_user.is_active,
+        must_change_password=current_user.must_change_password or False,
         tenant_id=current_user.tenant_id,
         tenant=tenant_info,
         created_at=current_user.created_at
@@ -134,4 +143,52 @@ async def register(
     db.refresh(new_user)
     
     return new_user
+
+
+@router.post("/change-password")
+async def change_password(
+    password_data: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Change user password"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        # Verify current password
+        if not verify_password(password_data.current_password, current_user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect"
+            )
+        
+        # Validate new password (basic validation)
+        if len(password_data.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be at least 8 characters long"
+            )
+        
+        # Update password
+        current_user.password_hash = get_password_hash(password_data.new_password)
+        current_user.must_change_password = False  # Clear the flag after password change
+        current_user.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(current_user)
+        
+        logger.info(f"User {current_user.email} changed password")
+        
+        return {"message": "Password changed successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error changing password for {current_user.email}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password"
+        )
 

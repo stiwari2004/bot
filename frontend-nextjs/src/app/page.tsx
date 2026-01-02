@@ -36,6 +36,7 @@ import { ExecutionsSurface } from '@/features/executions/components/ExecutionsSu
 import { AnalyticsAccuracyDashboard } from '@/features/analytics/components/AnalyticsAccuracyDashboard';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginPage } from '@/components/LoginPage';
+import { PasswordChangeModal } from '@/components/PasswordChangeModal';
 
 type NavItem = {
   id: string;
@@ -52,7 +53,7 @@ type NavSection = {
 };
 
 export default function Home() {
-  const { isAuthenticated, loading: authLoading, user, logout } = useAuth();
+  const { isAuthenticated, loading: authLoading, user, logout, mustChangePassword } = useAuth();
   const [skipLogin, setSkipLogin] = useState(false);
   const [activeTab, setActiveTab] = useState('tickets');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -446,6 +447,16 @@ export default function Home() {
 
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm lg:hidden z-40" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Forced Password Change Modal */}
+      {isAuthenticated && mustChangePassword && (
+        <PasswordChangeModal
+          onPasswordChanged={() => {
+            // Reload page to refresh auth state
+            window.location.reload();
+          }}
+        />
       )}
     </div>
   );
