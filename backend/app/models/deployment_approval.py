@@ -24,7 +24,10 @@ class DeploymentApproval(Base):
     rejection_reason = Column(Text, nullable=True)
     deployed_at = Column(DateTime(timezone=True), nullable=True)
     deployment_log = Column(Text, nullable=True)
-    approval_metadata = Column(JSON, nullable=True)  # Additional metadata (diffs, etc.)
+    # Use 'name' parameter to map Python attribute to database column
+    # This allows backward compatibility: Python uses 'approval_metadata' (avoids SQLAlchemy reserved word)
+    # Database can use either 'metadata' (existing) or 'approval_metadata' (new)
+    approval_metadata = Column("metadata", JSON, nullable=True)  # Additional metadata (diffs, etc.)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

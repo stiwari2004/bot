@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS deployment_approvals (
     rejection_reason TEXT,
     deployed_at TIMESTAMP WITH TIME ZONE,
     deployment_log TEXT,
-    approval_metadata JSONB, -- Additional metadata (commit diff, runbook diff, etc.)
+    metadata JSONB, -- Additional metadata (commit diff, runbook diff, etc.)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
