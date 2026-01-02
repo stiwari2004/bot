@@ -61,6 +61,7 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     role: str = "user"  # Legacy role string
     role_id: Optional[int] = None  # New RBAC role ID
+    must_change_password: Optional[bool] = False  # Force password change at next login
 
 
 class UserUpdate(BaseModel):
@@ -474,7 +475,8 @@ async def create_tenant_user(
             full_name=user_data.full_name,
             role=user_data.role,
             role_id=user_data.role_id,
-            is_active=True
+            is_active=True,
+            must_change_password=user_data.must_change_password or False
         )
         
         db.add(user)

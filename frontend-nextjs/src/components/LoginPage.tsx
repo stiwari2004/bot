@@ -21,11 +21,18 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
   const [isDemoHost, setIsDemoHost] = useState(false);
 
   // Detect if we're on the public demo host (demo.resolvify.tech)
+  // Redirect dev.resolvify.tech and admin.resolvify.tech to super admin login
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const hostname = window.location.hostname;
     setIsDemoHost(hostname === 'demo.resolvify.tech');
-  }, []);
+    
+    // Redirect to super admin login for admin and dev domains
+    if (hostname === 'admin.resolvify.tech' || hostname === 'dev.resolvify.tech') {
+      router.push('/super-admin/login');
+      return;
+    }
+  }, [router]);
 
   // Redirect admins after login
   useEffect(() => {

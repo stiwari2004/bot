@@ -270,6 +270,7 @@ export default function UsersPage() {
             full_name: formData.full_name || null,
             role: formData.role,
             role_id: formData.role_id,
+            must_change_password: formData.must_change_password,
           }),
         });
         if (!response.ok) {
@@ -325,6 +326,7 @@ export default function UsersPage() {
                   full_name: '',
                   role: 'user',
                   role_id: null,
+                  must_change_password: false,
                 });
                 setShowCreateModal(true);
               }}
@@ -568,20 +570,18 @@ export default function UsersPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  {editUserId && (
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="must_change_password"
-                        checked={formData.must_change_password}
-                        onChange={(e) => setFormData({ ...formData, must_change_password: e.target.checked })}
-                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-neutral-300 rounded"
-                      />
-                      <label htmlFor="must_change_password" className="text-sm font-medium text-neutral-700">
-                        Require password change at next login
-                      </label>
-                    </div>
-                  )}
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="must_change_password"
+                      checked={formData.must_change_password}
+                      onChange={(e) => setFormData({ ...formData, must_change_password: e.target.checked })}
+                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-neutral-300 rounded"
+                    />
+                    <label htmlFor="must_change_password" className="text-sm font-medium text-neutral-700">
+                      Require password change at next login
+                    </label>
+                  </div>
                   <div className="flex justify-end space-x-3 pt-4">
                     <Button variant="outline" onClick={() => setShowCreateModal(false)}>
                       Cancel
