@@ -27,10 +27,8 @@ class Runbook(Base):
     
     # Relationships
     tenant = relationship("Tenant")
-    parent_version = relationship("Runbook", remote_side=[id])
+    parent_version = relationship("Runbook", remote_side=[id], foreign_keys=[parent_version_id])
     executions = relationship("Execution", back_populates="runbook")
-    
-    # Relationships
     promoted_from = relationship("Runbook", remote_side=[id], foreign_keys=[promoted_from_id])
     
     # Indexes
