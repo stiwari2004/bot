@@ -199,6 +199,45 @@ export function MonitoringConnectionsSection({
     setAuthMethod('basic');
   };
 
+  const handleTestConnection = async (id: number) => {
+    try {
+      onError('');
+      const res = await authFetch(
+        apiConfig.endpoints.connectors.testMonitoringConnection(id),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.detail ||
+            errData.message ||
+            `Connection test failed (${res.status})`
+        );
+      }
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        onSuccess(data.message || 'Connection test successful');
+      } else {
+        onError(data.message || 'Connection test failed');
+      }
+    } catch (err) {
+      console.error('Failed to test monitoring connection:', err);
+      onError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to test monitoring connection'
+      );
+    }
+  };
+
   const handleDelete = async (id: number) => {
     try {
       const res = await authFetch(
@@ -301,6 +340,14 @@ export function MonitoringConnectionsSection({
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTestConnection(conn.id)}
+                        title="Test Connection"
+                      >
+                        Test
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
