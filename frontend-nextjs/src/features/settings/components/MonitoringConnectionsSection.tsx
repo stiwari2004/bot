@@ -56,7 +56,12 @@ export function MonitoringConnectionsSection({
           throw new Error('Failed to fetch monitoring connectors');
         }
         const data = await res.json();
-        setAvailableMonitoringTools(data.available_connectors || []);
+        const connectors = data.available_connectors || [];
+        // Remove duplicates by type (in case backend returns duplicates)
+        const uniqueConnectors = connectors.filter((tool: MonitoringToolInfo, index: number, self: MonitoringToolInfo[]) =>
+          index === self.findIndex((t: MonitoringToolInfo) => t.type === tool.type)
+        );
+        setAvailableMonitoringTools(uniqueConnectors);
       } catch (err) {
         console.error('Failed to fetch monitoring connectors:', err);
       }
