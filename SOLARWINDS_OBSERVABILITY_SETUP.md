@@ -90,9 +90,25 @@ You should see a success message if the connection is working.
 SolarWinds Observability SaaS uses REST API v1. Common endpoints:
 
 - **Metrics**: `GET /v1/metrics`
-- **Alerts**: `GET /v1/alerts`
-- **Events**: `GET /v1/events`
 - **Measurements**: `POST /v1/measurements`
+- **Events**: `GET /v1/events` (if available)
+- **Alerts**: `GET /v1/alerts` (if available - varies by product)
+
+**Important**: Not all Observability SaaS products expose alerts through the API. The exact endpoints depend on your specific product (AppOptics, Loggly, Papertrail, etc.).
+
+### View Available Endpoints
+
+To see all available endpoints for your data center, visit the Swagger UI:
+```
+https://api.ap-01.cloud.solarwinds.com/v1/#/
+```
+(Replace `ap-01` with your data center identifier)
+
+The Swagger UI shows:
+- All available endpoints
+- Required parameters
+- Request/response formats
+- A playground to test endpoints
 
 Full API documentation: https://documentation.solarwinds.com/en/success_center/observability/content/api/api-swagger.htm
 

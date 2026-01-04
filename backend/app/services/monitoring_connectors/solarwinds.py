@@ -40,23 +40,42 @@ class SolarWindsConnector:
             
             # Check if this is Observability SaaS or Orion on-prem
             if self._is_observability_saas(config.api_base_url):
-                # Observability SaaS - test with /v1/metrics endpoint
+                # Observability SaaS - test with /v1/metrics endpoint (as per official API docs)
+                # API docs: https://documentation.solarwinds.com/en/success_center/observability/content/api/api-swagger.htm
                 test_url = f"{config.api_base_url.rstrip('/')}/v1/metrics"
-                response = await self.client.get(test_url, headers=headers)
+                # Use a simple GET request with limit=1 to test authentication
+                params = {"limit": 1}
+                response = await self.client.get(test_url, headers=headers, params=params, timeout=10.0)
             else:
                 # Orion on-prem - use SWQL query
                 test_url = f"{config.api_base_url.rstrip('/')}/SolarWinds/InformationService/v3/Json/Query"
                 query = "SELECT TOP 1 NodeID, Caption FROM Orion.Nodes"
                 payload = {"query": query}
-                response = await self.client.post(test_url, headers=headers, json=payload)
+                response = await self.client.post(test_url, headers=headers, json=payload, timeout=10.0)
             
             if response.status_code == 200:
                 return {"success": True, "message": "Connection successful"}
-            else:
+            elif response.status_code == 401:
                 return {
                     "success": False,
-                    "message": f"Connection failed: {response.status_code} - {response.text[:200]}"
+                    "message": "Authentication failed. Please check your API token."
                 }
+            elif response.status_code == 404:
+                return {
+                    "success": False,
+                    "message": f"API endpoint not found. Please verify your API base URL is correct: {config.api_base_url}"
+                }
+            else:
+                error_text = response.text[:200] if hasattr(response, 'text') else str(response.status_code)
+                return {
+                    "success": False,
+                    "message": f"Connection failed: {response.status_code} - {error_text}"
+                }
+        except httpx.TimeoutException:
+            return {
+                "success": False,
+                "message": "Connection timeout. Please check your network connection and API base URL."
+            }
         except Exception as e:
             logger.error(f"SolarWinds connection test failed: {e}", exc_info=True)
             return {"success": False, "message": f"Connection test error: {str(e)}"}
@@ -109,18 +128,30 @@ class SolarWindsConnector:
         severity_filter: Optional[List[str]] = None,
         limit: int = 100
     ) -> List[SolarWindsAlert]:
-        """Fetch alerts from SolarWinds Observability SaaS using REST API v1"""
+        """
+        Fetch alerts from SolarWinds Observability SaaS using REST API v1
+        
+        API Documentation: https://documentation.solarwinds.com/en/success_center/observability/content/api/api-swagger.htm
+        Swagger UI: https://api.xx-yy.cloud.solarwinds.com/v1/#/
+        
+        Note: The Observability SaaS API may not have a direct "alerts" endpoint.
+        Alerts may be available through:
+        - Events endpoint
+        - Metrics with alert conditions
+        - Custom integrations
+        
+        Check the Swagger UI for your data center to see available endpoints.
+        """
         try:
-            # Observability SaaS API endpoints - try common variations
-            # Note: The exact endpoint structure may vary by product (AppOptics, Loggly, Papertrail)
             base_url = config.api_base_url.rstrip('/')
             
-            # Try different possible endpoints
+            # According to API docs, the base structure is /v1/{resource}
+            # Common endpoints to try (based on typical observability platforms):
             possible_endpoints = [
-                f"{base_url}/v1/alerts",
-                f"{base_url}/v1/events",
-                f"{base_url}/api/v1/alerts",
-                f"{base_url}/api/v1/events",
+                f"{base_url}/v1/alerts",           # Direct alerts endpoint
+                f"{base_url}/v1/events",          # Events that may contain alerts
+                f"{base_url}/v1/incidents",       # Incidents/alerts
+                f"{base_url}/v1/notifications",  # Notifications/alerts
             ]
             
             alerts = []
@@ -137,12 +168,16 @@ class SolarWindsConnector:
                     
                     if response.status_code == 404:
                         # Try next endpoint
+                        logger.debug(f"Endpoint {alerts_url} returned 404, trying next...")
                         continue
+                    
+                    if response.status_code == 401:
+                        raise Exception("Authentication failed. Invalid API token.")
                     
                     response.raise_for_status()
                     data = response.json()
                     
-                    # Observability SaaS returns alerts in different formats
+                    # Observability SaaS returns data in different formats
                     # Handle common response structures
                     alert_items = []
                     if isinstance(data, list):
@@ -153,7 +188,9 @@ class SolarWindsConnector:
                             data.get("data", []) or 
                             data.get("results", []) or
                             data.get("items", []) or
-                            data.get("events", [])
+                            data.get("events", []) or
+                            data.get("incidents", []) or
+                            data.get("notifications", [])
                         )
                     
                     for item in alert_items[:limit]:
@@ -166,7 +203,7 @@ class SolarWindsConnector:
                                 continue
                             alerts.append(alert)
                     
-                    if alerts:
+                    if alerts or response.status_code == 200:
                         logger.info(f"Fetched {len(alerts)} alerts from SolarWinds Observability ({alerts_url})")
                         return alerts
                     
@@ -182,14 +219,14 @@ class SolarWindsConnector:
                     continue
             
             # If we get here, none of the endpoints worked
-            if not alerts:
-                error_msg = f"No valid alerts endpoint found. Last error: {last_error}"
-                logger.warning(error_msg)
-                # Return empty list instead of raising - allows connection to be marked as active
-                # even if alerts endpoint structure is unknown
-                return []
-            
-            return alerts
+            # This is expected if the Observability SaaS instance doesn't expose alerts via API
+            # Return empty list to allow graceful degradation
+            logger.warning(
+                f"No alerts endpoint found for Observability SaaS. "
+                f"Check Swagger UI at {base_url}/v1/#/ for available endpoints. "
+                f"Last error: {last_error}"
+            )
+            return []
             
         except Exception as e:
             logger.error(f"Error fetching Observability SaaS alerts: {e}", exc_info=True)
