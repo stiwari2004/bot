@@ -111,13 +111,13 @@ const createEndpoints = (baseUrl: string) => ({
       `${baseUrl}/api/v1/settings/ticketing-connections/${connectionId}/test`,
     ticketingConnectionDelete: (connectionId: number) => 
       `${baseUrl}/api/v1/settings/ticketing-connections/${connectionId}`,
-    monitoringConnections: () => `${baseUrl}/api/v1/monitoring-connections`,
+    monitoringConnections: () => `${baseUrl}/api/v1/connectors/monitoring-connections`,
     monitoringConnection: (connectionId: number) =>
-      `${baseUrl}/api/v1/monitoring-connections/${connectionId}`,
+      `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}`,
     testMonitoringConnection: (connectionId: number) =>
-      `${baseUrl}/api/v1/monitoring-connections/${connectionId}/test`,
+      `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}/test`,
     deleteMonitoringConnection: (connectionId: number) =>
-      `${baseUrl}/api/v1/monitoring-connections/${connectionId}`,
+      `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}`,
   },
   connectors: {
     credentials: () => `${baseUrl}/api/v1/connectors/credentials`,
@@ -132,13 +132,13 @@ const createEndpoints = (baseUrl: string) => ({
       `${baseUrl}/api/v1/connectors/infrastructure-connections/${connectionId}/test-command`,
     infrastructureConnectionsImport: () => `${baseUrl}/api/v1/connectors/infrastructure-connections/import-excel`,
     monitoringConnectors: () => `${baseUrl}/api/v1/connectors/monitoring`,
-    monitoringConnections: () => `${baseUrl}/api/v1/monitoring-connections`,
+    monitoringConnections: () => `${baseUrl}/api/v1/connectors/monitoring-connections`,
     monitoringConnection: (connectionId: number) =>
-      `${baseUrl}/api/v1/monitoring-connections/${connectionId}`,
+      `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}`,
     testMonitoringConnection: (connectionId: number) =>
-      `${baseUrl}/api/v1/monitoring-connections/${connectionId}/test`,
+      `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}/test`,
     deleteMonitoringConnection: (connectionId: number) =>
-      `${baseUrl}/api/v1/monitoring-connections/${connectionId}`,
+      `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}`,
   },
   system: {
     health: () => `${baseUrl}/api/v1/test/health-detailed`,
