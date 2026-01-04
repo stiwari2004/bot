@@ -19,7 +19,7 @@ class AlertUpdateRequest(BaseModel):
 @router.get("/alerts")
 async def list_alerts(
     status: Optional[str] = Query(None, description="Filter by status (firing, resolved, acknowledged)"),
-    source: Optional[str] = Query(None, description="Filter by source (prometheus, datadog, azure_monitor, splunk)"),
+    source: Optional[str] = Query(None, description="Filter by source (prometheus, datadog, azure_monitor, splunk, solarwinds)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of alerts to return"),
     db: Session = Depends(get_db)
 ):
@@ -27,7 +27,7 @@ async def list_alerts(
     List alerts from monitoring tools
     
     Alerts are separate from tickets:
-    - Alerts come from monitoring tools (Prometheus, Datadog, Azure Monitor, Splunk)
+    - Alerts come from monitoring tools (Prometheus, Datadog, Azure Monitor, Splunk, SolarWinds)
     - Tickets come from ticketing tools (ServiceNow, ManageEngine, Zoho)
     - Alerts can be matched with tickets for validation
     """

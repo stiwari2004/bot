@@ -156,6 +156,10 @@ class SolarWindsConnector:
         
         query += " ORDER BY TriggeredDateTime DESC"
         
+        # Use parameterized query to prevent SQL injection
+        # Note: SWQL doesn't support parameters like SQL, so we validate limit
+        if not isinstance(limit, int) or limit < 1 or limit > 10000:
+            limit = 100
         return query.format(limit=limit)
     
     def _parse_alert(self, result: Dict[str, Any]) -> Optional[SolarWindsAlert]:
@@ -358,6 +362,87 @@ class SolarWindsConnector:
         except Exception as e:
             logger.error(f"Error refreshing SolarWinds OAuth token: {e}", exc_info=True)
             return None
+    
+    async def fetch_nodes(
+        self,
+        config: SolarWindsConnectionConfig,
+        status_filter: Optional[List[str]] = None,
+        limit: int = 100
+    ) -> List[SolarWindsNode]:
+        """
+        Fetch nodes/devices from SolarWinds
+        
+        Args:
+            config: Connection configuration
+            status_filter: Filter by node status (Up, Down, Unknown)
+            limit: Maximum number of nodes to fetch
+        
+        Returns:
+            List of SolarWindsNode objects
+        """
+        try:
+            headers = await self._get_auth_headers(config)
+            query_url = f"{config.api_base_url.rstrip('/')}/SolarWinds/InformationService/v3/Json/Query"
+            
+            # Build SWQL query for nodes
+            query = """
+            SELECT TOP {limit}
+                NodeID,
+                Caption,
+                IPAddress,
+                Status,
+                NodeType
+            FROM Orion.Nodes
+            WHERE 1=1
+            """
+            
+            if status_filter:
+                status_conditions = " OR ".join([f"Status = '{s}'" for s in status_filter])
+                query += f" AND ({status_conditions})"
+            
+            query += " ORDER BY Caption"
+            
+            # Validate limit to prevent injection
+            if not isinstance(limit, int) or limit < 1 or limit > 10000:
+                limit = 100
+            swql_query = query.format(limit=limit)
+            
+            payload = {"query": swql_query}
+            
+            logger.info(f"Fetching SolarWinds nodes with query: {swql_query[:100]}...")
+            
+            response = await self.client.post(
+                query_url,
+                headers=headers,
+                json=payload
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            nodes = []
+            results = data.get("results", [])
+            
+            for result in results:
+                node = SolarWindsNode(
+                    node_id=str(result.get("NodeID", "")),
+                    caption=result.get("Caption", "Unknown Node"),
+                    ip_address=result.get("IPAddress", ""),
+                    status=result.get("Status", "Unknown"),
+                    node_type=result.get("NodeType", ""),
+                    custom_properties={}
+                )
+                nodes.append(node)
+            
+            logger.info(f"Fetched {len(nodes)} nodes from SolarWinds")
+            return nodes
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"SolarWinds API error fetching nodes: {e.response.status_code} - {e.response.text}")
+            raise Exception(f"Failed to fetch nodes from SolarWinds: {e.response.status_code}")
+        except Exception as e:
+            logger.error(f"Error fetching SolarWinds nodes: {e}", exc_info=True)
+            raise
     
     async def close(self):
         """Close HTTP client"""

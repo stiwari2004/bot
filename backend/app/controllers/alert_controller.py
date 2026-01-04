@@ -437,6 +437,48 @@ class AlertController(BaseController):
                         logger.info(f"Successfully synced Splunk alert {alert_sid} to {status}")
                 else:
                     logger.warning(f"Cannot sync Splunk alert: missing credentials or alert_sid")
+                    
+            elif alert.source == "solarwinds":
+                from app.services.monitoring_connectors.solarwinds import SolarWindsConnector
+                from app.services.monitoring_connectors.solarwinds_types import SolarWindsConnectionConfig
+                connector = SolarWindsConnector()
+                
+                # Build connection config
+                config = SolarWindsConnectionConfig(
+                    api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
+                    username=meta_data.get("username") or connection.api_username,
+                    password=meta_data.get("password") or connection.api_password,
+                    api_key=meta_data.get("api_key") or connection.api_key,
+                    oauth_client_id=meta_data.get("client_id"),
+                    oauth_client_secret=meta_data.get("client_secret"),
+                    oauth_token=meta_data.get("oauth_token"),
+                )
+                
+                alert_id = alert.external_id or alert.meta_data.get("solarwinds_alert_id") if alert.meta_data else None
+                
+                if alert_id and config.api_base_url:
+                    try:
+                        if status == "acknowledged":
+                            success = await connector.acknowledge_alert(config, str(alert_id))
+                            if success:
+                                logger.info(f"Successfully acknowledged SolarWinds alert {alert_id}")
+                            else:
+                                logger.warning(f"Failed to acknowledge SolarWinds alert {alert_id}")
+                        elif status == "resolved":
+                            success = await connector.resolve_alert(config, str(alert_id))
+                            if success:
+                                logger.info(f"Successfully resolved SolarWinds alert {alert_id}")
+                            else:
+                                logger.warning(f"Failed to resolve SolarWinds alert {alert_id}")
+                        else:
+                            logger.debug(f"SolarWinds sync: status '{status}' doesn't require action")
+                    finally:
+                        await connector.close()
+                else:
+                    logger.warning(
+                        f"Cannot sync SolarWinds alert: missing alert_id or api_base_url "
+                        f"(alert_id={alert_id}, api_base_url={bool(config.api_base_url)})"
+                    )
             else:
                 logger.debug(f"No sync implementation for monitoring tool: {alert.source}")
                 
