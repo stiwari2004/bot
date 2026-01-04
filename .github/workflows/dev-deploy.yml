@@ -23,12 +23,32 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Install dependencies
         working-directory: ./backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # Install CPU-only PyTorch first to avoid CUDA dependencies (saves ~3GB)
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # Create a temporary requirements file excluding sentence-transformers
+          grep -v "^sentence-transformers" requirements.txt > requirements-ci.txt || cp requirements.txt requirements-ci.txt
+          # Install dependencies from filtered requirements file
+          pip install -r requirements-ci.txt
+          # Install sentence-transformers with --no-deps and its dependencies manually
+          pip install transformers tokenizers safetensors huggingface-hub scikit-learn scipy numpy
+          pip install sentence-transformers --no-deps
           pip install pytest pytest-asyncio
+          # Clean up pip cache and temp file to free space
+          rm -f requirements-ci.txt
+          pip cache purge || true
 
       - name: Run unit tests
         working-directory: ./backend
