@@ -21,17 +21,14 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
   const [isDemoHost, setIsDemoHost] = useState(false);
 
   // Detect if we're on the public demo host (demo.resolvify.tech)
-  // Redirect dev.resolvify.tech and admin.resolvify.tech to super admin login
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const hostname = window.location.hostname;
     setIsDemoHost(hostname === 'demo.resolvify.tech');
     
-    // Redirect to super admin login for admin and dev domains
-    if (hostname === 'admin.resolvify.tech' || hostname === 'dev.resolvify.tech') {
-      router.push('/super-admin/login');
-      return;
-    }
+    // Note: admin.resolvify.tech and dev.resolvify.tech can be used by both regular users and super admins
+    // Regular users use this normal login page, super admins should go to /super-admin/login directly
+    // No automatic redirect - let users choose which login they need
   }, [router]);
 
   // Redirect admins after login
@@ -199,6 +196,24 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
                 <p className="text-xs text-neutral-500">
                   Demo mode uses public endpoints and doesn't require authentication
                 </p>
+              )}
+              {/* Show super admin login link for admin/dev domains */}
+              {typeof window !== 'undefined' && 
+               (window.location.hostname === 'admin.resolvify.tech' || 
+                window.location.hostname === 'dev.resolvify.tech') && (
+                <div className="pt-2 border-t border-neutral-200">
+                  <p className="text-xs text-neutral-500 mb-2">
+                    Are you a super administrator?
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => router.push('/super-admin/login')}
+                    className="w-full text-sm"
+                  >
+                    Go to Super Admin Login
+                  </Button>
+                </div>
               )}
             </div>
           </form>

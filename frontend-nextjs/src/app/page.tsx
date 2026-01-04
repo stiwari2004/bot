@@ -63,17 +63,9 @@ export default function Home() {
 
   const workspaceEnabled = process.env.NEXT_PUBLIC_AGENT_WORKSPACE_ENABLED !== 'false';
 
-  // Redirect admin.resolvify.tech and dev.resolvify.tech to super admin login
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    // Check if we're on admin.resolvify.tech or dev.resolvify.tech
-    const hostname = window.location.hostname;
-    if ((hostname === 'admin.resolvify.tech' || hostname === 'dev.resolvify.tech') && window.location.pathname === '/') {
-      window.location.href = '/super-admin/login';
-      return;
-    }
-  }, []);
+  // Note: admin.resolvify.tech and dev.resolvify.tech can be used by both regular users and super admins
+  // Regular users use the normal login at /, super admins use /super-admin/login
+  // No automatic redirect needed here
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   useEffect(() => {
