@@ -4,6 +4,7 @@ import { PlusIcon, LinkIcon, SignalIcon } from '@heroicons/react/24/outline';
 import type { MonitoringConnection } from '../types';
 import { useState, useEffect } from 'react';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -51,7 +52,7 @@ export function MonitoringConnectionsSection({
   useEffect(() => {
     const fetchMonitoringTools = async () => {
       try {
-        const res = await fetch(apiConfig.endpoints.connectors.monitoringConnectors());
+        const res = await authFetch(apiConfig.endpoints.connectors.monitoringConnectors());
         if (!res.ok) {
           throw new Error('Failed to fetch monitoring connectors');
         }
@@ -112,7 +113,7 @@ export function MonitoringConnectionsSection({
 
       const method = isEdit ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -200,7 +201,7 @@ export function MonitoringConnectionsSection({
 
   const handleDelete = async (id: number) => {
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${apiConfig.endpoints.connectors.monitoringConnections()}/${id}`,
         {
           method: 'DELETE',

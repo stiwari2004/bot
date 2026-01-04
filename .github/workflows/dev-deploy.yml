@@ -122,16 +122,29 @@ jobs:
             NEXT_PUBLIC_API_BASE_URL=
 
       - name: Deploy to Dev Server
+        if: ${{ secrets.DEV_SERVER_HOST != '' && secrets.DEV_SERVER_USER != '' && secrets.DEV_SERVER_SSH_KEY != '' }}
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.DEV_SERVER_HOST }}
           username: ${{ secrets.DEV_SERVER_USER }}
           key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 10m
           script: |
             cd /opt/opsbot/bot
             git pull origin dev
-            docker-compose -f docker-compose.dev.yml pull
-            docker-compose -f docker-compose.dev.yml up -d --build
-            docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev -f /docker-entrypoint-initdb.d/add_runbook_environment.sql || true
-            docker-compose -f docker-compose.dev.yml exec -T postgres psql -U postgres -d troubleshooting_ai_dev -f /docker-entrypoint-initdb.d/add_deployment_approvals_table.sql || true
+            docker-compose -f docker-compose.dev.yml -p bot-dev pull
+            docker-compose -f docker-compose.dev.yml -p bot-dev up -d --build
+            docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -f /docker-entrypoint-initdb.d/add_runbook_environment.sql || true
+            docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -f /docker-entrypoint-initdb.d/add_deployment_approvals_table.sql || true
+      
+      - name: Deployment skipped
+        if: ${{ secrets.DEV_SERVER_HOST == '' || secrets.DEV_SERVER_USER == '' || secrets.DEV_SERVER_SSH_KEY == '' }}
+        run: |
+          echo "⚠️  Deployment to dev server skipped - SSH secrets not configured"
+          echo "To enable deployment, configure the following GitHub secrets:"
+          echo "  - DEV_SERVER_HOST"
+          echo "  - DEV_SERVER_USER"
+          echo "  - DEV_SERVER_SSH_KEY"
 

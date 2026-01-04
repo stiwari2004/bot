@@ -329,9 +329,17 @@ class SolarWindsConnector:
                     headers["Authorization"] = f"Bearer {token}"
                     return headers
         
-        # Try API Key
+        # Try API Key (for both Orion on-prem and Observability SaaS)
         if config.api_key:
-            headers["X-SolarWinds-API-Key"] = config.api_key
+            # SolarWinds Observability SaaS uses Bearer token
+            # Orion on-prem uses X-SolarWinds-API-Key header
+            # Check if it's Observability SaaS (api.cloud.solarwinds.com) or Orion
+            if "cloud.solarwinds.com" in config.api_base_url.lower():
+                # Observability SaaS - use Bearer token
+                headers["Authorization"] = f"Bearer {config.api_key}"
+            else:
+                # Orion on-prem - use custom header
+                headers["X-SolarWinds-API-Key"] = config.api_key
             return headers
         
         # Fall back to Basic Auth
