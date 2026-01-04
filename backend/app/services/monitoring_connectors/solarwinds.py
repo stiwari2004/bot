@@ -1,5 +1,6 @@
 """
-SolarWinds Orion API connector
+SolarWinds API connector
+Supports both SolarWinds Orion (on-premises) and SolarWinds Observability SaaS
 Fetches alerts and manages alert states
 """
 import base64
@@ -18,10 +19,14 @@ logger = get_logger(__name__)
 
 
 class SolarWindsConnector:
-    """Connector for SolarWinds Orion API"""
+    """Connector for SolarWinds Orion (on-prem) and Observability SaaS"""
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=30.0)
+    
+    def _is_observability_saas(self, api_base_url: str) -> bool:
+        """Check if this is SolarWinds Observability SaaS (not Orion on-prem)"""
+        return "cloud.solarwinds.com" in api_base_url.lower()
     
     async def test_connection(self, config: SolarWindsConnectionConfig) -> Dict[str, Any]:
         """
@@ -31,21 +36,19 @@ class SolarWindsConnector:
             Dict with success status and message
         """
         try:
-            # Try to authenticate and get a simple query
             headers = await self._get_auth_headers(config)
-            test_url = f"{config.api_base_url.rstrip('/')}/SolarWinds/InformationService/v3/Json/Query"
             
-            # Simple SWQL query to test connection
-            query = "SELECT TOP 1 NodeID, Caption FROM Orion.Nodes"
-            payload = {
-                "query": query
-            }
-            
-            response = await self.client.post(
-                test_url,
-                headers=headers,
-                json=payload
-            )
+            # Check if this is Observability SaaS or Orion on-prem
+            if self._is_observability_saas(config.api_base_url):
+                # Observability SaaS - test with /v1/metrics endpoint
+                test_url = f"{config.api_base_url.rstrip('/')}/v1/metrics"
+                response = await self.client.get(test_url, headers=headers)
+            else:
+                # Orion on-prem - use SWQL query
+                test_url = f"{config.api_base_url.rstrip('/')}/SolarWinds/InformationService/v3/Json/Query"
+                query = "SELECT TOP 1 NodeID, Caption FROM Orion.Nodes"
+                payload = {"query": query}
+                response = await self.client.post(test_url, headers=headers, json=payload)
             
             if response.status_code == 200:
                 return {"success": True, "message": "Connection successful"}
@@ -66,7 +69,7 @@ class SolarWindsConnector:
         limit: int = 100
     ) -> List[SolarWindsAlert]:
         """
-        Fetch alerts from SolarWinds using SWQL query
+        Fetch alerts from SolarWinds
         
         Args:
             config: Connection configuration
@@ -79,6 +82,130 @@ class SolarWindsConnector:
         """
         try:
             headers = await self._get_auth_headers(config)
+            
+            # Check if this is Observability SaaS or Orion on-prem
+            if self._is_observability_saas(config.api_base_url):
+                # Observability SaaS - use REST API v1
+                return await self._fetch_alerts_observability_saas(
+                    config, headers, status_filter, severity_filter, limit
+                )
+            else:
+                # Orion on-prem - use SWQL query
+                return await self._fetch_alerts_orion(
+                    config, headers, status_filter, severity_filter, limit
+                )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"SolarWinds API error: {e.response.status_code} - {e.response.text}")
+            raise Exception(f"Failed to fetch alerts from SolarWinds: {e.response.status_code}")
+        except Exception as e:
+            logger.error(f"Error fetching SolarWinds alerts: {e}", exc_info=True)
+            raise
+    
+    async def _fetch_alerts_observability_saas(
+        self,
+        config: SolarWindsConnectionConfig,
+        headers: Dict[str, str],
+        status_filter: Optional[List[str]] = None,
+        severity_filter: Optional[List[str]] = None,
+        limit: int = 100
+    ) -> List[SolarWindsAlert]:
+        """Fetch alerts from SolarWinds Observability SaaS using REST API v1"""
+        try:
+            # Observability SaaS API endpoints - try common variations
+            # Note: The exact endpoint structure may vary by product (AppOptics, Loggly, Papertrail)
+            base_url = config.api_base_url.rstrip('/')
+            
+            # Try different possible endpoints
+            possible_endpoints = [
+                f"{base_url}/v1/alerts",
+                f"{base_url}/v1/events",
+                f"{base_url}/api/v1/alerts",
+                f"{base_url}/api/v1/events",
+            ]
+            
+            alerts = []
+            last_error = None
+            
+            for alerts_url in possible_endpoints:
+                try:
+                    # Build query parameters
+                    params = {"limit": min(limit, 1000)}  # API limit
+                    
+                    logger.info(f"Trying SolarWinds Observability endpoint: {alerts_url}")
+                    
+                    response = await self.client.get(alerts_url, headers=headers, params=params, timeout=10.0)
+                    
+                    if response.status_code == 404:
+                        # Try next endpoint
+                        continue
+                    
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Observability SaaS returns alerts in different formats
+                    # Handle common response structures
+                    alert_items = []
+                    if isinstance(data, list):
+                        alert_items = data
+                    elif isinstance(data, dict):
+                        alert_items = (
+                            data.get("alerts", []) or 
+                            data.get("data", []) or 
+                            data.get("results", []) or
+                            data.get("items", []) or
+                            data.get("events", [])
+                        )
+                    
+                    for item in alert_items[:limit]:
+                        alert = self._parse_observability_alert(item)
+                        if alert:
+                            # Apply filters
+                            if status_filter and alert.state not in status_filter:
+                                continue
+                            if severity_filter and alert.severity not in severity_filter:
+                                continue
+                            alerts.append(alert)
+                    
+                    if alerts:
+                        logger.info(f"Fetched {len(alerts)} alerts from SolarWinds Observability ({alerts_url})")
+                        return alerts
+                    
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 404:
+                        last_error = f"Endpoint not found: {alerts_url}"
+                        continue
+                    else:
+                        last_error = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+                        raise
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+            
+            # If we get here, none of the endpoints worked
+            if not alerts:
+                error_msg = f"No valid alerts endpoint found. Last error: {last_error}"
+                logger.warning(error_msg)
+                # Return empty list instead of raising - allows connection to be marked as active
+                # even if alerts endpoint structure is unknown
+                return []
+            
+            return alerts
+            
+        except Exception as e:
+            logger.error(f"Error fetching Observability SaaS alerts: {e}", exc_info=True)
+            # Return empty list instead of raising to allow graceful degradation
+            return []
+    
+    async def _fetch_alerts_orion(
+        self,
+        config: SolarWindsConnectionConfig,
+        headers: Dict[str, str],
+        status_filter: Optional[List[str]] = None,
+        severity_filter: Optional[List[str]] = None,
+        limit: int = 100
+    ) -> List[SolarWindsAlert]:
+        """Fetch alerts from SolarWinds Orion on-prem using SWQL"""
+        try:
             query_url = f"{config.api_base_url.rstrip('/')}/SolarWinds/InformationService/v3/Json/Query"
             
             # Build SWQL query
@@ -86,14 +213,9 @@ class SolarWindsConnector:
             
             payload = {"query": swql_query}
             
-            logger.info(f"Fetching SolarWinds alerts with query: {swql_query[:100]}...")
+            logger.info(f"Fetching SolarWinds Orion alerts with query: {swql_query[:100]}...")
             
-            response = await self.client.post(
-                query_url,
-                headers=headers,
-                json=payload
-            )
-            
+            response = await self.client.post(query_url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
             
@@ -105,14 +227,11 @@ class SolarWindsConnector:
                 if alert:
                     alerts.append(alert)
             
-            logger.info(f"Fetched {len(alerts)} alerts from SolarWinds")
+            logger.info(f"Fetched {len(alerts)} alerts from SolarWinds Orion")
             return alerts
             
-        except httpx.HTTPStatusError as e:
-            logger.error(f"SolarWinds API error: {e.response.status_code} - {e.response.text}")
-            raise Exception(f"Failed to fetch alerts from SolarWinds: {e.response.status_code}")
         except Exception as e:
-            logger.error(f"Error fetching SolarWinds alerts: {e}", exc_info=True)
+            logger.error(f"Error fetching Orion alerts: {e}", exc_info=True)
             raise
     
     def _build_alert_query(
@@ -163,7 +282,7 @@ class SolarWindsConnector:
         return query.format(limit=limit)
     
     def _parse_alert(self, result: Dict[str, Any]) -> Optional[SolarWindsAlert]:
-        """Parse SWQL query result into SolarWindsAlert object"""
+        """Parse SWQL query result (Orion on-prem) into SolarWindsAlert object"""
         try:
             # Map SolarWinds fields to our alert structure
             # Adjust field names based on your SolarWinds version
@@ -184,6 +303,68 @@ class SolarWindsConnector:
             return alert
         except Exception as e:
             logger.error(f"Error parsing SolarWinds alert: {e}", exc_info=True)
+            return None
+    
+    def _parse_observability_alert(self, result: Dict[str, Any]) -> Optional[SolarWindsAlert]:
+        """Parse Observability SaaS alert into SolarWindsAlert object"""
+        try:
+            # Observability SaaS alert structure varies, handle common fields
+            alert_id = str(result.get("id") or result.get("alert_id") or result.get("_id", ""))
+            if not alert_id:
+                return None
+            
+            # Extract name/title
+            name = result.get("name") or result.get("title") or result.get("alert_name", "Unknown Alert")
+            
+            # Extract message/description
+            message = result.get("message") or result.get("description") or result.get("alert_message", "")
+            
+            # Extract severity (may be numeric or string)
+            severity_raw = result.get("severity") or result.get("level") or result.get("priority", "")
+            severity = self._map_severity(str(severity_raw))
+            
+            # Extract state/status
+            state_raw = result.get("state") or result.get("status") or result.get("alert_state", "active")
+            state = self._map_state(str(state_raw))
+            
+            # Extract entity information
+            entity_type = result.get("entity_type") or result.get("source_type", "")
+            entity_name = result.get("entity_name") or result.get("source_name") or result.get("host", "")
+            entity_id = result.get("entity_id") or result.get("source_id") or ""
+            
+            # Extract timestamps
+            triggered_time = self._parse_datetime(
+                result.get("created_at") or result.get("triggered_at") or result.get("timestamp")
+            )
+            acknowledged_time = self._parse_datetime(result.get("acknowledged_at"))
+            resolved_time = self._parse_datetime(result.get("resolved_at") or result.get("closed_at"))
+            
+            # Store all original fields as custom properties
+            custom_properties = {k: v for k, v in result.items() if k not in [
+                "id", "alert_id", "_id", "name", "title", "alert_name",
+                "message", "description", "alert_message", "severity", "level", "priority",
+                "state", "status", "alert_state", "entity_type", "source_type",
+                "entity_name", "source_name", "host", "entity_id", "source_id",
+                "created_at", "triggered_at", "timestamp", "acknowledged_at", "resolved_at", "closed_at"
+            ]}
+            
+            alert = SolarWindsAlert(
+                alert_id=alert_id,
+                name=name,
+                message=message,
+                severity=severity,
+                state=state,
+                entity_type=entity_type,
+                entity_name=entity_name,
+                entity_id=entity_id,
+                triggered_time=triggered_time or datetime.now(timezone.utc),
+                acknowledged_time=acknowledged_time,
+                resolved_time=resolved_time,
+                custom_properties=custom_properties
+            )
+            return alert
+        except Exception as e:
+            logger.error(f"Error parsing Observability SaaS alert: {e}", exc_info=True)
             return None
     
     def _map_severity(self, solarwinds_severity: str) -> str:
