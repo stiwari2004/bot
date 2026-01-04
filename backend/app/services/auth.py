@@ -35,8 +35,10 @@ def get_password_hash(password: str) -> str:
 
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    """Authenticate a user"""
-    user = db.query(User).filter(User.email == email).first()
+    """Authenticate a user (email is case-insensitive)"""
+    from sqlalchemy import func
+    # Case-insensitive email lookup
+    user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
     if not user:
         return None
     if not user.is_active:
@@ -88,7 +90,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         logger.error(f"JWT decode error: {type(e).__name__}: {e}")
         raise credentials_exception
     
-    user = db.query(User).filter(User.email == email).first()
+    # Case-insensitive email lookup
+    from sqlalchemy import func
+    user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
     if user is None:
         logger.warning(f"User not found for email: {email}")
         raise credentials_exception
@@ -123,7 +127,9 @@ async def get_current_user_optional(
     except (JWTError, Exception):
         return None
     
-    user = db.query(User).filter(User.email == email).first()
+    # Case-insensitive email lookup
+    from sqlalchemy import func
+    user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
     return user
 
 

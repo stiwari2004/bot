@@ -29,8 +29,9 @@ async def login(
     logger = get_logger(__name__)
     
     try:
-        # Check if user exists first
-        user = db.query(User).filter(User.email == form_data.username).first()
+        # Check if user exists first (case-insensitive email lookup)
+        from sqlalchemy import func
+        user = db.query(User).filter(func.lower(User.email) == func.lower(form_data.username)).first()
         if not user:
             logger.warning(f"Login attempt with non-existent email: {form_data.username}")
             raise HTTPException(
@@ -120,8 +121,9 @@ async def register(
     db: Session = Depends(get_db)
 ):
     """Register new user"""
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    # Check if user already exists (case-insensitive email lookup)
+    from sqlalchemy import func
+    existing_user = db.query(User).filter(func.lower(User.email) == func.lower(user_data.email)).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

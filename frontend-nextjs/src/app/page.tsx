@@ -150,6 +150,18 @@ export default function Home() {
     return <LoginPage onSkipLogin={() => setSkipLogin(true)} />;
   }
 
+  // Show password change modal if required - BLOCK access to main app
+  if (isAuthenticated && user && mustChangePassword) {
+    return (
+      <PasswordChangeModal
+        onPasswordChanged={() => {
+          // After password changed, re-fetch user info to update mustChangePassword flag
+          window.location.reload();
+        }}
+      />
+    );
+  }
+
   // If authenticated or skipped, show main app
 
   const navigationSections: NavSection[] = [
@@ -439,16 +451,6 @@ export default function Home() {
 
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm lg:hidden z-40" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Forced Password Change Modal */}
-      {isAuthenticated && mustChangePassword && (
-        <PasswordChangeModal
-          onPasswordChanged={() => {
-            // Reload page to refresh auth state
-            window.location.reload();
-          }}
-        />
       )}
     </div>
   );

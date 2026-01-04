@@ -16,6 +16,7 @@ interface User {
   role: string;
   tenant_id: number;
   tenant?: Tenant;
+  must_change_password?: boolean;
 }
 
 interface AuthContextType {
@@ -56,6 +57,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
+        // Update mustChangePassword from user data if present
+        if (userData.must_change_password !== undefined) {
+          setMustChangePassword(userData.must_change_password === true);
+        }
         setToken(authToken); // Ensure token is set
       } else {
         // Token invalid, clear it

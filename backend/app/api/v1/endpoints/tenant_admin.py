@@ -107,7 +107,9 @@ async def create_customer(
             raise HTTPException(status_code=400, detail=f"Tenant with subdomain '{customer_data.subdomain_slug}' already exists")
     
     # Check if admin email already exists
-    existing_user = db.query(User).filter(User.email == customer_data.admin_email).first()
+    # Case-insensitive email lookup
+    from sqlalchemy import func
+    existing_user = db.query(User).filter(func.lower(User.email) == func.lower(customer_data.admin_email)).first()
     if existing_user:
         raise HTTPException(status_code=400, detail=f"User with email '{customer_data.admin_email}' already exists")
     
