@@ -147,6 +147,13 @@ export function MonitoringConnectionsSection({
       });
 
       if (!res.ok) {
+        // Handle 401 Unauthorized - session expired
+        if (res.status === 401) {
+          throw new Error(
+            'Your session has expired. Please log in again and try again.'
+          );
+        }
+        
         const errData = await res.json().catch(() => ({}));
         throw new Error(
           errData.detail ||
@@ -213,6 +220,13 @@ export function MonitoringConnectionsSection({
       );
       
       if (!res.ok) {
+        // Handle 401 Unauthorized - session expired
+        if (res.status === 401) {
+          throw new Error(
+            'Your session has expired. Please log in again and try again.'
+          );
+        }
+        
         const errData = await res.json().catch(() => ({}));
         throw new Error(
           errData.detail ||
