@@ -411,14 +411,6 @@ class ConnectorController(BaseController):
                     "description": "Enterprise monitoring solution"
                 },
                 {
-                    "type": "solarwinds",
-                    "name": "SolarWinds Orion",
-                    "status": "implemented",
-                    "description": "Network and infrastructure monitoring platform",
-                    "webhook_supported": False,
-                    "api_supported": True
-                },
-                {
                     "type": "manageengine",
                     "name": "ManageEngine",
                     "status": "planned",

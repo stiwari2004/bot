@@ -41,6 +41,12 @@ export function MonitoringConnectionsSection({
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [applicationKey, setApplicationKey] = useState('');
+  // SolarWinds specific fields
+  const [authMethod, setAuthMethod] = useState<'basic' | 'api_key' | 'oauth'>('basic');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
 
   useEffect(() => {
     const fetchMonitoringTools = async () => {
@@ -67,10 +73,30 @@ export function MonitoringConnectionsSection({
         tool_name: toolName,
         connection_type: 'api',
         api_base_url: apiBaseUrl || undefined,
-        api_key: apiKey || undefined,
       };
+      
+      // Datadog specific fields
       if (toolName === 'datadog') {
+        body.api_key = apiKey || undefined;
         body.application_key = applicationKey || undefined;
+      }
+      // SolarWinds specific fields
+      else if (toolName === 'solarwinds') {
+        if (authMethod === 'basic') {
+          body.api_username = username || undefined;
+          body.api_password = password || undefined;
+        } else if (authMethod === 'api_key') {
+          body.api_key = apiKey || undefined;
+        } else if (authMethod === 'oauth') {
+          body.meta_data = {
+            client_id: clientId || undefined,
+            client_secret: clientSecret || undefined,
+          };
+        }
+      }
+      // Other tools
+      else {
+        body.api_key = apiKey || undefined;
       }
 
       const url = isEdit
@@ -91,11 +117,24 @@ export function MonitoringConnectionsSection({
             ? {
                 // Update payload (only send fields we allow editing)
                 api_base_url: apiBaseUrl || undefined,
-                api_key: apiKey || undefined,
-                application_key:
-                  toolName === 'datadog'
-                    ? applicationKey || undefined
-                    : undefined,
+                ...(toolName === 'datadog' ? {
+                  api_key: apiKey || undefined,
+                  application_key: applicationKey || undefined,
+                } : toolName === 'solarwinds' ? {
+                  ...(authMethod === 'basic' ? {
+                    api_username: username || undefined,
+                    api_password: password || undefined,
+                  } : authMethod === 'api_key' ? {
+                    api_key: apiKey || undefined,
+                  } : {
+                    meta_data: {
+                      client_id: clientId || undefined,
+                      client_secret: clientSecret || undefined,
+                    },
+                  }),
+                } : {
+                  api_key: apiKey || undefined,
+                }),
               }
             : body
         ),
@@ -116,6 +155,11 @@ export function MonitoringConnectionsSection({
       setApiBaseUrl('');
       setApiKey('');
       setApplicationKey('');
+      setUsername('');
+      setPassword('');
+      setClientId('');
+      setClientSecret('');
+      setAuthMethod('basic');
       onRefresh();
       onSuccess(
         isEdit
@@ -142,6 +186,11 @@ export function MonitoringConnectionsSection({
     // For security, we do not pre-fill keys; user must re-enter if changing
     setApiKey('');
     setApplicationKey('');
+    setUsername('');
+    setPassword('');
+    setClientId('');
+    setClientSecret('');
+    setAuthMethod('basic');
   };
 
   const handleDelete = async (id: number) => {
@@ -289,8 +338,8 @@ export function MonitoringConnectionsSection({
                       onChange={(e) => setToolName(e.target.value)}
                       className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                     >
-                      {availableMonitoringTools.map((tool) => (
-                        <option key={tool.type} value={tool.type}>
+                      {availableMonitoringTools.map((tool, index) => (
+                        <option key={`${tool.type}-${index}`} value={tool.type}>
                           {tool.name}
                         </option>
                       ))}
@@ -314,6 +363,8 @@ export function MonitoringConnectionsSection({
                           ? 'http://alertmanager:9093'
                           : toolName === 'azure_monitor'
                           ? 'https://management.azure.com'
+                          : toolName === 'solarwinds'
+                          ? 'https://your-instance.solarwinds.com'
                           : 'https://splunk.example.com:8089'
                       }
                       className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
@@ -348,6 +399,107 @@ export function MonitoringConnectionsSection({
                   </div>
                 )}
 
+                {toolName === 'solarwinds' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                        Authentication Method
+                      </label>
+                      <select
+                        value={authMethod}
+                        onChange={(e) => setAuthMethod(e.target.value as 'basic' | 'api_key' | 'oauth')}
+                        className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                      >
+                        <option value="basic">Basic Auth (Username/Password)</option>
+                        <option value="api_key">API Key</option>
+                        <option value="oauth">OAuth 2.0</option>
+                      </select>
+                    </div>
+
+                    {authMethod === 'basic' && (
+                      <div className="flex flex-col md:flex-row gap-4">
+                        <div className="flex-1">
+                          <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                            Username
+                          </label>
+                          <input
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                            Password
+                          </label>
+                          <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {authMethod === 'api_key' && (
+                      <div>
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          API Key
+                        </label>
+                        <input
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                      </div>
+                    )}
+
+                    {authMethod === 'oauth' && (
+                      <div className="flex flex-col md:flex-row gap-4">
+                        <div className="flex-1">
+                          <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                            Client ID
+                          </label>
+                          <input
+                            type="text"
+                            value={clientId}
+                            onChange={(e) => setClientId(e.target.value)}
+                            className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                            Client Secret
+                          </label>
+                          <input
+                            type="password"
+                            value={clientSecret}
+                            onChange={(e) => setClientSecret(e.target.value)}
+                            className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {toolName !== 'datadog' && toolName !== 'solarwinds' && (
+                  <div>
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                      API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                    />
+                  </div>
+                )}
+
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <Button
                     variant="outline"
@@ -357,6 +509,11 @@ export function MonitoringConnectionsSection({
                       setApiBaseUrl('');
                       setApiKey('');
                       setApplicationKey('');
+                      setUsername('');
+                      setPassword('');
+                      setClientId('');
+                      setClientSecret('');
+                      setAuthMethod('basic');
                     }}
                     disabled={saving}
                   >
