@@ -75,12 +75,23 @@ export function useSettings() {
     try {
       const response = await authFetch(apiConfig.endpoints.connectors.monitoringConnections());
       if (!response.ok) {
-        throw new Error('Failed to fetch monitoring connections');
+        // Get error details for debugging
+        let errorMessage = `Failed to fetch monitoring connections (${response.status})`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch (e) {
+          errorMessage = `${errorMessage}: ${response.statusText}`;
+        }
+        console.error('Monitoring connections error:', errorMessage, 'URL:', apiConfig.endpoints.connectors.monitoringConnections());
+        throw new Error(errorMessage);
       }
       const data = await response.json();
       setMonitoringConnections(data.connections || []);
     } catch (err) {
       console.error('Failed to fetch monitoring connections:', err);
+      // Set empty array on error to prevent UI issues
+      setMonitoringConnections([]);
     }
   }, [token]);
 
