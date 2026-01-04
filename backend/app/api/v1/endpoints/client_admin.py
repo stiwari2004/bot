@@ -142,7 +142,9 @@ async def create_tenant_user(
 ):
     """Create a new user in the tenant"""
     # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    # Case-insensitive email lookup
+    from sqlalchemy import func
+    existing_user = db.query(User).filter(func.lower(User.email) == func.lower(user_data.email)).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="User with this email already exists")
     
