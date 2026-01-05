@@ -23,6 +23,107 @@ class SolarWindsConnector:
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=30.0)
+        self.name = "solarwinds"
+    
+    def normalize_webhook(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize SolarWinds webhook payload to internal alert format
+        
+        SolarWinds Observability SaaS webhook format (varies by configuration):
+        {
+            "alert_id": "12345",
+            "alert_name": "High CPU Usage",
+            "alert_message": "CPU usage exceeded threshold",
+            "alert_status": "triggered|resolved|acknowledged",
+            "severity": "critical|warning|info",
+            "entity_name": "server-01",
+            "entity_type": "host",
+            "metric_name": "cpu.usage",
+            "metric_value": 95.5,
+            "threshold": 90.0,
+            "timestamp": "2025-01-01T00:00:00Z",
+            "tags": ["env:prod", "service:api"],
+            "url": "https://ap-01.cloud.solarwinds.com/alerts/12345"
+        }
+        
+        Note: Actual webhook format depends on how webhooks are configured in SolarWinds UI.
+        """
+        try:
+            # Extract alert information
+            alert_id = payload.get("alert_id") or payload.get("id") or payload.get("event_id")
+            title = payload.get("alert_name") or payload.get("name") or payload.get("title", "SolarWinds Alert")
+            description = payload.get("alert_message") or payload.get("message") or payload.get("description", "")
+            
+            # Extract status
+            alert_status = payload.get("alert_status") or payload.get("status", "triggered")
+            
+            # Map SolarWinds severity to standard severity
+            severity_map = {
+                "critical": "critical",
+                "error": "high",
+                "warning": "medium",
+                "info": "low",
+                "information": "low"
+            }
+            raw_severity = payload.get("severity") or payload.get("level", "warning")
+            severity = severity_map.get(raw_severity.lower(), "medium")
+            
+            # Extract entity/service information
+            entity_name = payload.get("entity_name") or payload.get("entity")
+            entity_type = payload.get("entity_type")
+            service = None
+            
+            # Extract environment and service from tags
+            tags = payload.get("tags", [])
+            environment = "prod"
+            
+            for tag in tags:
+                if isinstance(tag, str):
+                    if tag.startswith("env:"):
+                        environment = tag.split(":", 1)[1]
+                    elif tag.startswith("service:"):
+                        service = tag.split(":", 1)[1]
+            
+            # Extract metric information
+            metric_name = payload.get("metric_name")
+            metric_value = payload.get("metric_value")
+            threshold = payload.get("threshold")
+            
+            return {
+                "external_id": str(alert_id) if alert_id else None,
+                "title": title,
+                "description": description,
+                "severity": severity,
+                "environment": environment,
+                "service": service or entity_name,
+                "status": "open" if alert_status in ["triggered", "active", "firing"] else "resolved",
+                "metadata": {
+                    "solarwinds_alert_id": alert_id,
+                    "solarwinds_alert_status": alert_status,
+                    "solarwinds_entity_name": entity_name,
+                    "solarwinds_entity_type": entity_type,
+                    "solarwinds_metric_name": metric_name,
+                    "solarwinds_metric_value": metric_value,
+                    "solarwinds_threshold": threshold,
+                    "solarwinds_severity": raw_severity,
+                    "solarwinds_tags": tags,
+                    "solarwinds_url": payload.get("url"),
+                    "solarwinds_timestamp": payload.get("timestamp"),
+                    "raw_payload": payload
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error normalizing SolarWinds webhook: {e}", exc_info=True)
+            # Return basic format on error
+            return {
+                "external_id": payload.get("alert_id") or payload.get("id"),
+                "title": payload.get("alert_name") or payload.get("title", "SolarWinds Alert"),
+                "description": payload.get("alert_message") or payload.get("message", ""),
+                "severity": "medium",
+                "environment": "prod",
+                "service": None,
+                "metadata": {"raw_payload": payload}
+            }
     
     def _is_observability_saas(self, api_base_url: str) -> bool:
         """Check if this is SolarWinds Observability SaaS (not Orion on-prem)"""
@@ -54,6 +155,17 @@ class SolarWindsConnector:
                 response = await self.client.post(test_url, headers=headers, json=payload, timeout=10.0)
             
             if response.status_code == 200:
+                # Check if response contains metrics info (valid Observability SaaS response)
+                try:
+                    data = response.json()
+                    if isinstance(data, dict) and "metricsInfo" in data:
+                        metric_count = len(data.get("metricsInfo", []))
+                        return {
+                            "success": True, 
+                            "message": f"Connection successful. Found {metric_count} available metrics."
+                        }
+                except:
+                    pass
                 return {"success": True, "message": "Connection successful"}
             elif response.status_code == 401:
                 return {
@@ -134,24 +246,30 @@ class SolarWindsConnector:
         API Documentation: https://documentation.solarwinds.com/en/success_center/observability/content/api/api-swagger.htm
         Swagger UI: https://api.xx-yy.cloud.solarwinds.com/v1/#/
         
-        Note: The Observability SaaS API may not have a direct "alerts" endpoint.
-        Alerts may be available through:
-        - Events endpoint
-        - Metrics with alert conditions
-        - Custom integrations
+        Note: SolarWinds Observability SaaS does not have a direct "alerts" endpoint.
+        Available endpoints typically include: changeEvents, cloudAccounts, dbo, dem, 
+        entities, logs, metadata, metrics, tokens.
         
-        Check the Swagger UI for your data center to see available endpoints.
+        Alerts in Observability SaaS are typically:
+        - Derived from metrics with thresholds (configured in UI)
+        - Sent via webhooks when thresholds are breached
+        - Available through changeEvents (for infrastructure changes)
+        - Managed through the UI dashboard
+        
+        For alert integration, consider:
+        1. Setting up webhooks in SolarWinds Observability UI
+        2. Using changeEvents endpoint for infrastructure change notifications
+        3. Monitoring metrics and deriving alerts from threshold breaches
         """
         try:
             base_url = config.api_base_url.rstrip('/')
             
-            # According to API docs, the base structure is /v1/{resource}
-            # Common endpoints to try (based on typical observability platforms):
+            # Try endpoints that might contain alert-like data
+            # Based on available endpoints: changeEvents, entities, logs, etc.
             possible_endpoints = [
-                f"{base_url}/v1/alerts",           # Direct alerts endpoint
-                f"{base_url}/v1/events",          # Events that may contain alerts
-                f"{base_url}/v1/incidents",       # Incidents/alerts
-                f"{base_url}/v1/notifications",  # Notifications/alerts
+                f"{base_url}/v1/changeEvents",    # Infrastructure change events (closest to alerts)
+                f"{base_url}/v1/entities",        # Entities with health status
+                f"{base_url}/v1/logs",            # Log entries that might indicate issues
             ]
             
             alerts = []
@@ -218,13 +336,16 @@ class SolarWindsConnector:
                     last_error = str(e)
                     continue
             
-            # If we get here, none of the endpoints worked
-            # This is expected if the Observability SaaS instance doesn't expose alerts via API
-            # Return empty list to allow graceful degradation
-            logger.warning(
-                f"No alerts endpoint found for Observability SaaS. "
-                f"Check Swagger UI at {base_url}/v1/#/ for available endpoints. "
-                f"Last error: {last_error}"
+            # If we get here, none of the endpoints worked or returned alert data
+            # This is expected - Observability SaaS doesn't have a direct alerts API
+            # Alerts are typically managed through:
+            # 1. Webhooks (configured in UI)
+            # 2. Metrics with thresholds (UI-based)
+            # 3. changeEvents (infrastructure changes)
+            logger.info(
+                f"SolarWinds Observability SaaS does not expose alerts via REST API. "
+                f"Available endpoints: changeEvents, cloudAccounts, dbo, dem, entities, logs, metadata, metrics, tokens. "
+                f"To receive alerts, configure webhooks in the SolarWinds Observability UI or use changeEvents endpoint."
             )
             return []
             

@@ -62,6 +62,15 @@ class AlertController(BaseController):
                     alert_status = "firing"  # Default to firing for unknown statuses
             elif source == "splunk":
                 alert_status = "firing"  # Default for Splunk
+            elif source == "solarwinds":
+                # SolarWinds uses "triggered", "resolved", "acknowledged"
+                solarwinds_status = payload.get("alert_status") or payload.get("status", "triggered")
+                if solarwinds_status in ["triggered", "active", "firing"]:
+                    alert_status = "firing"
+                elif solarwinds_status in ["resolved", "ok"]:
+                    alert_status = "resolved"
+                else:
+                    alert_status = "firing"  # Default to firing for unknown statuses
             
             # Extract timestamps
             starts_at = None

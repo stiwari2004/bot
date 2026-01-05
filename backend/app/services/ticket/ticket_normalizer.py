@@ -17,17 +17,20 @@ class TicketNormalizer:
             from app.services.monitoring_connectors.azure_monitor import AzureMonitorConnector
             from app.services.monitoring_connectors.prometheus import PrometheusConnector
             from app.services.monitoring_connectors.splunk import SplunkConnector
+            from app.services.monitoring_connectors.solarwinds import SolarWindsConnector
             
             self.datadog_connector = DatadogConnector()
             self.azure_monitor_connector = AzureMonitorConnector()
             self.prometheus_connector = PrometheusConnector()
             self.splunk_connector = SplunkConnector()
+            self.solarwinds_connector = SolarWindsConnector()
         except ImportError as e:
             logger.warning(f"Could not import monitoring connectors: {e}")
             self.datadog_connector = None
             self.azure_monitor_connector = None
             self.prometheus_connector = None
             self.splunk_connector = None
+            self.solarwinds_connector = None
     
     def normalize(self, payload: Dict[str, Any], source: str) -> Dict[str, Any]:
         """Normalize ticket data from various sources"""
@@ -55,6 +58,12 @@ class TicketNormalizer:
                 return self.splunk_connector.normalize_webhook(payload)
             except Exception as e:
                 logger.error(f"Error in Splunk connector normalization: {e}", exc_info=True)
+        
+        elif source == "solarwinds" and self.solarwinds_connector:
+            try:
+                return self.solarwinds_connector.normalize_webhook(payload)
+            except Exception as e:
+                logger.error(f"Error in SolarWinds connector normalization: {e}", exc_info=True)
         
         # Fallback to legacy normalization
         return self._legacy_normalize(payload, source)

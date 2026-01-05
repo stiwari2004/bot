@@ -87,14 +87,28 @@ You should see a success message if the connection is working.
 
 ## API Endpoints Reference
 
-SolarWinds Observability SaaS uses REST API v1. Common endpoints:
+SolarWinds Observability SaaS uses REST API v1. Available endpoints typically include:
 
-- **Metrics**: `GET /v1/metrics`
-- **Measurements**: `POST /v1/measurements`
-- **Events**: `GET /v1/events` (if available)
-- **Alerts**: `GET /v1/alerts` (if available - varies by product)
+- **Metrics**: `GET /v1/metrics` - List available metrics
+- **Measurements**: `POST /v1/measurements` - Submit metric measurements
+- **Entities**: `GET /v1/entities` - List monitored entities
+- **Change Events**: `GET /v1/changeEvents` - Infrastructure change events
+- **Logs**: `GET /v1/logs` - Log entries
+- **Metadata**: `GET /v1/metadata` - Entity metadata
+- **Cloud Accounts**: `GET /v1/cloudAccounts` - Cloud account information
+- **DBO**: `GET /v1/dbo` - Database observability data
+- **DEM**: `GET /v1/dem` - Digital experience monitoring data
+- **Tokens**: `GET /v1/tokens` - API token management
 
-**Important**: Not all Observability SaaS products expose alerts through the API. The exact endpoints depend on your specific product (AppOptics, Loggly, Papertrail, etc.).
+### ⚠️ Important: No Direct Alerts Endpoint
+
+**SolarWinds Observability SaaS does NOT have a direct `/v1/alerts` endpoint.**
+
+Alerts in Observability SaaS are typically:
+1. **Webhook-based**: Configure webhooks in the UI to receive alerts
+2. **Metric-derived**: Alerts are created from metric thresholds in the UI
+3. **Change Events**: Infrastructure changes via `/v1/changeEvents`
+4. **UI-managed**: Alerts are primarily managed through the dashboard
 
 ### View Available Endpoints
 
@@ -109,6 +123,14 @@ The Swagger UI shows:
 - Required parameters
 - Request/response formats
 - A playground to test endpoints
+
+### Alternative: Webhook Integration
+
+For real-time alerts, configure webhooks in SolarWinds Observability:
+1. Go to Settings → Integrations → Webhooks
+2. Create a webhook pointing to your application's webhook endpoint
+3. Configure alert conditions in the UI
+4. Alerts will be sent to your webhook when conditions are met
 
 Full API documentation: https://documentation.solarwinds.com/en/success_center/observability/content/api/api-swagger.htm
 
@@ -160,12 +182,93 @@ Find your exact identifier in your account URL or contact SolarWinds support.
 - Verify firewall rules allow outbound HTTPS (port 443)
 - Check if your organization has IP whitelisting enabled
 
-## Next Steps
+## ⚠️ Important: Alerts via Webhooks (Like Datadog)
 
-Once connected, your application will:
-- Fetch alerts from SolarWinds Observability
-- Sync alert statuses (acknowledge/resolve)
-- Display monitoring data in your dashboard
+**SolarWinds Observability SaaS uses webhooks for alerts, similar to Datadog.**
 
-For more information, see the [SolarWinds Observability API Documentation](https://documentation.solarwinds.com/en/success_center/observability/content/api/api.htm).
+Just like Datadog:
+- **Webhooks**: Real-time alert notifications (push-based)
+- **API**: For connection testing and status updates (not for fetching alerts)
+
+**Available API endpoints**: changeEvents, cloudAccounts, dbo, dem, entities, logs, metadata, metrics, tokens
+
+**Note**: There is no `/v1/alerts` endpoint for polling alerts. Alerts are:
+1. **Webhook-based**: Configure webhooks in the UI to receive alerts (recommended)
+2. **Metric-derived**: Alerts are created from metric thresholds in the UI
+3. **Change Events**: Infrastructure changes via `/v1/changeEvents` (for infrastructure monitoring)
+4. **UI-managed**: Alerts are primarily managed through the dashboard
+
+## Step 4: Set Up Webhooks for Alerts (Required)
+
+**SolarWinds Observability SaaS uses webhooks for alerts, just like Datadog.**
+
+### Configure Webhook in SolarWinds Observability UI
+
+1. **Navigate to Webhooks**:
+   - Go to **Settings** → **Integrations** → **Webhooks**
+   - Or directly: `https://app.xx-yy.cloud.solarwinds.com/settings/integrations/webhooks`
+
+2. **Create New Webhook**:
+   - Click **"Create Webhook"** or **"Add Webhook"**
+   - Enter a name (e.g., "Resolvify Bot Alerts")
+   - Set the webhook URL:
+     ```
+     https://your-domain.com/api/v1/alerts/webhook/solarwinds
+     ```
+     (Replace `your-domain.com` with your actual domain)
+
+3. **Configure Alert Conditions**:
+   - Set up metric thresholds, entity health checks, or log-based alerts
+   - When conditions are met, SolarWinds will POST alert data to your webhook
+   - The webhook payload will be automatically normalized and stored as an alert
+
+4. **Test the Webhook**:
+   - Use the "Test" button in SolarWinds UI
+   - Or trigger a test alert condition
+   - Check your application logs to verify the webhook is received
+
+### Webhook Payload Format
+
+Your application expects webhook payloads in this format (SolarWinds will send similar data):
+
+```json
+{
+  "alert_id": "12345",
+  "alert_name": "High CPU Usage",
+  "alert_message": "CPU usage exceeded threshold",
+  "alert_status": "triggered",
+  "severity": "critical",
+  "entity_name": "server-01",
+  "metric_name": "cpu.usage",
+  "metric_value": 95.5,
+  "threshold": 90.0,
+  "timestamp": "2025-01-01T00:00:00Z",
+  "tags": ["env:prod", "service:api"]
+}
+```
+
+**Note**: The exact payload format may vary based on your SolarWinds configuration. The connector will normalize it automatically.
+
+## Integration Status
+
+- ✅ **Connection Test**: Works (uses `/v1/metrics`)
+- ✅ **Authentication**: Working
+- ✅ **Webhooks**: Supported (configure in SolarWinds UI)
+- ✅ **Alert Updates**: API supports acknowledge/resolve operations
+- ✅ **Metrics**: Available via `/v1/metrics`
+- ✅ **Change Events**: Available via `/v1/changeEvents` (for infrastructure monitoring)
+
+## Alternative: Poll Change Events (Optional)
+
+If you want to monitor infrastructure changes (not alerts), you can poll the changeEvents endpoint:
+
+```bash
+curl -X 'GET' \
+  'https://api.ap-01.cloud.solarwinds.com/v1/changeEvents' \
+  -H 'Authorization: Bearer YOUR_TOKEN'
+```
+
+This is useful for tracking infrastructure changes, but **not for alerts**. Use webhooks for alerts.
+
+For more information, see the [SolarWinds Observability API Documentation](https://documentation.solarwinds.com/en/success_center/observability/content/api/api-swagger.htm).
 

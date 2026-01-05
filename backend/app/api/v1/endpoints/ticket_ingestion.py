@@ -34,6 +34,7 @@ class WebhookSource(str, Enum):
     PAGERDUTY = "pagerduty"
     SERVICENOW = "servicenow"
     JIRA = "jira"
+    SOLARWINDS = "solarwinds"
     CUSTOM = "custom"
 
 
@@ -51,7 +52,7 @@ async def receive_webhook(
     Tickets come from ticketing tools (ServiceNow/ManageEngine) via polling.
     Alerts are used for validation and matching with tickets.
     
-    Sources: prometheus, datadog, azure_monitor, splunk, pagerduty, servicenow, jira, custom
+    Sources: prometheus, datadog, azure_monitor, splunk, pagerduty, servicenow, jira, solarwinds, custom
     """
     # Validate source
     if source not in [s.value for s in WebhookSource]:
