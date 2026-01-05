@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 class MonitoringConnectionCreate(BaseModel):
     tool_name: str  # datadog, prometheus, azure_monitor, splunk, solarwinds
     connection_type: str  # webhook, api
+    webhook_url: Optional[str] = None  # Webhook URL for webhook connections
     api_base_url: Optional[str] = None
     api_key: Optional[str] = None
     api_username: Optional[str] = None
@@ -94,7 +95,7 @@ async def create_monitoring_connection(
             is_active=connection.is_active
             if connection.is_active is not None
             else True,
-            webhook_url=getattr(connection, 'webhook_url', None),
+            webhook_url=connection.webhook_url,
             api_base_url=connection.api_base_url,
             api_key=connection.api_key,
             api_username=connection.api_username,
@@ -112,6 +113,7 @@ async def create_monitoring_connection(
             "tool_name": db_connection.tool_name,
             "connection_type": db_connection.connection_type,
             "is_active": db_connection.is_active,
+            "webhook_url": db_connection.webhook_url,
             "api_base_url": db_connection.api_base_url,
             "message": "Monitoring tool connection created successfully",
         }
@@ -171,6 +173,7 @@ async def update_monitoring_connection(
         "tool_name": db_connection.tool_name,
         "connection_type": db_connection.connection_type,
         "is_active": db_connection.is_active,
+        "webhook_url": db_connection.webhook_url,
         "api_base_url": db_connection.api_base_url,
         "message": "Monitoring tool connection updated successfully",
     }

@@ -53,7 +53,16 @@ async def receive_webhook(
     Alerts are used for validation and matching with tickets.
     
     Sources: prometheus, datadog, azure_monitor, splunk, pagerduty, servicenow, jira, solarwinds, custom
+    
+    Tenant is determined by looking up the monitoring connection for this source.
+    If multiple connections exist, uses the first active one.
+    Falls back to tenant_id=1 (demo) if no connection found.
     """
+    from app.models.monitoring_tool_connection import MonitoringToolConnection
+    from app.core.logging import get_logger
+    
+    logger = get_logger(__name__)
+    
     # Validate source
     if source not in [s.value for s in WebhookSource]:
         raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of: {', '.join([s.value for s in WebhookSource])}")
@@ -66,8 +75,24 @@ async def receive_webhook(
     if len(str(payload)) > 100000:  # Limit payload size
         raise HTTPException(status_code=413, detail="Payload too large (max 100KB)")
     
+    # Determine tenant_id from monitoring connection
+    # Look for an active webhook connection for this source
+    connection = db.query(MonitoringToolConnection).filter(
+        MonitoringToolConnection.tool_name == source,
+        MonitoringToolConnection.connection_type == "webhook",
+        MonitoringToolConnection.is_active == True
+    ).first()
+    
+    if connection:
+        tenant_id = connection.tenant_id
+        logger.info(f"Webhook received from {source}, using tenant_id={tenant_id} from connection {connection.id}")
+    else:
+        # Fallback to demo tenant if no connection found
+        tenant_id = 1
+        logger.warning(f"Webhook received from {source}, but no active webhook connection found. Using demo tenant_id=1")
+    
     # Use AlertController to create alerts (not tickets)
-    controller = AlertController(db, tenant_id=1)  # Demo tenant
+    controller = AlertController(db, tenant_id=tenant_id)
     return await controller.receive_webhook(source, payload)
 
 
