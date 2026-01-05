@@ -1,16 +1,24 @@
 name: Deploy to Production
 
 on:
-  pull_request:
+  # Auto-deploy when dev deployment succeeds
+  workflow_run:
+    workflows: ["Deploy to Dev Environment"]
+    types:
+      - completed
     branches:
-      - main
-    types: [opened, synchronize, reopened]
+      - dev
+  # Manual trigger
   workflow_dispatch:
     inputs:
       skip_tests:
         description: 'Skip tests (use with caution)'
         required: false
         default: 'false'
+  # Direct push to main (for emergency deployments)
+  push:
+    branches:
+      - main
 
 env:
   REGISTRY: ghcr.io
@@ -20,10 +28,15 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-    if: github.event.inputs.skip_tests != 'true'
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name != 'workflow_run' && github.event.inputs.skip_tests != 'true')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
+          sha: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -89,7 +102,6 @@ jobs:
     name: Build Production Images
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
@@ -97,6 +109,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
+          sha: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -122,7 +137,7 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:pr-${{ github.event.pull_request.number || 'manual' }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:prod
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
           cache-to: type=inline
 
@@ -131,17 +146,49 @@ jobs:
         with:
           context: ./frontend-nextjs
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:pr-${{ github.event.pull_request.number || 'manual' }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:prod
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
           cache-to: type=inline
           build-args: |
             NEXT_PUBLIC_API_BASE_URL=
 
-  deploy-production:
-    name: Deploy to Production
+  merge-to-main:
+    name: Merge Dev to Main
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch }}
+          sha: ${{ github.event.workflow_run.head_sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Merge dev to main
+        run: |
+          git checkout main
+          git pull origin main
+          git merge origin/dev --no-edit -m "Auto-merge from dev after successful deployment"
+          git push origin main
+
+  deploy-production:
+    name: Deploy to Production
+    needs: [build, merge-to-main]
+    if: |
+      (github.event_name == 'workflow_run' && needs.merge-to-main.result == 'success') ||
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'push')
+    runs-on: ubuntu-latest
     environment:
       name: production
       url: https://resolvify.tech
