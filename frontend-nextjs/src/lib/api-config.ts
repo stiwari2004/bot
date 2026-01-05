@@ -53,6 +53,7 @@ const createEndpoints = (baseUrl: string) => ({
     },
     detail: (alertId: number) => `${baseUrl}/api/v1/alerts/alerts/${alertId}`,
     update: (alertId: number) => `${baseUrl}/api/v1/alerts/alerts/${alertId}`,
+    webhook: (source: string) => `${baseUrl}/api/v1/tickets/webhook/${source}`,
   },
   runbooks: {
     base: () => `${baseUrl}/api/v1/runbooks`,

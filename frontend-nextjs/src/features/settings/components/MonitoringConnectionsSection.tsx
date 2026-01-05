@@ -342,6 +342,37 @@ export function MonitoringConnectionsSection({
                           </code>
                         </p>
                       )}
+                      {(conn.tool_name === 'datadog' || conn.tool_name === 'solarwinds') && (
+                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <p className="text-xs font-semibold text-blue-900 mb-1 flex items-center gap-1">
+                            <LinkIcon className="h-3 w-3" />
+                            Webhook URL (Configure in {conn.tool_name === 'datadog' ? 'Datadog' : 'SolarWinds'})
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <code className="flex-1 bg-white px-2 py-1.5 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
+                              {typeof window !== 'undefined' 
+                                ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(conn.tool_name)}`
+                                : apiConfig.endpoints.alerts.webhook(conn.tool_name)}
+                            </code>
+                            <button
+                              onClick={() => {
+                                const webhookUrl = typeof window !== 'undefined' 
+                                  ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(conn.tool_name)}`
+                                  : apiConfig.endpoints.alerts.webhook(conn.tool_name);
+                                navigator.clipboard.writeText(webhookUrl);
+                                onSuccess('Webhook URL copied to clipboard!');
+                              }}
+                              className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
+                              title="Copy webhook URL"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <p className="text-xs text-blue-700 mt-2">
+                            Configure this URL in {conn.tool_name === 'datadog' ? 'Datadog' : 'SolarWinds'} webhook settings to receive real-time alerts.
+                          </p>
+                        </div>
+                      )}
                       {conn.last_sync_status && (
                         <p className="text-xs text-neutral-500 mt-2">
                           Last sync status: {conn.last_sync_status}
