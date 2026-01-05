@@ -42,7 +42,12 @@ def rate_limit(limit: str):
             return func  # No rate limiting if slowapi not available
         limiter = get_limiter()
         if limiter:
-            return limiter.limit(limit)(func)
+            try:
+                return limiter.limit(limit)(func)
+            except Exception:
+                # If rate limiter fails, just return the function without limiting
+                # This ensures the endpoint still works even if rate limiting has issues
+                return func
         return func  # No rate limiting if limiter not available
     return decorator
 
