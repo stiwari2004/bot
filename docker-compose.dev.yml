@@ -48,6 +48,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      # Force Docker to use project directory for build cache, not home directory
+      cache_from: []
     ports:
       - "8001:8000"  # Different port for dev
     healthcheck:
@@ -87,6 +89,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      # Force Docker to use project directory for build cache, not home directory
+      cache_from: []
     environment:
       - BACKEND_BASE_URL=http://backend:8000
       - WORKER_ID=worker-dev
@@ -115,6 +119,8 @@ services:
       dockerfile: Dockerfile
       args:
         - NODE_ENV=development
+      # Force Docker to use project directory for build cache, not home directory
+      cache_from: []
     ports:
       - "3005:3000"  # Host 3005 to match nginx upstream for dev.resolvify.tech
     environment:
