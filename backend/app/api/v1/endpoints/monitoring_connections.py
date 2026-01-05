@@ -31,7 +31,9 @@ class MonitoringConnectionCreate(BaseModel):
 
 
 class MonitoringConnectionUpdate(BaseModel):
+    connection_type: Optional[str] = None
     api_base_url: Optional[str] = None
+    webhook_url: Optional[str] = None
     api_key: Optional[str] = None
     api_username: Optional[str] = None
     api_password: Optional[str] = None
@@ -139,8 +141,12 @@ async def update_monitoring_connection(
     if not db_connection:
         raise HTTPException(status_code=404, detail="Monitoring connection not found")
 
+    if update.connection_type is not None:
+        db_connection.connection_type = update.connection_type
     if update.api_base_url is not None:
         db_connection.api_base_url = update.api_base_url
+    if update.webhook_url is not None:
+        db_connection.webhook_url = update.webhook_url
     if update.api_key is not None:
         db_connection.api_key = update.api_key
     if update.api_username is not None:

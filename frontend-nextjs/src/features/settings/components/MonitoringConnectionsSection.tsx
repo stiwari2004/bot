@@ -38,10 +38,12 @@ export function MonitoringConnectionsSection({
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [connectionType, setConnectionType] = useState<'webhook' | 'api'>('api');
   const [toolName, setToolName] = useState('datadog');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [applicationKey, setApplicationKey] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
   // SolarWinds specific fields
   const [authMethod, setAuthMethod] = useState<'basic' | 'api_key' | 'oauth'>('basic');
   const [username, setUsername] = useState('');
@@ -77,32 +79,42 @@ export function MonitoringConnectionsSection({
 
       const body: any = {
         tool_name: toolName,
-        connection_type: 'api',
-        api_base_url: apiBaseUrl || undefined,
+        connection_type: connectionType,
       };
       
-      // Datadog specific fields
-      if (toolName === 'datadog') {
-        body.api_key = apiKey || undefined;
-        body.application_key = applicationKey || undefined;
-      }
-      // SolarWinds specific fields
-      else if (toolName === 'solarwinds') {
-        if (authMethod === 'basic') {
-          body.api_username = username || undefined;
-          body.api_password = password || undefined;
-        } else if (authMethod === 'api_key') {
+      if (connectionType === 'webhook') {
+        // For webhook connections, we don't need API credentials
+        // The webhook URL is shown in the UI for users to configure in Datadog/SolarWinds
+        body.webhook_url = webhookUrl || (typeof window !== 'undefined' 
+          ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+          : apiConfig.endpoints.alerts.webhook(toolName));
+      } else {
+        // For API connections, include API credentials
+        body.api_base_url = apiBaseUrl || undefined;
+        
+        // Datadog specific fields
+        if (toolName === 'datadog') {
           body.api_key = apiKey || undefined;
-        } else if (authMethod === 'oauth') {
-          body.meta_data = {
-            client_id: clientId || undefined,
-            client_secret: clientSecret || undefined,
-          };
+          body.application_key = applicationKey || undefined;
         }
-      }
-      // Other tools
-      else {
-        body.api_key = apiKey || undefined;
+        // SolarWinds specific fields
+        else if (toolName === 'solarwinds') {
+          if (authMethod === 'basic') {
+            body.api_username = username || undefined;
+            body.api_password = password || undefined;
+          } else if (authMethod === 'api_key') {
+            body.api_key = apiKey || undefined;
+          } else if (authMethod === 'oauth') {
+            body.meta_data = {
+              client_id: clientId || undefined,
+              client_secret: clientSecret || undefined,
+            };
+          }
+        }
+        // Other tools
+        else {
+          body.api_key = apiKey || undefined;
+        }
       }
 
       const url = isEdit
@@ -122,11 +134,15 @@ export function MonitoringConnectionsSection({
           isEdit
             ? {
                 // Update payload (only send fields we allow editing)
-                api_base_url: apiBaseUrl || undefined,
-                ...(toolName === 'datadog' ? {
+                connection_type: connectionType,
+                api_base_url: connectionType === 'api' ? (apiBaseUrl || undefined) : undefined,
+                webhook_url: connectionType === 'webhook' ? (webhookUrl || (typeof window !== 'undefined' 
+                  ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+                  : apiConfig.endpoints.alerts.webhook(toolName))) : undefined,
+                ...(connectionType === 'api' && toolName === 'datadog' ? {
                   api_key: apiKey || undefined,
                   application_key: applicationKey || undefined,
-                } : toolName === 'solarwinds' ? {
+                } : connectionType === 'api' && toolName === 'solarwinds' ? {
                   ...(authMethod === 'basic' ? {
                     api_username: username || undefined,
                     api_password: password || undefined,
@@ -138,9 +154,9 @@ export function MonitoringConnectionsSection({
                       client_secret: clientSecret || undefined,
                     },
                   }),
-                } : {
+                } : connectionType === 'api' ? {
                   api_key: apiKey || undefined,
-                }),
+                } : {}),
               }
             : body
         ),
@@ -165,9 +181,11 @@ export function MonitoringConnectionsSection({
       await res.json();
       setShowAdd(false);
       setEditingId(null);
+      setConnectionType('api');
       setApiBaseUrl('');
       setApiKey('');
       setApplicationKey('');
+      setWebhookUrl('');
       setUsername('');
       setPassword('');
       setClientId('');
@@ -195,7 +213,9 @@ export function MonitoringConnectionsSection({
     setEditingId(conn.id);
     setShowAdd(true);
     setToolName(conn.tool_name);
+    setConnectionType((conn.connection_type as 'webhook' | 'api') || 'api');
     setApiBaseUrl(conn.api_base_url || '');
+    setWebhookUrl(conn.webhook_url || '');
     // For security, we do not pre-fill keys; user must re-enter if changing
     setApiKey('');
     setApplicationKey('');
@@ -448,27 +468,86 @@ export function MonitoringConnectionsSection({
                   </div>
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                      API Base URL
+                      Connection Type
                     </label>
-                    <input
-                      type="text"
-                      value={apiBaseUrl}
-                      onChange={(e) => setApiBaseUrl(e.target.value)}
-                      placeholder={
-                        toolName === 'datadog'
-                          ? 'https://api.datadoghq.com'
-                          : toolName === 'prometheus'
-                          ? 'http://alertmanager:9093'
-                          : toolName === 'azure_monitor'
-                          ? 'https://management.azure.com'
-                          : toolName === 'solarwinds'
-                          ? 'https://your-instance.solarwinds.com'
-                          : 'https://splunk.example.com:8089'
-                      }
+                    <select
+                      value={connectionType}
+                      onChange={(e) => setConnectionType(e.target.value as 'webhook' | 'api')}
                       className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
-                    />
+                    >
+                      <option value="api">API (For fetching/updating alerts)</option>
+                      <option value="webhook">Webhook (For receiving alerts)</option>
+                    </select>
+                    <p className="text-xs text-neutral-500 mt-1">
+                      {connectionType === 'webhook' 
+                        ? 'Configure webhook in Datadog/SolarWinds to send alerts to your app'
+                        : 'Use API credentials to fetch and update alerts'}
+                    </p>
                   </div>
                 </div>
+                
+                {connectionType === 'webhook' && (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm font-semibold text-blue-900 mb-2">
+                      Webhook Configuration
+                    </p>
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-blue-800">
+                        Webhook URL (Copy this to configure in {toolName === 'datadog' ? 'Datadog' : toolName === 'solarwinds' ? 'SolarWinds' : toolName})
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 bg-white px-3 py-2 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
+                          {typeof window !== 'undefined' 
+                            ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+                            : apiConfig.endpoints.alerts.webhook(toolName)}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = typeof window !== 'undefined' 
+                              ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+                              : apiConfig.endpoints.alerts.webhook(toolName);
+                            navigator.clipboard.writeText(url);
+                            onSuccess('Webhook URL copied to clipboard!');
+                          }}
+                          className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-700 mt-2">
+                        Go to {toolName === 'datadog' ? 'Datadog → Monitors → Notifications' : toolName === 'solarwinds' ? 'SolarWinds → Settings → Integrations → Webhooks' : `${toolName} settings`} and configure this URL.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {connectionType === 'api' && (
+                  <>
+                    <div className="flex flex-col md:flex-row gap-4">
+                      <div className="flex-1">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          API Base URL
+                        </label>
+                        <input
+                          type="text"
+                          value={apiBaseUrl}
+                          onChange={(e) => setApiBaseUrl(e.target.value)}
+                          placeholder={
+                            toolName === 'datadog'
+                              ? 'https://api.datadoghq.com'
+                              : toolName === 'prometheus'
+                              ? 'http://alertmanager:9093'
+                              : toolName === 'azure_monitor'
+                              ? 'https://management.azure.com'
+                              : toolName === 'solarwinds'
+                              ? 'https://your-instance.solarwinds.com'
+                              : 'https://splunk.example.com:8089'
+                          }
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                      </div>
+                    </div>
 
                 {toolName === 'datadog' && (
                   <div className="flex flex-col md:flex-row gap-4">
@@ -583,8 +662,10 @@ export function MonitoringConnectionsSection({
                     )}
                   </div>
                 )}
+                </>
+                )}
 
-                {toolName !== 'datadog' && toolName !== 'solarwinds' && (
+                {connectionType === 'api' && toolName !== 'datadog' && toolName !== 'solarwinds' && (
                   <div>
                     <label className="block text-sm font-semibold text-neutral-700 mb-2">
                       API Key
