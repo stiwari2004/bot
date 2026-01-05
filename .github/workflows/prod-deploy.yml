@@ -178,8 +178,13 @@ jobs:
         run: |
           git checkout main
           git pull origin main
-          git merge origin/dev --no-edit -m "Auto-merge from dev after successful deployment"
-          git push origin main
+          # Check if merge is needed (if main is already up to date, skip)
+          if git merge-base --is-ancestor origin/main origin/dev; then
+            echo "Main is already up to date with dev, skipping merge"
+          else
+            git merge origin/dev --no-edit -m "Auto-merge from dev after successful deployment [skip ci]"
+            git push origin main
+          fi
 
   deploy-production:
     name: Deploy to Production
