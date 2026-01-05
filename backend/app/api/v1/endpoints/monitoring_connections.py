@@ -51,7 +51,10 @@ async def list_monitoring_connections(
     tenant_id = current_user.tenant_id
     connections = (
         db.query(MonitoringToolConnection)
-        .filter(MonitoringToolConnection.tenant_id == tenant_id)
+        .filter(
+            MonitoringToolConnection.tenant_id == tenant_id,
+            MonitoringToolConnection.is_active == True
+        )
         .all()
     )
 
@@ -91,7 +94,7 @@ async def create_monitoring_connection(
             is_active=connection.is_active
             if connection.is_active is not None
             else True,
-            webhook_url=None,
+            webhook_url=getattr(connection, 'webhook_url', None),
             api_base_url=connection.api_base_url,
             api_key=connection.api_key,
             api_username=connection.api_username,
@@ -179,7 +182,7 @@ async def delete_monitoring_connection(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete (deactivate) a monitoring tool connection"""
+    """Delete a monitoring tool connection"""
     tenant_id = current_user.tenant_id
 
     db_connection = (
@@ -194,10 +197,16 @@ async def delete_monitoring_connection(
     if not db_connection:
         raise HTTPException(status_code=404, detail="Monitoring connection not found")
 
-    db_connection.is_active = False
-    db.commit()
-
-    return {"message": "Monitoring tool connection deleted successfully"}
+    try:
+        # Hard delete the connection
+        db.delete(db_connection)
+        db.commit()
+        logger.info(f"Deleted monitoring connection {connection_id} for tenant {tenant_id}")
+        return {"message": "Monitoring tool connection deleted successfully"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting monitoring connection: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete monitoring connection: {str(e)}")
 
 
 @router.post("/monitoring-connections/{connection_id}/test")
@@ -221,13 +230,20 @@ async def test_monitoring_connection(
     if not db_connection:
         raise HTTPException(status_code=404, detail="Monitoring connection not found")
 
+    # For webhook connections, skip authentication test
+    if db_connection.connection_type == "webhook":
+        return {
+            "success": True,
+            "message": f"Webhook connection configured. Use this URL in {db_connection.tool_name}: {db_connection.webhook_url or 'Not set'}"
+        }
+
     try:
         if db_connection.tool_name == "solarwinds":
             from app.services.monitoring_connectors.solarwinds import SolarWindsConnector
             from app.services.monitoring_connectors.solarwinds_types import SolarWindsConnectionConfig
             import json
             
-            meta_data = json.loads(db_connection.meta_data) if db_connection.meta_data else {}
+            meta_data = json.loads(db_connection.meta_data) if isinstance(db_connection.meta_data, str) else (db_connection.meta_data or {})
             config = SolarWindsConnectionConfig(
                 api_base_url=db_connection.api_base_url or meta_data.get("api_base_url", ""),
                 username=meta_data.get("username") or db_connection.api_username,
@@ -237,11 +253,23 @@ async def test_monitoring_connection(
                 oauth_client_secret=meta_data.get("client_secret"),
             )
             
+            # Validate that we have at least one authentication method
+            if not config.api_base_url:
+                return {"success": False, "message": "API Base URL is required for API connections"}
+            
+            if not (config.api_key or (config.username and config.password) or (config.oauth_client_id and config.oauth_client_secret)):
+                return {"success": False, "message": "No valid authentication method found. Please provide API Key, Username/Password, or OAuth credentials."}
+            
             connector = SolarWindsConnector()
             result = await connector.test_connection(config)
             await connector.close()
             
             return result
+        elif db_connection.tool_name == "datadog":
+            if not db_connection.api_key or not db_connection.application_key:
+                return {"success": False, "message": "API Key and Application Key are required for Datadog connections"}
+            # TODO: Implement Datadog connection test
+            return {"success": True, "message": "Datadog connection test not yet implemented"}
         else:
             return {"success": False, "message": f"Test connection not implemented for {db_connection.tool_name}"}
     except Exception as e:
