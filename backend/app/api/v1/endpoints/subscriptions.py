@@ -15,6 +15,7 @@ from app.models.license_plan import LicensePlan
 from app.models.super_admin import SuperAdmin
 from app.services.super_admin_auth import get_current_super_admin
 from app.services.subscription.subscription_tracker import SubscriptionTracker
+from app.services.license.license_activation_service import LicenseActivationService
 from app.core.logging import get_logger
 
 router = APIRouter()
@@ -76,6 +77,8 @@ class SubscriptionResponse(BaseModel):
     status: str
     is_enforced: bool
     is_active: bool
+    license_key: Optional[str] = None
+    is_activated: bool = False
     started_at: datetime
     expires_at: Optional[datetime]
     auto_renew: bool
@@ -118,6 +121,13 @@ async def create_subscription(
     max_nodes = license_plan.default_max_nodes if license_plan else subscription_data.max_nodes
     monthly_price = Decimal(license_plan.default_monthly_price) if license_plan and license_plan.default_monthly_price and license_plan.default_monthly_price != "custom" else subscription_data.monthly_price
     
+    # Generate license key for PaaS deployments
+    activation_service = LicenseActivationService(db)
+    license_key = None
+    if activation_service.is_paas_mode():
+        license_key = activation_service.generate_license_key()
+        logger.info(f"Generated license key for PaaS subscription: {license_key}")
+    
     # Create subscription
     subscription = TenantSubscription(
         tenant_id=subscription_data.tenant_id,
@@ -133,7 +143,8 @@ async def create_subscription(
         auto_renew=subscription_data.auto_renew,
         notes=subscription_data.notes,
         created_by=current_admin.id,
-        status="active"
+        status="active",
+        license_key=license_key  # Set license key for PaaS
     )
     
     db.add(subscription)
@@ -174,6 +185,8 @@ async def create_subscription(
         status=subscription.status,
         is_enforced=subscription.is_enforced,
         is_active=subscription.is_active,
+        license_key=subscription.license_key,
+        is_activated=subscription.is_activated,
         started_at=subscription.started_at,
         expires_at=subscription.expires_at,
         auto_renew=subscription.auto_renew,
@@ -244,6 +257,8 @@ async def list_subscriptions(
                 status=sub.status,
                 is_enforced=sub.is_enforced,
                 is_active=sub.is_active,
+                license_key=sub.license_key,
+                is_activated=sub.is_activated,
                 started_at=sub.started_at,
                 expires_at=sub.expires_at,
                 auto_renew=sub.auto_renew,
@@ -306,6 +321,8 @@ async def get_subscription(
         status=subscription.status,
         is_enforced=subscription.is_enforced,
         is_active=subscription.is_active,
+        license_key=subscription.license_key,
+        is_activated=subscription.is_activated,
         started_at=subscription.started_at,
         expires_at=subscription.expires_at,
         auto_renew=subscription.auto_renew,
@@ -411,6 +428,8 @@ async def update_subscription(
         status=subscription.status,
         is_enforced=subscription.is_enforced,
         is_active=subscription.is_active,
+        license_key=subscription.license_key,
+        is_activated=subscription.is_activated,
         started_at=subscription.started_at,
         expires_at=subscription.expires_at,
         auto_renew=subscription.auto_renew,

@@ -50,6 +50,26 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
     
+    # Validate license activation in PaaS mode
+    try:
+        from app.services.license.license_activation_service import LicenseActivationService
+        from app.core.database import SessionLocal
+        db = SessionLocal()
+        try:
+            activation_service = LicenseActivationService(db)
+            is_valid, error, info = activation_service.validate_activation()
+            if not is_valid and activation_service.is_paas_mode():
+                logger.error(f"License validation failed in PaaS mode: {error}")
+                logger.error("Application will start but operations may be restricted. Please activate your license key.")
+            elif is_valid and activation_service.is_paas_mode():
+                logger.info(f"License validated successfully. Activated on: {info.get('server_fingerprint', 'unknown')[:16]}...")
+        except Exception as e:
+            logger.warning(f"License validation check failed (non-critical): {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"License validation check failed (non-critical): {e}")
+    
     # Start WebSocket cleanup task
     import asyncio
     from app.api.v1.endpoints.agent_execution import cleanup_idle_connections

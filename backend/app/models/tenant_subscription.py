@@ -43,6 +43,12 @@ class TenantSubscription(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True, comment="NULL = never expires")
     auto_renew = Column(Boolean, default=True, nullable=False)
     
+    # License Activation (for PaaS deployments)
+    license_key = Column(String(255), unique=True, nullable=True, index=True, comment="Unique license key for PaaS activation")
+    server_fingerprint = Column(String(255), nullable=True, index=True, comment="Server fingerprint where license is activated")
+    activated_at = Column(DateTime(timezone=True), nullable=True, comment="When license was activated on server")
+    activation_ip = Column(String(45), nullable=True, comment="IP address that performed activation")
+    
     # Metadata
     notes = Column(String(500), nullable=True, comment="Admin notes about this subscription")
     created_by = Column(Integer, ForeignKey("super_admins.id", ondelete="SET NULL"), nullable=True, comment="Super admin who created this")
@@ -93,6 +99,11 @@ class TenantSubscription(Base):
             from datetime import datetime, timezone
             return datetime.now(timezone.utc) < self.expires_at
         return True
+    
+    @property
+    def is_activated(self) -> bool:
+        """Check if license is activated (for PaaS)"""
+        return self.license_key is not None and self.server_fingerprint is not None and self.activated_at is not None
 
 
 class SubscriptionUsage(Base):

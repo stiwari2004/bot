@@ -24,6 +24,14 @@ from app.models.embedding import Embedding
 
 async def reset_sandbox():
     """Reset sandbox database to initial state"""
+    # Check if running in PaaS mode
+    import os
+    deployment_mode = os.getenv("DEPLOYMENT_MODE", "saas").lower()
+    if deployment_mode == "paas":
+        print("❌ Reset functionality is disabled in PaaS deployment mode")
+        print("   This is a security restriction to prevent data loss in production deployments")
+        return
+    
     print("🔄 Resetting sandbox environment...")
     
     db = SessionLocal()
