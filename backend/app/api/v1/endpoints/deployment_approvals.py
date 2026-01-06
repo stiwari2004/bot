@@ -174,11 +174,14 @@ async def create_deployment_approval(
         Created deployment approval
     """
     try:
-        # Check if user has permission (admin required)
-        # TODO: Add proper permission check
-        if not hasattr(current_user, 'is_super_admin') or not current_user.is_super_admin:
-            # For now, allow any authenticated user
-            pass
+        # Check if user has permission (super admin required)
+        from app.services.auth import get_current_super_admin_user
+        # Verify user is super admin
+        if current_user.role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super admin permission required to create deployment approvals"
+            )
         
         approval = DeploymentApproval(
             deployment_type=request.deployment_type,
@@ -229,12 +232,11 @@ async def approve_deployment(
         Updated approval
     """
     try:
-        # Check if user has admin permissions
-        # TODO: Add proper permission check
-        if not hasattr(current_user, 'is_super_admin') or not current_user.is_super_admin:
+        # Check if user has super admin permissions
+        if current_user.role != "super_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin permission required"
+                detail="Super admin permission required to update deployment approvals"
             )
         
         approval = db.query(DeploymentApproval).filter(
@@ -294,12 +296,11 @@ async def reject_deployment(
         Updated approval
     """
     try:
-        # Check if user has admin permissions
-        # TODO: Add proper permission check
-        if not hasattr(current_user, 'is_super_admin') or not current_user.is_super_admin:
+        # Check if user has super admin permissions
+        if current_user.role != "super_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin permission required"
+                detail="Super admin permission required to update deployment approvals"
             )
         
         approval = db.query(DeploymentApproval).filter(

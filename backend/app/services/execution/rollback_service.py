@@ -76,11 +76,20 @@ class RollbackService:
             # Get credential
             credential_info = None
             if connection.credential_id and connection.credential:
-                # TODO: Decrypt password
-                credential_info = {
-                    'username': connection.credential.username,
-                    'password': connection.credential.encrypted_password,  # Should be decrypted
-                }
+                # Decrypt password using credential service
+                from app.services.credential_service import get_credential_service
+                credential_service = get_credential_service()
+                try:
+                    decrypted = credential_service.get_credential(db, connection.credential.id, session.tenant_id)
+                    if decrypted:
+                        credential_info = {
+                            'username': decrypted.get('username') or connection.credential.username,
+                            'password': decrypted.get('password'),  # Now properly decrypted
+                        }
+                    else:
+                        logger.warning(f"Failed to decrypt credential {connection.credential.id} for backup")
+                except Exception as e:
+                    logger.error(f"Error decrypting credential {connection.credential.id} for backup: {e}", exc_info=True)
             
             # Backup config
             backup_config = await self.network_executor.backup_config(device, credential_info)
@@ -188,11 +197,20 @@ class RollbackService:
             # Get credential
             credential_info = None
             if connection.credential_id and connection.credential:
-                # TODO: Decrypt password
-                credential_info = {
-                    'username': connection.credential.username,
-                    'password': connection.credential.encrypted_password,  # Should be decrypted
-                }
+                # Decrypt password using credential service
+                from app.services.credential_service import get_credential_service
+                credential_service = get_credential_service()
+                try:
+                    decrypted = credential_service.get_credential(db, connection.credential.id, session.tenant_id)
+                    if decrypted:
+                        credential_info = {
+                            'username': decrypted.get('username') or connection.credential.username,
+                            'password': decrypted.get('password'),  # Now properly decrypted
+                        }
+                    else:
+                        logger.warning(f"Failed to decrypt credential {connection.credential.id} for rollback")
+                except Exception as e:
+                    logger.error(f"Error decrypting credential {connection.credential.id} for rollback: {e}", exc_info=True)
             
             # Restore config
             result = await self.network_executor.rollback_config(
