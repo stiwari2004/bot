@@ -1,8 +1,7 @@
 """
 License activation endpoints for PaaS deployments
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
-from starlette.requests import Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -45,8 +44,7 @@ class LicenseStatusResponse(BaseModel):
 @router.post("/activate", response_model=LicenseActivationResponse)
 async def activate_license(
     request: LicenseActivationRequest,
-    db: Session = Depends(get_db),
-    http_request: Optional[Request] = None
+    db: Session = Depends(get_db)
 ):
     """
     Activate a license key on this server instance (PaaS only)
@@ -62,14 +60,10 @@ async def activate_license(
             detail="License activation is only available in PaaS deployment mode"
         )
     
-    # Get client IP from request
-    client_ip = None
-    if http_request:
-        client_ip = http_request.client.host if http_request.client else None
-    
+    # Activate license (client IP is optional and not critical)
     success, error, info = activation_service.activate_license(
         license_key=request.license_key,
-        activation_ip=client_ip
+        activation_ip=None  # IP tracking is optional
     )
     
     if not success:
