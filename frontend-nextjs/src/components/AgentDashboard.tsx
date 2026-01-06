@@ -15,6 +15,7 @@ import {
   StopIcon,
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
@@ -44,9 +45,10 @@ export function AgentDashboard() {
 
   const fetchPendingApprovals = async () => {
     try {
-      const response = await fetch(apiConfig.endpoints.agent.pendingApprovals());
+      const response = await authFetch(apiConfig.endpoints.agent.pendingApprovals());
       if (!response.ok) {
-        throw new Error('Failed to fetch pending approvals');
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`Failed to fetch pending approvals: ${response.status} ${errorText || ''}`);
       }
       const data = await response.json();
       setPendingApprovals(data.pending_approvals || []);
@@ -60,7 +62,7 @@ export function AgentDashboard() {
 
   const handleApprove = async (sessionId: number, stepNumber: number, approve: boolean) => {
     try {
-      const response = await fetch(
+      const response = await authFetch(
         apiConfig.endpoints.agent.approveStep(sessionId, stepNumber),
         {
           method: 'POST',
@@ -89,7 +91,7 @@ export function AgentDashboard() {
 
   const fetchExecutionStatus = async (sessionId: number) => {
     try {
-      const response = await fetch(apiConfig.endpoints.agent.execution(sessionId));
+      const response = await authFetch(apiConfig.endpoints.agent.execution(sessionId));
       if (response.ok) {
         const data = await response.json();
         // Update local state if needed
@@ -404,7 +406,7 @@ function ExecutionDetailView({ sessionId, onClose }: ExecutionDetailViewProps) {
 
   const fetchExecutionStatus = async () => {
     try {
-      const response = await fetch(apiConfig.endpoints.agent.execution(sessionId));
+      const response = await authFetch(apiConfig.endpoints.agent.execution(sessionId));
       if (response.ok) {
         const data = await response.json();
         setExecution(data);

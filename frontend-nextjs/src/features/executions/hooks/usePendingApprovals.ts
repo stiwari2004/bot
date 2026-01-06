@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import apiConfig from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 
 export type PendingApproval = {
   session_id: number;
@@ -30,9 +31,10 @@ export function usePendingApprovals(): PendingApprovalsHook {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(apiConfig.endpoints.agent.pendingApprovals());
+      const response = await authFetch(apiConfig.endpoints.agent.pendingApprovals());
       if (!response.ok) {
-        throw new Error('Failed to fetch pending approvals');
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`Failed to fetch pending approvals: ${response.status} ${errorText || ''}`);
       }
       const data = await response.json();
       setApprovals(data.pending_approvals || []);
