@@ -122,7 +122,8 @@ jobs:
             NEXT_PUBLIC_API_BASE_URL=
 
       - name: Deploy to Dev Server
-        if: ${{ secrets.DEV_SERVER_HOST != '' && secrets.DEV_SERVER_USER != '' && secrets.DEV_SERVER_SSH_KEY != '' }}
+        # NOTE: GitHub Actions does not allow using the `secrets` context in `if:` expressions.
+        # This step will always run; if secrets are missing, the SSH action itself will fail.
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.DEV_SERVER_HOST }}
@@ -138,13 +139,4 @@ jobs:
             docker-compose -f docker-compose.dev.yml -p bot-dev up -d --build
             docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -f /docker-entrypoint-initdb.d/add_runbook_environment.sql || true
             docker-compose -f docker-compose.dev.yml -p bot-dev exec -T postgres psql -U postgres -d troubleshooting_ai_dev -f /docker-entrypoint-initdb.d/add_deployment_approvals_table.sql || true
-      
-      - name: Deployment skipped
-        if: ${{ secrets.DEV_SERVER_HOST == '' || secrets.DEV_SERVER_USER == '' || secrets.DEV_SERVER_SSH_KEY == '' }}
-        run: |
-          echo "⚠️  Deployment to dev server skipped - SSH secrets not configured"
-          echo "To enable deployment, configure the following GitHub secrets:"
-          echo "  - DEV_SERVER_HOST"
-          echo "  - DEV_SERVER_USER"
-          echo "  - DEV_SERVER_SSH_KEY"
 

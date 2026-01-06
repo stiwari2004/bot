@@ -1,6 +1,6 @@
 """
 Monitoring Tool Connections API
-Manage connections to external monitoring tools (Datadog, Prometheus, Azure Monitor, Splunk)
+Manage connections to external monitoring tools (Datadog, Prometheus, Azure Monitor, Splunk, SolarWinds)
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.monitoring_tool_connection import MonitoringToolConnection
 from app.models.user import User
 from app.services.auth import get_current_user
@@ -16,6 +17,22 @@ from app.core.logging import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def generate_webhook_url(tool_name: str) -> str:
+    """
+    Generate webhook URL for a monitoring tool
+    
+    Args:
+        tool_name: Name of the monitoring tool (e.g., 'solarwinds', 'datadog')
+    
+    Returns:
+        Full webhook URL that the tool should POST to
+    """
+    base_url = settings.BACKEND_BASE_URL.rstrip('/')
+    # Use /api/v1/alerts/webhook/{source} for better organization
+    # Also supports /api/v1/tickets/webhook/{source} for backward compatibility
+    return f"{base_url}/api/v1/alerts/webhook/{tool_name}"
 
 
 class MonitoringConnectionCreate(BaseModel):
@@ -88,6 +105,12 @@ async def create_monitoring_connection(
     try:
         tenant_id = current_user.tenant_id
 
+        # For webhook connections, automatically generate webhook URL if not provided
+        webhook_url = connection.webhook_url
+        if connection.connection_type == "webhook" and not webhook_url:
+            webhook_url = generate_webhook_url(connection.tool_name)
+            logger.info(f"Auto-generated webhook URL for {connection.tool_name}: {webhook_url}")
+
         db_connection = MonitoringToolConnection(
             tenant_id=tenant_id,
             tool_name=connection.tool_name,
@@ -95,7 +118,7 @@ async def create_monitoring_connection(
             is_active=connection.is_active
             if connection.is_active is not None
             else True,
-            webhook_url=connection.webhook_url,
+            webhook_url=webhook_url,
             api_base_url=connection.api_base_url,
             api_key=connection.api_key,
             api_username=connection.api_username,
@@ -235,9 +258,15 @@ async def test_monitoring_connection(
 
     # For webhook connections, skip authentication test
     if db_connection.connection_type == "webhook":
+        webhook_url = db_connection.webhook_url or generate_webhook_url(db_connection.tool_name)
+        # Update webhook_url if it wasn't set
+        if not db_connection.webhook_url:
+            db_connection.webhook_url = webhook_url
+            db.commit()
         return {
             "success": True,
-            "message": f"Webhook connection configured. Use this URL in {db_connection.tool_name}: {db_connection.webhook_url or 'Not set'}"
+            "message": f"Webhook connection configured. Use this URL in {db_connection.tool_name}: {webhook_url}",
+            "webhook_url": webhook_url
         }
 
     try:
