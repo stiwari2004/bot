@@ -37,6 +37,10 @@ redis==5.0.1
 prometheus-client==0.17.1
 opentelemetry-api==1.23.0
 
+# Network device connectivity
+asyncssh>=2.14.0  # Async SSH client for network devices (preferred)
+paramiko>=3.4.0  # SSH client library (fallback)
+
 # Azure SDK
 azure-identity==1.15.0
 azure-mgmt-compute==30.3.0

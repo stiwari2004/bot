@@ -83,7 +83,7 @@ class InputLearningService:
                 learned_mappings.append(mapping)
                 
                 # Store the mapping for future use
-                self._store_mapping(mapping)
+                self._store_mapping(mapping, ticket.tenant_id)
                 
                 # Flag if confidence is low (needs manual review)
                 if found_location["confidence"] < 0.8:
@@ -235,13 +235,14 @@ class InputLearningService:
         
         return None
     
-    def _store_mapping(self, mapping: Dict[str, Any]):
+    def _store_mapping(self, mapping: Dict[str, Any], tenant_id: int):
         """Store learned mapping in database"""
         try:
             from app.models.metadata_mapping import MetadataMapping
             
-            # Check if mapping already exists
+            # Check if mapping already exists for this tenant
             existing = self.db.query(MetadataMapping).filter(
+                MetadataMapping.tenant_id == tenant_id,
                 MetadataMapping.input_name == mapping["input_name"],
                 MetadataMapping.source == mapping["source"],
                 MetadataMapping.metadata_path == mapping["metadata_path"],
@@ -260,7 +261,7 @@ class InputLearningService:
             else:
                 # Create new mapping
                 new_mapping = MetadataMapping(
-                    tenant_id=1,  # TODO: Get from context
+                    tenant_id=tenant_id,  # Get from ticket context
                     input_name=mapping["input_name"],
                     source=mapping["source"],
                     metadata_path=mapping["metadata_path"],

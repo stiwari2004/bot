@@ -312,17 +312,14 @@ class AlertController(BaseController):
             notes: Optional notes
         """
         try:
-            # Find monitoring tool connection
-            import json
-            
-            # Use filter_by_tenant from base repository pattern
-            # Since we don't have MonitoringToolConnectionRepository yet, use direct query for now
-            # TODO: Create MonitoringToolConnectionRepository
-            connection = self.db.query(MonitoringToolConnection).filter(
-                MonitoringToolConnection.tenant_id == self.tenant_id,
-                MonitoringToolConnection.tool_name == alert.source,
-                MonitoringToolConnection.is_active == True
-            ).first()
+            # Find monitoring tool connection using repository
+            from app.repositories.monitoring_tool_connection_repository import MonitoringToolConnectionRepository
+            connection_repo = MonitoringToolConnectionRepository(self.db)
+            connection = connection_repo.get_by_tenant_and_tool(
+                tenant_id=self.tenant_id,
+                tool_name=alert.source,
+                active_only=True
+            )
             
             if not connection:
                 logger.debug(f"No active connection found for monitoring tool: {alert.source}")
