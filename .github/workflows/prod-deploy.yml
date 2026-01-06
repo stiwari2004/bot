@@ -231,4 +231,6 @@ jobs:
             # Run database migrations/scripts
             docker-compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai -f /docker-entrypoint-initdb.d/add_runbook_environment.sql || true
             docker-compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai -f /docker-entrypoint-initdb.d/add_deployment_approvals_table.sql || true
+            # Add must_change_password column if missing (migration) - run from host filesystem
+            docker-compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai < backend/sql/add_must_change_password_to_users.sql || true
 
