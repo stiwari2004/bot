@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     
     # Environment
     ENVIRONMENT: str = "development"  # development, staging, production
+    DEPLOYMENT_MODE: str = "saas"  # saas, paas (Platform as a Service - self-hosted)
     
     # External APIs
     PERPLEXITY_API_KEY: Optional[str] = None

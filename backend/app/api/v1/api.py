@@ -157,6 +157,13 @@ try:
 except ImportError:
     pass  # Subscriptions module not available
 
+# License Activation endpoints (PaaS only)
+try:
+    from app.api.v1.endpoints import license_activation
+    api_router.include_router(license_activation.router, prefix="/license", tags=["license-activation"])
+except ImportError:
+    pass  # License activation module not available
+
 # Client Admin endpoints (for tenant admins to manage their own tenant)
 try:
     from app.api.v1.endpoints import client_admin
