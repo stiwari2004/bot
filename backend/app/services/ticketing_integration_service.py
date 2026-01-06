@@ -67,24 +67,70 @@ class TicketingIntegrationService:
         self,
         db: Session,
         ticket: Ticket,
-        escalation_reason: str
+        escalation_reason: str,
+        escalation_level: Optional[str] = None,
+        execution_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Escalate ticket in external ticketing tool
+        Escalate ticket in external ticketing tool with proper assignment and priority
         
         Args:
             db: Database session
             ticket: Ticket object
             escalation_reason: Reason for escalation
+            escalation_level: Optional escalation level (standard, urgent, critical).
+                              If not provided, will be determined automatically.
+            execution_context: Optional context with execution logs, retry count, etc.
             
         Returns:
             True if successful, False otherwise
         """
+        # Determine escalation level if not provided
+        if not escalation_level:
+            from app.services.escalation_service import EscalationService
+            escalation_service = EscalationService()
+            escalation_context = escalation_service.determine_escalation_level(
+                db=db,
+                ticket=ticket,
+                escalation_reason=escalation_reason,
+                execution_context=execution_context
+            )
+            escalation_level = escalation_context.get("escalation_level", "standard")
+        else:
+            # If level provided, still get context for comment building
+            from app.services.escalation_service import EscalationService
+            escalation_service = EscalationService()
+            escalation_context = escalation_service.determine_escalation_level(
+                db=db,
+                ticket=ticket,
+                escalation_reason=escalation_reason,
+                execution_context=execution_context
+            )
+        
+        # Build detailed escalation comment
+        execution_logs = execution_context.get("execution_logs") if execution_context else None
+        escalation_comment = escalation_service.build_escalation_comment(
+            escalation_reason=escalation_reason,
+            escalation_context=escalation_context,
+            execution_logs=execution_logs
+        )
+        
+        # Update ticket with escalation context
+        if ticket.meta_data is None:
+            ticket.meta_data = {}
+        if isinstance(ticket.meta_data, str):
+            ticket.meta_data = json.loads(ticket.meta_data)
+        
+        ticket.meta_data["escalation_context"] = escalation_context
+        ticket.escalation_reason = escalation_reason
+        
+        # Update ticket status
         return await self._update_ticket_status(
             db=db,
             ticket=ticket,
             status="escalated",
-            comment=escalation_reason
+            comment=escalation_comment,
+            escalation_context=escalation_context
         )
     
     async def mark_for_manual_review(
@@ -118,7 +164,8 @@ class TicketingIntegrationService:
         db: Session,
         ticket: Ticket,
         status: str,
-        comment: str
+        comment: str,
+        escalation_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Update ticket status in external ticketing tool
@@ -200,7 +247,8 @@ class TicketingIntegrationService:
                     connection=connection,
                     external_id=ticket.external_id,
                     status=status,
-                    comment=comment
+                    comment=comment,
+                    escalation_context=escalation_context
                 )
             else:
                 logger.warning(f"Ticketing tool {connection.tool_name} not supported for status updates")
@@ -464,7 +512,8 @@ class TicketingIntegrationService:
         connection: TicketingToolConnection,
         external_id: str,
         status: str,
-        comment: str
+        comment: str,
+        escalation_context: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Update incident status in ServiceNow
@@ -632,13 +681,52 @@ class TicketingIntegrationService:
                     # Default close notes if no comment provided
                     request_data["close_notes"] = "Resolved by AI Agent"
             else:
-                # For other states (In Progress, etc.), just add work notes
+                # For other states (In Progress, etc.), add work notes and escalation fields
                 request_data = {
                     "state": snow_state,
                     "incident_state": snow_state
                 }
                 if comment:
                     request_data["work_notes"] = comment
+                
+                # Add escalation fields if escalation context provided
+                if escalation_context and status == "escalated":
+                    # Set assignment group (requires sys_id of the group)
+                    assignment_group = escalation_context.get("assignment_group")
+                    if assignment_group:
+                        # Try to resolve assignment group name to sys_id
+                        # If assignment_group is already a sys_id (UUID), use it directly
+                        # Otherwise, query ServiceNow to get sys_id from name
+                        group_sys_id = await self._resolve_servicenow_group_sys_id(
+                            api_base_url=api_base_url,
+                            headers=headers,
+                            group_name=assignment_group
+                        )
+                        if group_sys_id:
+                            request_data["assignment_group"] = group_sys_id
+                            logger.info(f"Setting assignment_group to '{group_sys_id}' (resolved from '{assignment_group}')")
+                        else:
+                            # Fallback: try using name directly (some ServiceNow instances allow this)
+                            request_data["assignment_group"] = assignment_group
+                            logger.warning(f"Could not resolve assignment group '{assignment_group}' to sys_id, using name directly")
+                    
+                    # Set priority (1=Critical, 2=High, 3=Moderate, 4=Low, 5=Planning)
+                    priority = escalation_context.get("priority")
+                    if priority:
+                        request_data["priority"] = priority
+                        logger.info(f"Setting priority to '{priority}'")
+                    
+                    # Set urgency (1=Critical, 2=High, 3=Medium, 4=Low)
+                    urgency = escalation_context.get("urgency")
+                    if urgency:
+                        request_data["urgency"] = urgency
+                        logger.info(f"Setting urgency to '{urgency}'")
+                    
+                    # Set impact (1=High, 2=Medium, 3=Low)
+                    impact = escalation_context.get("impact")
+                    if impact:
+                        request_data["impact"] = impact
+                        logger.info(f"Setting impact to '{impact}'")
             
             # Log the request data for debugging
             logger.info(f"ServiceNow update request data: {request_data}")
@@ -718,6 +806,63 @@ class TicketingIntegrationService:
         except Exception as e:
             logger.error(f"Error updating ServiceNow incident: {e}", exc_info=True)
             return False
+    
+    async def _resolve_servicenow_group_sys_id(
+        self,
+        api_base_url: str,
+        headers: Dict[str, str],
+        group_name: str
+    ) -> Optional[str]:
+        """
+        Resolve ServiceNow group name to sys_id
+        
+        Args:
+            api_base_url: ServiceNow API base URL
+            headers: Authentication headers
+            group_name: Group name or sys_id
+            
+        Returns:
+            Group sys_id if found, None otherwise
+        """
+        # If group_name is already a UUID (sys_id), return it
+        if len(group_name) >= 32 and all(c in '0123456789abcdefABCDEF-' for c in group_name.replace('-', '')):
+            logger.info(f"Group name '{group_name}' appears to be a sys_id, using directly")
+            return group_name
+        
+        try:
+            import httpx
+            
+            # Query ServiceNow sys_user_group table
+            query_url = f"{api_base_url}/api/now/table/sys_user_group"
+            query_params = {
+                "sysparm_query": f"name={group_name}",
+                "sysparm_fields": "sys_id,name",
+                "sysparm_limit": 1
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    query_url,
+                    headers=headers,
+                    params=query_params
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    groups = result.get("result", [])
+                    if groups and len(groups) > 0:
+                        group_sys_id = groups[0].get("sys_id")
+                        logger.info(f"Resolved group name '{group_name}' to sys_id '{group_sys_id}'")
+                        return group_sys_id
+                    else:
+                        logger.warning(f"Could not find group '{group_name}' in ServiceNow")
+                        return None
+                else:
+                    logger.warning(f"Failed to query ServiceNow for group '{group_name}': {response.status_code}")
+                    return None
+        except Exception as e:
+            logger.error(f"Error resolving ServiceNow group '{group_name}' to sys_id: {e}", exc_info=True)
+            return None
     
     async def add_ticket_comment(
         self,

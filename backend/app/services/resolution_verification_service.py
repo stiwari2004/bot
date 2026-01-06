@@ -208,13 +208,35 @@ class ResolutionVerificationService:
                     self.ticket_status_service.update_ticket_on_execution_complete(
                         db, ticket_id, "completed", issue_resolved=False
                     )
-                    # Escalate in external system
+                    # Escalate in external system with execution context
                     ticket.escalation_reason = f"Issue not resolved: {reasoning}"
                     db.commit()
+                    
+                    # Build execution context for escalation
+                    execution_context = {
+                        "success_rate": success_rate,
+                        "total_steps": len(all_steps),
+                        "successful_steps": len(successful_steps),
+                        "failed_steps": len(failed_steps),
+                        "failed_step_details": [
+                            {
+                                "step_id": step.id,
+                                "step_name": step.step_name or f"Step {step.step_number}",
+                                "error": step.error_message or "Unknown error",
+                                "output": step.output[:500] if step.output else None
+                            }
+                            for step in failed_steps[:5]  # Limit to first 5 failed steps
+                        ],
+                        "verification_method": verification_method,
+                        "confidence": confidence,
+                        "reasoning": reasoning
+                    }
+                    
                     await self.ticketing_integration_service.escalate_ticket(
                         db=db,
                         ticket=ticket,
-                        escalation_reason=f"Issue not resolved: {reasoning}"
+                        escalation_reason=f"Issue not resolved: {reasoning}",
+                        execution_context=execution_context
                     )
             
             logger.info(
