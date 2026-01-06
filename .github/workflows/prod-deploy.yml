@@ -218,8 +218,19 @@ jobs:
           script: |
             cd /opt/opsbot/bot
             git pull origin main
-            docker-compose -f docker-compose.production.yml pull
-            docker-compose -f docker-compose.production.yml up -d --build
+            # Stop and remove containers to avoid image reference issues
+            docker-compose -f docker-compose.production.yml stop backend frontend worker || true
+            docker-compose -f docker-compose.production.yml rm -f backend frontend worker || true
+            # Pull pre-built images (postgres, redis, nginx) if available
+            docker-compose -f docker-compose.production.yml pull postgres redis proxy || true
+            # Build and start all services
+            docker-compose -f docker-compose.production.yml build backend frontend worker
+            docker-compose -f docker-compose.production.yml up -d
+            # Wait for services to be healthy
+            sleep 10
+            # Run database migrations/scripts
             docker-compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai -f /docker-entrypoint-initdb.d/add_runbook_environment.sql || true
             docker-compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai -f /docker-entrypoint-initdb.d/add_deployment_approvals_table.sql || true
+            # Add must_change_password column if missing (migration) - run from host filesystem
+            cat backend/sql/add_must_change_password_to_users.sql | docker-compose -f docker-compose.production.yml exec -T postgres psql -U postgres -d troubleshooting_ai || true
 
