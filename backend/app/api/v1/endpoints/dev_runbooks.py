@@ -149,12 +149,18 @@ async def promote_runbook(
         Promotion result
     """
     try:
-        # Check if user has admin permissions
-        # TODO: Add proper permission check
-        if not hasattr(current_user, 'is_super_admin') or not current_user.is_super_admin:
-            # For now, allow any authenticated user in dev
-            # In production, this should check for admin role
-            pass
+        # Check if user has admin permissions (super admin or tenant admin)
+        # Super admin can promote any runbook, tenant admin can promote runbooks in their tenant
+        is_admin = (
+            current_user.role == "super_admin" or 
+            current_user.role == "tenant_admin" or
+            current_user.role == "msp_admin"
+        )
+        if not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin permission required to promote runbooks to production"
+            )
         
         promotion_service = get_runbook_promotion_service()
         

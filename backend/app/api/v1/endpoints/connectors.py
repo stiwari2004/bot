@@ -220,6 +220,11 @@ async def import_infrastructure_connections_excel(
                     if existing_cred:
                         credential_id = existing_cred.id
                     else:
+                        # Encrypt password before storing
+                        from app.services.credential_service import get_credential_service
+                        credential_service = get_credential_service()
+                        encrypted_password = credential_service.encryption.encrypt(credentials['password'])
+                        
                         # Create a credential for this connection
                         credential = Credential(
                             tenant_id=tenant_id,
@@ -227,7 +232,7 @@ async def import_infrastructure_connections_excel(
                             credential_type=conn_data.get('connection_type', 'ssh'),
                             environment=conn_data.get('environment', 'prod'),
                             username=credentials['username'],
-                            encrypted_password=credentials['password'],  # TODO: Encrypt this
+                            encrypted_password=encrypted_password,  # Now properly encrypted
                             host=conn_data['target_host'],
                             port=conn_data.get('target_port', 22),
                         )
