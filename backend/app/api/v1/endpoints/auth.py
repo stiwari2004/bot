@@ -9,10 +9,19 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.schemas.auth import Token, UserCreate, UserResponse, PasswordChangeRequest
-from app.services.auth import authenticate_user, create_access_token, get_current_user, get_password_hash, verify_password
+from app.schemas.auth import (
+    Token, UserCreate, UserResponse, PasswordChangeRequest,
+    ForgotPasswordRequest, ResetPasswordRequest, EmailVerificationRequest
+)
+from app.services.auth import (
+    authenticate_user, create_access_token, get_current_user,
+    get_password_hash, verify_password, generate_reset_token
+)
 from app.models.user import User
 from app.core.rate_limiting import rate_limit
+from app.services.email_service import get_email_service
+from app.services.password_validator import get_password_validator
+import json
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
@@ -48,19 +57,125 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        # Check if account is locked
+        if user.locked_until and user.locked_until > datetime.utcnow():
+            remaining_minutes = int((user.locked_until - datetime.utcnow()).total_seconds() / 60)
+            logger.warning(f"Login attempt for locked account: {form_data.username} (locked for {remaining_minutes} more minutes)")
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=f"Account is locked due to too many failed login attempts. Please try again in {remaining_minutes} minutes or contact your administrator.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Auto-unlock if lockout period has expired
+        if user.locked_until and user.locked_until <= datetime.utcnow():
+            user.locked_until = None
+            user.failed_login_attempts = 0
+            db.commit()
+            logger.info(f"Auto-unlocked account for {form_data.username}")
+        
+        # Check if password is expired
+        from app.services.password_validator import get_password_validator
+        password_validator = get_password_validator()
+        if user.password_expires_at and password_validator.is_password_expired(user.password_expires_at):
+            logger.warning(f"Login attempt with expired password for: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your password has expired. Please reset your password.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
         # Now authenticate
         user = authenticate_user(db, form_data.username, form_data.password)
         if not user:
-            logger.warning(f"Login attempt with incorrect password for: {form_data.username}")
+        # Increment failed login attempts
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        user.last_failed_login_at = datetime.utcnow()
+        
+        # Lock account after 5 failed attempts
+        if user.failed_login_attempts >= 5:
+            user.locked_until = datetime.utcnow() + timedelta(minutes=30)
+            logger.warning(f"Account locked for {form_data.username} after {user.failed_login_attempts} failed attempts")
+        
+        db.commit()
+        logger.warning(f"Login attempt with incorrect password for: {form_data.username} (attempt {user.failed_login_attempts})")
+        
+        # Track failed login in history
+        try:
+            from app.models.user_login_history import UserLoginHistory
+            login_history = UserLoginHistory(
+                user_id=user.id,
+                login_at=datetime.utcnow(),
+                success=False,
+                failure_reason="Incorrect password"
+            )
+            db.add(login_history)
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to track failed login: {e}")
+            db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Update last_login
+        # Successful login - reset failed attempts and unlock
+        user.failed_login_attempts = 0
+        user.locked_until = None
         user.last_login = datetime.utcnow()
         db.commit()
+        
+        # Track login history
+        try:
+            from app.models.user_login_history import UserLoginHistory
+            from starlette.requests import Request
+            
+            # Get client IP and user agent (if available)
+            ip_address = None
+            user_agent = None
+            # Note: In FastAPI, we'd need to pass Request to get these
+            # For now, we'll track without them
+            
+            login_history = UserLoginHistory(
+                user_id=user.id,
+                login_at=datetime.utcnow(),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=True
+            )
+            db.add(login_history)
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to track login history: {e}")
+            db.rollback()
+        
+        # Track session
+        try:
+            from app.models.user_session import UserSession
+            from app.services.auth import create_access_token
+            from datetime import timedelta
+            import hashlib
+            
+            # Create session record
+            token = create_access_token(
+                data={"sub": user.email, "tenant_id": user.tenant_id},
+                expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            )
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            
+            session = UserSession(
+                user_id=user.id,
+                token_hash=token_hash,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                expires_at=datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            )
+            db.add(session)
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to track session: {e}")
+            db.rollback()
         
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
@@ -165,15 +280,54 @@ async def change_password(
                 detail="Current password is incorrect"
             )
         
-        # Validate new password (basic validation)
-        if len(password_data.new_password) < 8:
+        # Enhanced password validation
+        password_validator = get_password_validator()
+        is_valid, errors = password_validator.validate_password_strength(password_data.new_password)
+        
+        if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password must be at least 8 characters long"
+                detail="; ".join(errors)
             )
         
+        # Check password history
+        password_history = current_user.password_history
+        if password_history is None:
+            password_history = []
+        elif isinstance(password_history, str):
+            try:
+                password_history = json.loads(password_history)
+            except:
+                password_history = []
+        
+        is_reused, reuse_error = password_validator.check_password_history(
+            password_data.new_password,
+            current_user.password_hash,
+            password_history
+        )
+        
+        if is_reused:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=reuse_error
+            )
+        
+        # Store current password in history before updating
+        old_password_hash = current_user.password_hash
+        new_password_hash = get_password_hash(password_data.new_password)
+        
+        # Update password history
+        updated_history = password_validator.add_to_history(
+            new_password_hash,
+            password_history,
+            old_password_hash
+        )
+        
         # Update password
-        current_user.password_hash = get_password_hash(password_data.new_password)
+        current_user.password_hash = new_password_hash
+        current_user.password_history = json.dumps(updated_history) if updated_history else json.dumps([])
+        current_user.password_changed_at = datetime.utcnow()
+        current_user.password_expires_at = password_validator.calculate_expiration_date(days=90)
         current_user.must_change_password = False  # Clear the flag after password change
         current_user.updated_at = datetime.utcnow()
         
@@ -192,5 +346,240 @@ async def change_password(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to change password"
+        )
+
+
+@router.post("/forgot-password")
+@rate_limit("5/hour")  # Rate limit: 5 requests per hour per email
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """Request password reset via email"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        # Find user by email (case-insensitive)
+        from sqlalchemy import func
+        user = db.query(User).filter(func.lower(User.email) == func.lower(request.email)).first()
+        
+        # Always return success (don't reveal if email exists)
+        if not user:
+            logger.warning(f"Password reset requested for non-existent email: {request.email}")
+            return {"message": "If the email exists, a password reset link has been sent."}
+        
+        if not user.is_active:
+            logger.warning(f"Password reset requested for inactive user: {request.email}")
+            return {"message": "If the email exists, a password reset link has been sent."}
+        
+        # Generate reset token
+        reset_token = generate_reset_token()
+        reset_expires = datetime.utcnow() + timedelta(hours=1)  # Token expires in 1 hour
+        
+        # Store token in user record
+        user.password_reset_token = reset_token
+        user.password_reset_expires = reset_expires
+        db.commit()
+        
+        # Send reset email
+        email_service = get_email_service()
+        email_sent = email_service.send_password_reset_email(
+            to_email=user.email,
+            reset_token=reset_token,
+            user_name=user.full_name
+        )
+        
+        if not email_sent:
+            logger.warning(f"Failed to send password reset email to {user.email}")
+            # Don't fail the request - token is still valid
+        
+        logger.info(f"Password reset token generated for {user.email}")
+        return {"message": "If the email exists, a password reset link has been sent."}
+        
+    except Exception as e:
+        logger.error(f"Error processing password reset request: {e}", exc_info=True)
+        # Return generic message even on error (security best practice)
+        return {"message": "If the email exists, a password reset link has been sent."}
+
+
+@router.post("/reset-password")
+@rate_limit("10/hour")  # Rate limit for reset attempts
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """Reset password using token from email"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        # Find user by reset token
+        user = db.query(User).filter(
+            User.password_reset_token == request.token,
+            User.password_reset_expires > datetime.utcnow()
+        ).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token"
+            )
+        
+        # Enhanced password validation
+        password_validator = get_password_validator()
+        is_valid, errors = password_validator.validate_password_strength(request.new_password)
+        
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="; ".join(errors)
+            )
+        
+        # Check password history (if exists)
+        password_history = user.password_history
+        if password_history is None:
+            password_history = []
+        elif isinstance(password_history, str):
+            try:
+                password_history = json.loads(password_history)
+            except:
+                password_history = []
+        
+        # Only check history if user has a current password
+        if user.password_hash:
+            is_reused, reuse_error = password_validator.check_password_history(
+                request.new_password,
+                user.password_hash,
+                password_history
+            )
+            
+            if is_reused:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=reuse_error
+                )
+        
+        # Store current password in history before updating
+        old_password_hash = user.password_hash
+        new_password_hash = get_password_hash(request.new_password)
+        
+        # Update password history
+        updated_history = password_validator.add_to_history(
+            new_password_hash,
+            password_history,
+            old_password_hash
+        )
+        
+        # Update password
+        user.password_hash = new_password_hash
+        user.password_history = json.dumps(updated_history) if updated_history else json.dumps([])
+        user.password_changed_at = datetime.utcnow()
+        user.password_expires_at = password_validator.calculate_expiration_date(days=90)
+        user.password_reset_token = None
+        user.password_reset_expires = None
+        user.must_change_password = False  # Clear force change flag
+        user.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"Password reset successful for {user.email}")
+        return {"message": "Password has been reset successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting password: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
+        )
+
+
+@router.get("/verify-email")
+async def verify_email_get(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    """Verify email address using token (GET endpoint for email links)"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        # Find user by verification token
+        user = db.query(User).filter(
+            User.email_verification_token == token
+        ).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid verification token"
+            )
+        
+        # Mark email as verified
+        user.email_verified = True
+        user.email_verification_token = None
+        user.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"Email verified for {user.email}")
+        return {"message": "Email has been verified successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying email: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify email"
+        )
+
+
+@router.post("/verify-email")
+async def verify_email(
+    request: EmailVerificationRequest,
+    db: Session = Depends(get_db)
+):
+    """Verify email address using token (POST endpoint)"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        # Find user by verification token
+        user = db.query(User).filter(
+            User.email_verification_token == request.token
+        ).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid verification token"
+            )
+        
+        # Mark email as verified
+        user.email_verified = True
+        user.email_verification_token = None
+        user.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"Email verified for {user.email}")
+        return {"message": "Email has been verified successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying email: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify email"
         )
 

@@ -30,6 +30,9 @@ class ExecutionSession(Base):
     ticket_id = Column(
         Integer, ForeignKey("tickets.id", ondelete="SET NULL"), nullable=True, index=True
     )  # Link to ticket
+    parent_session_id = Column(
+        Integer, ForeignKey("execution_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )  # Parent session for self-healing remediation
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     issue_description = Column(Text, nullable=True)
     status = Column(
@@ -52,6 +55,7 @@ class ExecutionSession(Base):
     runbook = relationship("Runbook")
     user = relationship("User")
     ticket = relationship("Ticket", back_populates="execution_sessions")
+    parent_session = relationship("ExecutionSession", remote_side=[id], backref="remediation_sessions")
     steps = relationship(
         "ExecutionStep", back_populates="session", cascade="all, delete-orphan"
     )

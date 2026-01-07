@@ -18,6 +18,7 @@ from app.services.ticket.runbook_matching_service import RunbookMatchingService
 from app.services.execution import ExecutionEngine
 from app.services.config_service import ConfigService
 from app.services.decision import RecommendationEngine
+from app.services.change_window_service import get_change_window_service
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -65,6 +66,18 @@ class TicketController(BaseController):
                 received_at=datetime.utcnow()
             )
             
+            # Check if ticket should be suppressed due to change window
+            change_window_service = get_change_window_service()
+            is_suppressed = change_window_service.check_and_suppress_ticket(self.db, ticket)
+            
+            if is_suppressed:
+                logger.info(f"Ticket {ticket.id} suppressed due to active change window")
+                return {
+                    "ticket_id": ticket.id,
+                    "status": "suppressed",
+                    "message": "Ticket received but suppressed due to active change window"
+                }
+            
             # Analyze ticket
             analysis_result = await self._analyze_ticket(ticket)
             
@@ -111,6 +124,18 @@ class TicketController(BaseController):
                 meta_data=ticket_data.get("metadata", {}),
                 received_at=datetime.utcnow()
             )
+            
+            # Check if ticket should be suppressed due to change window
+            change_window_service = get_change_window_service()
+            is_suppressed = change_window_service.check_and_suppress_ticket(self.db, ticket)
+            
+            if is_suppressed:
+                logger.info(f"Ticket {ticket.id} suppressed due to active change window")
+                return {
+                    "ticket_id": ticket.id,
+                    "status": "suppressed",
+                    "message": "Ticket received but suppressed due to active change window"
+                }
             
             # Analyze ticket
             analysis_result = await self._analyze_ticket(ticket)

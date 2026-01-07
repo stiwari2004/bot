@@ -51,6 +51,7 @@ class Tenant(Base):
     billing_config = relationship("TenantBillingConfig", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
     subscription = relationship("TenantSubscription", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
     parent_tenant = relationship("Tenant", remote_side=[id], backref="sub_tenants")
+    change_tickets = relationship("ChangeTicket", back_populates="tenant", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Tenant(id={self.id}, name='{self.name}', type='{self.deployment_type}')>"

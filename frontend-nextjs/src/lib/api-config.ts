@@ -21,6 +21,9 @@ const createEndpoints = (baseUrl: string) => ({
     login: () => `${baseUrl}/api/v1/auth/login`,
     me: () => `${baseUrl}/api/v1/auth/me`,
     changePassword: () => `${baseUrl}/api/v1/auth/change-password`,
+    forgotPassword: () => `${baseUrl}/api/v1/auth/forgot-password`,
+    resetPassword: () => `${baseUrl}/api/v1/auth/reset-password`,
+    verifyEmail: () => `${baseUrl}/api/v1/auth/verify-email`,
   },
   agent: {
     pendingApprovals: () => `${baseUrl}/api/v1/agent/pending-approvals`,

@@ -34,12 +34,20 @@ class Ticket(Base):
     resolution_verified_at = Column(DateTime(timezone=True), nullable=True)  # When resolution verified
     external_ticket_updated_at = Column(DateTime(timezone=True), nullable=True)  # Last external sync
     escalation_reason = Column(Text, nullable=True)  # Reason for escalation
+    
+    # Suppression fields (for change windows)
+    suppressed = Column(Boolean, default=False, index=True)
+    suppressed_by_change_ticket_id = Column(Integer, ForeignKey("change_tickets.id", ondelete="SET NULL"), nullable=True, index=True)
+    suppressed_at = Column(DateTime(timezone=True), nullable=True)
+    suppression_reason = Column(Text, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     tenant = relationship("Tenant", back_populates="tickets")
     execution_sessions = relationship("ExecutionSession", back_populates="ticket")
+    suppressed_by_change_ticket = relationship("ChangeTicket", foreign_keys=[suppressed_by_change_ticket_id])
     
     # Indexes
     __table_args__ = (
