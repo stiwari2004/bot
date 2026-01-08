@@ -108,12 +108,15 @@ if change_tickets:
 # User profile and preferences endpoints
 try:
     from app.api.v1.endpoints import user_profile, user_preferences, user_activity, user_sessions
-    api_router.include_router(user_profile.router, prefix="/auth", tags=["user-profile"])
-    api_router.include_router(user_preferences.router, prefix="/auth", tags=["user-preferences"])
-    api_router.include_router(user_activity.router, prefix="/auth", tags=["user-activity"])
-    api_router.include_router(user_sessions.router, prefix="/auth", tags=["user-sessions"])
-except ImportError:
-    pass
+    api_router.include_router(user_profile.router, prefix="/user", tags=["user-profile"])
+    api_router.include_router(user_preferences.router, prefix="/user", tags=["user-preferences"])
+    api_router.include_router(user_activity.router, prefix="/user", tags=["user-activity"])
+    api_router.include_router(user_sessions.router, prefix="/user", tags=["user-sessions"])
+    logger.info("User management endpoints (profile, preferences, activity, sessions) loaded successfully")
+except ImportError as e:
+    logger.warning(f"User management endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading user management endpoints: {e}", exc_info=True)
 
 # Super Admin endpoints (platform-level management)
 # Import super_admin_auth separately so it loads even if super_admin doesn't exist
