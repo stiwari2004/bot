@@ -108,10 +108,10 @@ if change_tickets:
 # User profile and preferences endpoints
 try:
     from app.api.v1.endpoints import user_profile, user_preferences, user_activity, user_sessions
-    api_router.include_router(user_profile.router, prefix="/auth", tags=["user-profile"])
-    api_router.include_router(user_preferences.router, prefix="/auth", tags=["user-preferences"])
-    api_router.include_router(user_activity.router, prefix="/auth", tags=["user-activity"])
-    api_router.include_router(user_sessions.router, prefix="/auth", tags=["user-sessions"])
+    api_router.include_router(user_profile.router, prefix="/user", tags=["user-profile"])
+    api_router.include_router(user_preferences.router, prefix="/user", tags=["user-preferences"])
+    api_router.include_router(user_activity.router, prefix="/user", tags=["user-activity"])
+    api_router.include_router(user_sessions.router, prefix="/user", tags=["user-sessions"])
 except ImportError:
     pass
 
