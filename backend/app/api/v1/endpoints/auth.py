@@ -152,38 +152,33 @@ async def login(
             logger.warning(f"Failed to track login history: {e}")
             db.rollback()
         
-        # Track session
+        # Create access token first
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.email, "tenant_id": user.tenant_id},
+            expires_delta=access_token_expires
+        )
+        
+        # Track session using the actual token that will be returned
         try:
             from app.models.user_session import UserSession
-            from app.services.auth import create_access_token
-            from datetime import timedelta
             import hashlib
             
-            # Create session record
-            token = create_access_token(
-                data={"sub": user.email, "tenant_id": user.tenant_id},
-                expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-            )
-            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            # Create session record with hash of the actual token
+            token_hash = hashlib.sha256(access_token.encode()).hexdigest()
             
             session = UserSession(
                 user_id=user.id,
                 token_hash=token_hash,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                expires_at=datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+                expires_at=datetime.utcnow() + access_token_expires
             )
             db.add(session)
             db.commit()
         except Exception as e:
             logger.warning(f"Failed to track session: {e}")
             db.rollback()
-        
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": user.email, "tenant_id": user.tenant_id},
-            expires_delta=access_token_expires
-        )
         
         return {
             "access_token": access_token,

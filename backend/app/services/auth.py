@@ -112,6 +112,81 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Validate session - check if token corresponds to a valid, non-revoked session
+    try:
+        from app.models.user_session import UserSession
+        import hashlib
+        from datetime import timezone
+        
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        
+        # Check if any session exists for this user (to determine if session tracking is enabled)
+        any_session_exists = db.query(UserSession).filter(UserSession.user_id == user.id).first() is not None
+        
+        if any_session_exists:
+            # Session tracking is enabled for this user - must validate
+            logger.debug(f"Session tracking enabled for user {email}, validating token hash")
+            session = db.query(UserSession).filter(
+                UserSession.user_id == user.id,
+                UserSession.token_hash == token_hash
+            ).first()
+            
+            if not session:
+                # Check all sessions for this user to see what's in the database
+                all_sessions = db.query(UserSession).filter(UserSession.user_id == user.id).all()
+                logger.warning(
+                    f"Session not found for token hash (session tracking enabled for user {email}). "
+                    f"User has {len(all_sessions)} total sessions. "
+                    f"Active sessions: {sum(1 for s in all_sessions if not s.revoked and s.expires_at > datetime.now(timezone.utc))}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session not found. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            logger.debug(f"Session found for user {email}, session_id: {session.id}, revoked: {session.revoked}")
+            
+            # Check if session is revoked
+            if session.revoked:
+                logger.warning(f"Session revoked for user {email}, session_id: {session.id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has been revoked. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # Check if session is expired
+            now = datetime.now(timezone.utc)
+            if session.expires_at < now:
+                logger.warning(f"Session expired for user {email}, session_id: {session.id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has expired. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # Update last activity
+            try:
+                session.last_activity_at = now
+                db.commit()
+            except Exception as commit_error:
+                # If commit fails, rollback but don't fail authentication
+                db.rollback()
+                logger.warning(f"Failed to update session last_activity_at: {commit_error}")
+        else:
+            # No sessions exist for this user - backward compatibility mode
+            # Allow authentication but log for tracking
+            logger.debug(f"No sessions found for user {email} - allowing authentication (backward compatibility)")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log the error but don't fail authentication for backward compatibility
+        # This allows old tokens (from before session tracking) to still work
+        logger.error(f"Error validating session for user {email}: {e}", exc_info=True)
+        # Continue with authentication for backward compatibility
+    
     logger.debug(f"Authenticated user: {email}, tenant_id: {user.tenant_id}, active: {user.is_active}")
     return user
 
