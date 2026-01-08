@@ -124,12 +124,24 @@ async def revoke_all_sessions(
         
         logger.info(f"User {current_user.email} revoked {revoked_count} sessions (current session included: {current_session_revoked})")
         
-        return {
+        # If current session was revoked, the next API call will return 401
+        # But we should also trigger immediate logout by returning a special status
+        response_data = {
             "message": f"Revoked {revoked_count} sessions",
             "revoked_count": revoked_count,
             "current_session_revoked": current_session_revoked,
             "logout_required": True  # Frontend should logout after this
         }
+        
+        # If current session was revoked, return 401 to force immediate logout
+        if current_session_revoked:
+            raise HTTPException(
+                status_code=401,
+                detail="Your session has been revoked. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        return response_data
         
     except Exception as e:
         logger.error(f"Error revoking all sessions: {e}", exc_info=True)

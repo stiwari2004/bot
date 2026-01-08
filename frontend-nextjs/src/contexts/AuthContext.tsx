@@ -39,20 +39,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUserInfo = useCallback(async (authToken: string) => {
     try {
-      // Add timeout to prevent hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-
+      // Use authFetch so 401 responses are handled automatically
+      const { authFetch } = await import('@/lib/auth-fetch');
+      
       const url: string = apiConfig.endpoints.auth.me();
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken}`,
         },
-        signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
 
       if (response.ok) {
         const userData = await response.json();
@@ -62,14 +58,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setMustChangePassword(userData.must_change_password === true);
         }
         setToken(authToken); // Ensure token is set
+      } else if (response.status === 401) {
+        // 401 handled by authFetch (token cleared, logout event dispatched)
+        setToken(null);
+        setUser(null);
       } else {
-        // Token invalid, clear it
+        // Other error - clear token
         localStorage.removeItem('auth_token');
         setToken(null);
         setUser(null);
       }
     } catch (error) {
-      // On error or timeout, clear token and treat as not authenticated
+      // On error, clear token and treat as not authenticated
       if (error instanceof Error && error.name !== 'AbortError') {
         console.error('Failed to fetch user info:', error);
       }
@@ -80,6 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Always set loading to false, even on error
       setLoading(false);
     }
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('auth_token');
+    setToken(null);
+    setUser(null);
+    setMustChangePassword(false);
   }, []);
 
   // Listen for logout events (e.g., from authFetch when 401 is received)
@@ -94,7 +101,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     window.addEventListener('auth:logout', handleLogout);
     return () => window.removeEventListener('auth:logout', handleLogout);
-  }, []);
+  }, [logout]);
+
+  // Periodically check session status (every 30 seconds)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !token) return;
+    
+    const checkSession = async () => {
+      try {
+        const { authFetch } = await import('@/lib/auth-fetch');
+        const response = await authFetch(apiConfig.endpoints.auth.me());
+        
+        if (!response.ok && response.status === 401) {
+          // Session invalid - logout event will be dispatched by authFetch
+          return;
+        }
+      } catch (error) {
+        // Ignore errors - session check is best effort
+        console.debug('Session check failed:', error);
+      }
+    };
+    
+    // Check immediately, then every 30 seconds
+    checkSession();
+    const interval = setInterval(checkSession, 30000);
+    
+    return () => clearInterval(interval);
+  }, [token]);
 
   // Load token from localStorage on mount (client-side only)
   useEffect(() => {
@@ -162,13 +195,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       throw error;
     }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('auth_token');
-    setToken(null);
-    setUser(null);
-    setMustChangePassword(false);
   };
 
   return (
