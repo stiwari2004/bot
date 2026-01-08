@@ -34,6 +34,7 @@ try:
         monitoring_connections,
         decision,
         resolution,
+        change_tickets,
     )
     connectors = None  # Will be imported separately if available
     try:
@@ -101,6 +102,18 @@ if decision:
     api_router.include_router(decision.router, prefix="/decision", tags=["decision"])
 if resolution:
     api_router.include_router(resolution.router, prefix="/resolution", tags=["resolution"])
+if change_tickets:
+    api_router.include_router(change_tickets.router, prefix="/change-tickets", tags=["change-tickets"])
+
+# User profile and preferences endpoints
+try:
+    from app.api.v1.endpoints import user_profile, user_preferences, user_activity, user_sessions
+    api_router.include_router(user_profile.router, prefix="/auth", tags=["user-profile"])
+    api_router.include_router(user_preferences.router, prefix="/auth", tags=["user-preferences"])
+    api_router.include_router(user_activity.router, prefix="/auth", tags=["user-activity"])
+    api_router.include_router(user_sessions.router, prefix="/auth", tags=["user-sessions"])
+except ImportError:
+    pass
 
 # Super Admin endpoints (platform-level management)
 # Import super_admin_auth separately so it loads even if super_admin doesn't exist

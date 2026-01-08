@@ -13,6 +13,7 @@ from app.models.ticket import Ticket
 from app.services.ticketing_connectors.zoho import ZohoTicketFetcher
 from app.services.ticketing_connectors.manageengine import ManageEngineTicketFetcher
 from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
+from app.services.change_window_service import get_change_window_service
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -306,6 +307,13 @@ class TicketingPoller:
                         db.flush()  # Flush to get ticket ID
                         created_count += 1
                         logger.info(f"✅ Created ticket: {external_id} - {title[:50]}")
+                        
+                        # Check if ticket should be suppressed due to change window
+                        try:
+                            change_window_service = get_change_window_service()
+                            change_window_service.check_and_suppress_ticket(db, new_ticket)
+                        except Exception as e:
+                            logger.warning(f"Failed to check ticket suppression: {e}")
                         
                         # Track billing: ticket received
                         try:

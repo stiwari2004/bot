@@ -32,6 +32,34 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)  # Force password change at next login
     last_login = Column(DateTime(timezone=True), nullable=True)
+    
+    # Password reset fields
+    password_reset_token = Column(String(255), nullable=True, index=True)
+    password_reset_expires = Column(DateTime(timezone=True), nullable=True)
+    email_verified = Column(Boolean, default=False)
+    email_verification_token = Column(String(255), nullable=True, index=True)
+    
+    # Password history and expiration
+    password_history = Column(JSON, nullable=True)  # JSON array of password hashes
+    password_expires_at = Column(DateTime(timezone=True), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Account lockout fields
+    failed_login_attempts = Column(Integer, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_failed_login_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Profile fields
+    avatar_url = Column(String(500), nullable=True)
+    phone_number = Column(String(50), nullable=True)
+    department = Column(String(255), nullable=True)
+    job_title = Column(String(255), nullable=True)
+    timezone = Column(String(50), default='UTC')
+    locale = Column(String(10), default='en-US')
+    
+    # Preferences (JSONB)
+    preferences = Column(JSON, nullable=True, default={})
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

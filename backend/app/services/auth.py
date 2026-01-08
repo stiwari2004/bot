@@ -34,6 +34,12 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def generate_reset_token() -> str:
+    """Generate a secure random token for password reset"""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     """Authenticate a user (email is case-insensitive)"""
     from sqlalchemy import func

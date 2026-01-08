@@ -19,9 +19,11 @@ import {
   UserGroupIcon,
   ServerIcon,
   CurrencyDollarIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 import { Tickets } from '@/features/tickets';
 import { Alerts } from '@/features/alerts';
+import { Changes } from '@/features/changes';
 import { Settings } from '@/features/settings';
 import { AgentWorkspace } from '@/features/agent';
 import { RunbookList } from '@/features/runbooks';
@@ -172,6 +174,7 @@ export default function Home() {
       items: [
         { id: 'tickets', name: 'Ticket Queue', description: 'Tickets from ticketing tools', icon: TicketIcon },
         { id: 'alerts', name: 'Alerts', description: 'Alerts from monitoring tools', icon: BellIcon },
+        { id: 'changes', name: 'Changes', description: 'Active change windows', icon: ClockIcon },
         ...(workspaceEnabled
           ? [
               {
@@ -255,6 +258,8 @@ export default function Home() {
         return <Tickets onSessionLaunched={handleSessionLaunched} />;
       case 'alerts':
         return <Alerts />;
+      case 'changes':
+        return <Changes />;
       case 'agent-workspace':
         return <AgentWorkspace initialSessionId={workspaceSessionId} />;
       case 'executions':

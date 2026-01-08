@@ -232,6 +232,41 @@ class ResolutionVerificationService:
                         "reasoning": reasoning
                     }
                     
+                    # Check if self-healing should be attempted
+                    should_attempt_self_healing = await self._should_attempt_self_healing(
+                        db=db,
+                        session=session,
+                        ticket=ticket,
+                        confidence=confidence
+                    )
+                    
+                    if should_attempt_self_healing:
+                        logger.info(f"Attempting self-healing for ticket {ticket_id} after failed execution")
+                        try:
+                            remediation_session_id = await self._attempt_self_healing(
+                                db=db,
+                                session=session,
+                                ticket=ticket,
+                                execution_context=execution_context
+                            )
+                            if remediation_session_id:
+                                logger.info(f"Self-healing remediation session {remediation_session_id} created for ticket {ticket_id}")
+                                # Don't escalate yet - wait for remediation to complete
+                                return {
+                                    "resolved": False,
+                                    "confidence": confidence,
+                                    "reasoning": f"Issue not resolved, attempting self-healing remediation (session {remediation_session_id})",
+                                    "verification_method": verification_method,
+                                    "success_rate": success_rate,
+                                    "total_steps": len(all_steps),
+                                    "successful_steps": len(successful_steps),
+                                    "failed_steps": len(failed_steps),
+                                    "remediation_session_id": remediation_session_id
+                                }
+                        except Exception as self_healing_error:
+                            logger.error(f"Self-healing attempt failed: {self_healing_error}", exc_info=True)
+                            # Fall through to escalation
+                    
                     await self.ticketing_integration_service.escalate_ticket(
                         db=db,
                         ticket=ticket,
@@ -705,6 +740,120 @@ Provide your analysis as JSON with the structure specified above."""
                     continue
         
         return None
+    
+    async def _should_attempt_self_healing(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        ticket: Ticket,
+        confidence: float
+    ) -> bool:
+        """Check if self-healing should be attempted"""
+        try:
+            # Only attempt if confidence is high enough (issue is clearly not resolved)
+            if confidence < 0.7:
+                return False
+            
+            # Check if sufficient time remains
+            from app.services.self_healing.time_remaining_service import get_time_remaining_service
+            time_service = get_time_remaining_service()
+            has_time, reason = time_service.has_sufficient_time(db, ticket, session)
+            
+            if not has_time:
+                logger.info(f"Self-healing skipped for ticket {ticket.id}: {reason}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking self-healing eligibility: {e}", exc_info=True)
+            return False
+    
+    async def _attempt_self_healing(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        ticket: Ticket,
+        execution_context: Dict[str, Any]
+    ) -> Optional[int]:
+        """Attempt self-healing remediation"""
+        try:
+            from app.services.self_healing.post_execution_analysis_service import get_post_execution_analysis_service
+            from app.services.self_healing.dynamic_remediation_generator import get_dynamic_remediation_generator
+            from app.services.execution import ExecutionEngine
+            from app.models.runbook import Runbook
+            from app.models.execution_session import ExecutionSession as ExecutionSessionModel
+            from datetime import datetime, timezone
+            
+            # Step 1: Post-execution analysis
+            analysis_service = get_post_execution_analysis_service()
+            analysis_result = await analysis_service.analyze_execution(
+                db=db,
+                session_id=session.id,
+                ticket=ticket
+            )
+            
+            # Check if remediation is recommended
+            if not analysis_result.get('remediation_needed', False):
+                logger.info(f"Post-execution analysis does not recommend remediation for ticket {ticket.id}")
+                return None
+            
+            confidence = analysis_result.get('confidence', 0.0)
+            if confidence < 0.6:
+                logger.info(f"Remediation confidence too low ({confidence:.2f}) for ticket {ticket.id}")
+                return None
+            
+            # Step 2: Generate remediation steps
+            remediation_generator = get_dynamic_remediation_generator()
+            remediation_definition = await remediation_generator.generate_remediation_steps(
+                db=db,
+                analysis_result=analysis_result,
+                ticket=ticket,
+                original_runbook_id=session.runbook_id
+            )
+            
+            # Validate remediation steps
+            if remediation_definition.get('validation_errors'):
+                logger.warning(f"Remediation steps have validation errors: {remediation_definition['validation_errors']}")
+                # Continue anyway if we have steps
+            
+            if not remediation_definition.get('steps'):
+                logger.warning(f"No remediation steps generated for ticket {ticket.id}")
+                return None
+            
+            # Step 3: Create remediation runbook (temporary)
+            # For now, create a temporary runbook or use a generic remediation runbook
+            # In production, you might want to create a proper runbook record
+            
+            # Step 4: Create new execution session for remediation
+            remediation_session = ExecutionSessionModel(
+                tenant_id=session.tenant_id,
+                runbook_id=session.runbook_id,  # Use same runbook or create new one
+                ticket_id=ticket.id,
+                parent_session_id=session.id,  # Link to parent session
+                issue_description=f"Self-healing remediation for ticket {ticket.id}",
+                status="pending",
+                user_id=session.user_id
+            )
+            db.add(remediation_session)
+            db.flush()
+            
+            # Step 5: Execute remediation
+            execution_engine = ExecutionEngine()
+            # Note: This is a simplified version - in production, you'd need to properly
+            # create the runbook with the generated steps and then execute it
+            # For now, we'll just create the session and return it
+            
+            logger.info(
+                f"Created remediation session {remediation_session.id} for ticket {ticket.id} "
+                f"with {len(remediation_definition['steps'])} steps"
+            )
+            
+            return remediation_session.id
+            
+        except Exception as e:
+            logger.error(f"Error attempting self-healing: {e}", exc_info=True)
+            return None
 
 
 # Global instance

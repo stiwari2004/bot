@@ -622,3 +622,44 @@ async def delete_tenant_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
 
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/unlock")
+async def unlock_user(
+    tenant_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin)
+):
+    """Unlock a user account that has been locked due to failed login attempts"""
+    from datetime import datetime
+    
+    try:
+        # Verify tenant exists
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        
+        # Get user
+        user = db.query(User).filter(
+            User.id == user_id,
+            User.tenant_id == tenant_id
+        ).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Unlock account
+        user.locked_until = None
+        user.failed_login_attempts = 0
+        user.last_failed_login_at = None
+        db.commit()
+        
+        logger.info(f"Super admin {current_admin.email} unlocked user: {user.email} for tenant: {tenant.name}")
+        
+        return {"message": f"User '{user.email}' has been unlocked successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error unlocking user: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to unlock user: {str(e)}")
+

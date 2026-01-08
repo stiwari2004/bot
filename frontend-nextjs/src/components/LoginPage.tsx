@@ -181,6 +181,15 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
               </Button>
             </div>
 
+            <div className="text-center">
+              <a
+                href="/forgot-password"
+                className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Forgot your password?
+              </a>
+            </div>
+
             <div className="text-center space-y-2">
               {onSkipLogin && isDemoHost && (
                 <Button

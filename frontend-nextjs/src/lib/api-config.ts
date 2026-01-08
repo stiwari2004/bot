@@ -21,6 +21,9 @@ const createEndpoints = (baseUrl: string) => ({
     login: () => `${baseUrl}/api/v1/auth/login`,
     me: () => `${baseUrl}/api/v1/auth/me`,
     changePassword: () => `${baseUrl}/api/v1/auth/change-password`,
+    forgotPassword: () => `${baseUrl}/api/v1/auth/forgot-password`,
+    resetPassword: () => `${baseUrl}/api/v1/auth/reset-password`,
+    verifyEmail: () => `${baseUrl}/api/v1/auth/verify-email`,
   },
   agent: {
     pendingApprovals: () => `${baseUrl}/api/v1/agent/pending-approvals`,
@@ -231,6 +234,22 @@ const createEndpoints = (baseUrl: string) => ({
     nodes: () => `${baseUrl}/api/v1/client-admin/nodes`,
     activateNode: (nodeId: number) => `${baseUrl}/api/v1/client-admin/nodes/${nodeId}/activate`,
     deactivateNode: (nodeId: number) => `${baseUrl}/api/v1/client-admin/nodes/${nodeId}/deactivate`,
+  },
+  changeTickets: {
+    list: (status?: string, activeOnly?: boolean) => {
+      const params = new URLSearchParams();
+      if (status) params.append('status', status);
+      if (activeOnly) params.append('active_only', 'true');
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return `${baseUrl}/api/v1/change-tickets${query}`;
+    },
+    get: (changeTicketId: number) => `${baseUrl}/api/v1/change-tickets/${changeTicketId}`,
+    suppressedTickets: (changeTicketId?: number) => {
+      const query = changeTicketId ? `?change_ticket_id=${changeTicketId}` : '';
+      return `${baseUrl}/api/v1/change-tickets/suppressed-tickets${query}`;
+    },
+    unsuppressTickets: (changeTicketId: number) => 
+      `${baseUrl}/api/v1/change-tickets/${changeTicketId}/unsuppress-tickets`,
   },
   dev: {
     runbooks: {
