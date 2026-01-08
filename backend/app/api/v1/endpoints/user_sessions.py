@@ -20,13 +20,13 @@ logger = get_logger(__name__)
 # Schemas
 class UserSessionResponse(BaseModel):
     id: int
-    ip_address: Optional[str]
-    user_agent: Optional[str]
-    device_info: Optional[dict]
-    last_activity_at: datetime
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    device_info: Optional[dict] = None
+    last_activity_at: Optional[datetime] = None
     expires_at: datetime
     revoked: bool
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

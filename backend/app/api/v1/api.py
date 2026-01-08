@@ -112,8 +112,11 @@ try:
     api_router.include_router(user_preferences.router, prefix="/user", tags=["user-preferences"])
     api_router.include_router(user_activity.router, prefix="/user", tags=["user-activity"])
     api_router.include_router(user_sessions.router, prefix="/user", tags=["user-sessions"])
-except ImportError:
-    pass
+    logger.info("User management endpoints (profile, preferences, activity, sessions) loaded successfully")
+except ImportError as e:
+    logger.warning(f"User management endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading user management endpoints: {e}", exc_info=True)
 
 # Super Admin endpoints (platform-level management)
 # Import super_admin_auth separately so it loads even if super_admin doesn't exist
