@@ -1,7 +1,7 @@
 """
 User Session Management API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -88,13 +88,22 @@ async def revoke_session(
 
 @router.post("/sessions/revoke-all")
 async def revoke_all_sessions(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Revoke all sessions except current one"""
+    """Revoke all sessions (including current one)"""
     try:
-        # Get current session token hash (would need to extract from request)
-        # For now, revoke all sessions
+        import hashlib
+        
+        # Get current session token to identify it
+        current_token_hash = None
+        if request:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.replace("Bearer ", "")
+                current_token_hash = hashlib.sha256(token.encode()).hexdigest()
+        
         now = datetime.now(timezone.utc)
         sessions = db.query(UserSession).filter(
             UserSession.user_id == current_user.id,
@@ -103,16 +112,24 @@ async def revoke_all_sessions(
         ).all()
         
         revoked_count = 0
+        current_session_revoked = False
         for session in sessions:
             session.revoked = True
             session.revoked_at = now
             revoked_count += 1
+            if current_token_hash and session.token_hash == current_token_hash:
+                current_session_revoked = True
         
         db.commit()
         
-        logger.info(f"User {current_user.email} revoked {revoked_count} sessions")
+        logger.info(f"User {current_user.email} revoked {revoked_count} sessions (current session included: {current_session_revoked})")
         
-        return {"message": f"Revoked {revoked_count} sessions", "revoked_count": revoked_count}
+        return {
+            "message": f"Revoked {revoked_count} sessions",
+            "revoked_count": revoked_count,
+            "current_session_revoked": current_session_revoked,
+            "logout_required": True  # Frontend should logout after this
+        }
         
     except Exception as e:
         logger.error(f"Error revoking all sessions: {e}", exc_info=True)

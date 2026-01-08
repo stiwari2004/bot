@@ -112,6 +112,53 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Validate session - check if token corresponds to a valid, non-revoked session
+    try:
+        from app.models.user_session import UserSession
+        import hashlib
+        from datetime import timezone
+        
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        session = db.query(UserSession).filter(
+            UserSession.user_id == user.id,
+            UserSession.token_hash == token_hash
+        ).first()
+        
+        if session:
+            # Check if session is revoked
+            if session.revoked:
+                logger.warning(f"Session revoked for user {email}, session_id: {session.id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has been revoked. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # Check if session is expired
+            now = datetime.now(timezone.utc)
+            if session.expires_at < now:
+                logger.warning(f"Session expired for user {email}, session_id: {session.id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has expired. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # Update last activity
+            session.last_activity_at = now
+            db.commit()
+        else:
+            # Session not found - this might be an old token or token from before session tracking
+            # For backward compatibility, we'll allow it but log a warning
+            logger.debug(f"Session not found for token hash, but allowing authentication for {email} (backward compatibility)")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Don't fail authentication if session validation fails
+        logger.warning(f"Error validating session for user {email}: {e}")
+        # Continue with authentication for backward compatibility
+    
     logger.debug(f"Authenticated user: {email}, tenant_id: {user.tenant_id}, active: {user.is_active}")
     return user
 
