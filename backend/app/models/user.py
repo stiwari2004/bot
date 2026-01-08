@@ -2,6 +2,7 @@
 User model for authentication and authorization
 """
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -40,7 +41,7 @@ class User(Base):
     email_verification_token = Column(String(255), nullable=True, index=True)
     
     # Password history and expiration
-    password_history = Column(JSON, nullable=True)  # JSON array of password hashes
+    password_history = Column(JSONB, nullable=True)  # JSON array of password hashes
     password_expires_at = Column(DateTime(timezone=True), nullable=True)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     
@@ -58,7 +59,7 @@ class User(Base):
     locale = Column(String(10), default='en-US')
     
     # Preferences (JSONB)
-    preferences = Column(JSON, nullable=True, default={})
+    preferences = Column(JSONB, nullable=True, default={})
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
