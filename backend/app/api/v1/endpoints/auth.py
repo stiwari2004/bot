@@ -85,35 +85,36 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Now authenticate
-        user = authenticate_user(db, form_data.username, form_data.password)
-        if not user:
-        # Increment failed login attempts
-        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-        user.last_failed_login_at = datetime.utcnow()
-        
-        # Lock account after 5 failed attempts
-        if user.failed_login_attempts >= 5:
-            user.locked_until = datetime.utcnow() + timedelta(minutes=30)
-            logger.warning(f"Account locked for {form_data.username} after {user.failed_login_attempts} failed attempts")
-        
-        db.commit()
-        logger.warning(f"Login attempt with incorrect password for: {form_data.username} (attempt {user.failed_login_attempts})")
-        
-        # Track failed login in history
-        try:
-            from app.models.user_login_history import UserLoginHistory
-            login_history = UserLoginHistory(
-                user_id=user.id,
-                login_at=datetime.utcnow(),
-                success=False,
-                failure_reason="Incorrect password"
-            )
-            db.add(login_history)
+        # Now authenticate (keep original user reference for failed login tracking)
+        authenticated_user = authenticate_user(db, form_data.username, form_data.password)
+        if not authenticated_user:
+            # Increment failed login attempts
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            user.last_failed_login_at = datetime.utcnow()
+            
+            # Lock account after 5 failed attempts
+            if user.failed_login_attempts >= 5:
+                user.locked_until = datetime.utcnow() + timedelta(minutes=30)
+                logger.warning(f"Account locked for {form_data.username} after {user.failed_login_attempts} failed attempts")
+            
             db.commit()
-        except Exception as e:
-            logger.warning(f"Failed to track failed login: {e}")
-            db.rollback()
+            logger.warning(f"Login attempt with incorrect password for: {form_data.username} (attempt {user.failed_login_attempts})")
+            
+            # Track failed login in history
+            try:
+                from app.models.user_login_history import UserLoginHistory
+                login_history = UserLoginHistory(
+                    user_id=user.id,
+                    login_at=datetime.utcnow(),
+                    success=False,
+                    failure_reason="Incorrect password"
+                )
+                db.add(login_history)
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to track failed login: {e}")
+                db.rollback()
+            
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -121,6 +122,7 @@ async def login(
             )
         
         # Successful login - reset failed attempts and unlock
+        user = authenticated_user
         user.failed_login_attempts = 0
         user.locked_until = None
         user.last_login = datetime.utcnow()
