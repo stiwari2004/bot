@@ -103,7 +103,7 @@ if decision:
 if resolution:
     api_router.include_router(resolution.router, prefix="/resolution", tags=["resolution"])
 if change_tickets:
-    api_router.include_router(change_tickets.router, prefix="", tags=["change-tickets"])
+    api_router.include_router(change_tickets.router, prefix="/change-tickets", tags=["change-tickets"])
 
 # User profile and preferences endpoints
 try:

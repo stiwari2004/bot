@@ -235,6 +235,22 @@ const createEndpoints = (baseUrl: string) => ({
     activateNode: (nodeId: number) => `${baseUrl}/api/v1/client-admin/nodes/${nodeId}/activate`,
     deactivateNode: (nodeId: number) => `${baseUrl}/api/v1/client-admin/nodes/${nodeId}/deactivate`,
   },
+  changeTickets: {
+    list: (status?: string, activeOnly?: boolean) => {
+      const params = new URLSearchParams();
+      if (status) params.append('status', status);
+      if (activeOnly) params.append('active_only', 'true');
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return `${baseUrl}/api/v1/change-tickets${query}`;
+    },
+    get: (changeTicketId: number) => `${baseUrl}/api/v1/change-tickets/${changeTicketId}`,
+    suppressedTickets: (changeTicketId?: number) => {
+      const query = changeTicketId ? `?change_ticket_id=${changeTicketId}` : '';
+      return `${baseUrl}/api/v1/change-tickets/suppressed-tickets${query}`;
+    },
+    unsuppressTickets: (changeTicketId: number) => 
+      `${baseUrl}/api/v1/change-tickets/${changeTicketId}/unsuppress-tickets`,
+  },
   dev: {
     runbooks: {
       list: (statusFilter?: string) => {

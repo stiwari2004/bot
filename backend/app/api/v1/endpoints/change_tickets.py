@@ -55,7 +55,7 @@ class SuppressedTicketResponse(BaseModel):
         from_attributes = True
 
 
-@router.get("/change-tickets", response_model=List[ChangeTicketResponse])
+@router.get("", response_model=List[ChangeTicketResponse])
 async def list_change_tickets(
     status: Optional[str] = Query(None, description="Filter by status"),
     active_only: bool = Query(False, description="Show only active change windows"),
@@ -72,12 +72,10 @@ async def list_change_tickets(
             query = query.filter(ChangeTicket.status == status)
         
         if active_only:
-            now = datetime.now(timezone.utc)
+            # Only filter by status - show all scheduled and in_progress changes
+            # Don't filter by time window as we want to show upcoming scheduled changes too
             query = query.filter(
-                ChangeTicket.status.in_(['scheduled', 'in_progress']),
-                ChangeTicket.suppression_enabled == True,
-                ChangeTicket.start_time <= now,
-                ChangeTicket.end_time >= now
+                ChangeTicket.status.in_(['scheduled', 'in_progress'])
             )
         
         change_tickets = query.order_by(ChangeTicket.start_time.desc()).all()
@@ -89,7 +87,7 @@ async def list_change_tickets(
         raise HTTPException(status_code=500, detail="Failed to list change tickets")
 
 
-@router.get("/change-tickets/{change_ticket_id}", response_model=ChangeTicketResponse)
+@router.get("/{change_ticket_id}", response_model=ChangeTicketResponse)
 async def get_change_ticket(
     change_ticket_id: int,
     db: Session = Depends(get_db),
@@ -114,7 +112,7 @@ async def get_change_ticket(
         raise HTTPException(status_code=500, detail="Failed to get change ticket")
 
 
-@router.get("/change-tickets/suppressed-tickets", response_model=List[SuppressedTicketResponse])
+@router.get("/suppressed-tickets", response_model=List[SuppressedTicketResponse])
 async def list_suppressed_tickets(
     change_ticket_id: Optional[int] = Query(None, description="Filter by change ticket ID"),
     db: Session = Depends(get_db),
@@ -160,7 +158,7 @@ async def list_suppressed_tickets(
         raise HTTPException(status_code=500, detail="Failed to list suppressed tickets")
 
 
-@router.post("/change-tickets/{change_ticket_id}/unsuppress-tickets")
+@router.post("/{change_ticket_id}/unsuppress-tickets")
 async def unsuppress_tickets_for_change(
     change_ticket_id: int,
     db: Session = Depends(get_db),
