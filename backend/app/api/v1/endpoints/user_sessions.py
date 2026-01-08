@@ -3,7 +3,7 @@ User Session Management API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, 
+from typing import List, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel
 
