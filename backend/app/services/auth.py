@@ -145,8 +145,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
                 )
             
             # Update last activity
-            session.last_activity_at = now
-            db.commit()
+            try:
+                session.last_activity_at = now
+                db.commit()
+            except Exception as commit_error:
+                # If commit fails, rollback but don't fail authentication
+                db.rollback()
+                logger.warning(f"Failed to update session last_activity_at: {commit_error}")
         else:
             # Session not found - this might be an old token or token from before session tracking
             # For backward compatibility, we'll allow it but log a warning
@@ -155,8 +160,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     except HTTPException:
         raise
     except Exception as e:
-        # Don't fail authentication if session validation fails
-        logger.warning(f"Error validating session for user {email}: {e}")
+        # Log the error but don't fail authentication for backward compatibility
+        # This allows old tokens (from before session tracking) to still work
+        logger.warning(f"Error validating session for user {email}: {e}", exc_info=True)
         # Continue with authentication for backward compatibility
     
     logger.debug(f"Authenticated user: {email}, tenant_id: {user.tenant_id}, active: {user.is_active}")

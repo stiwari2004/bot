@@ -82,6 +82,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Listen for logout events (e.g., from authFetch when 401 is received)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleLogout = () => {
+      logout();
+      // Force page reload to clear all state
+      window.location.href = '/';
+    };
+    
+    window.addEventListener('auth:logout', handleLogout);
+    return () => window.removeEventListener('auth:logout', handleLogout);
+  }, []);
+
   // Load token from localStorage on mount (client-side only)
   useEffect(() => {
     // Only run on client side
