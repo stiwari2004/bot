@@ -201,4 +201,24 @@ try:
 except ImportError:
     pass  # Deployment approvals module not available
 
+# Provisioning endpoints
+try:
+    from app.api.v1.endpoints import provisioning
+    api_router.include_router(provisioning.router, prefix="/provisioning", tags=["provisioning"])
+    logger.info("Provisioning endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Provisioning endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading provisioning endpoints: {e}", exc_info=True)
+
+# Predictions endpoints
+try:
+    from app.api.v1.endpoints import predictions
+    api_router.include_router(predictions.router, prefix="/predictions", tags=["predictions"])
+    logger.info("Predictions endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Predictions endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading predictions endpoints: {e}", exc_info=True)
+
 

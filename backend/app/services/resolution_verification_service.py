@@ -161,6 +161,26 @@ class ResolutionVerificationService:
                     reasoning = f"Most steps failed ({len(failed_steps)}/{len(all_steps)} steps failed)"
                     verification_method = "step_analysis"
             
+            # Method 2: LLM Analysis of Step Outputs (Enhanced verification)
+            # Use LLM to analyze step outputs and determine if issue is actually resolved
+            llm_analysis_result = await self._analyze_resolution_with_llm(
+                db=db,
+                session=session,
+                ticket=ticket,
+                all_steps=all_steps,
+                initial_resolved=resolved,
+                initial_confidence=confidence,
+                initial_reasoning=reasoning
+            )
+            
+            # If LLM analysis provides higher confidence or different conclusion, use it
+            if llm_analysis_result and llm_analysis_result.get("confidence", 0) > confidence:
+                resolved = llm_analysis_result.get("resolved", resolved)
+                confidence = llm_analysis_result.get("confidence", confidence)
+                reasoning = llm_analysis_result.get("reasoning", reasoning)
+                verification_method = "llm_analysis"
+                logger.info(f"LLM analysis overrode initial verification: resolved={resolved}, confidence={confidence:.2f}")
+            
             # Update ticket status based on verification
             if resolved:
                 self.ticket_status_service.update_ticket_on_execution_complete(
@@ -854,6 +874,141 @@ Provide your analysis as JSON with the structure specified above."""
         except Exception as e:
             logger.error(f"Error attempting self-healing: {e}", exc_info=True)
             return None
+    
+    async def _analyze_resolution_with_llm(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        ticket: Ticket,
+        all_steps: List[ExecutionStep],
+        initial_resolved: bool,
+        initial_confidence: float,
+        initial_reasoning: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Use LLM to analyze step outputs and determine if issue is actually resolved.
+        This provides more nuanced analysis than rule-based verification.
+        
+        Args:
+            db: Database session
+            session: Execution session
+            ticket: Ticket being verified
+            all_steps: All execution steps
+            initial_resolved: Initial resolution status from rule-based analysis
+            initial_confidence: Initial confidence score
+            initial_reasoning: Initial reasoning
+            
+        Returns:
+            {
+                "resolved": bool,
+                "confidence": float,
+                "reasoning": str
+            } or None if LLM analysis fails
+        """
+        try:
+            from app.services.llm_service import get_llm_service
+            
+            # Only use LLM if we have step outputs to analyze
+            steps_with_outputs = [s for s in all_steps if s.output and s.completed]
+            if not steps_with_outputs:
+                logger.debug("No step outputs to analyze with LLM, skipping LLM analysis")
+                return None
+            
+            # Build context for LLM
+            issue_description = ticket.description or ticket.title
+            step_summaries = []
+            for step in steps_with_outputs[:10]:  # Limit to first 10 steps to avoid token limits
+                step_summary = {
+                    "step_name": step.step_name or f"Step {step.step_number}",
+                    "success": step.success,
+                    "output": step.output[:1000] if step.output else "",  # Limit output length
+                    "error": step.error_message[:500] if step.error_message else None
+                }
+                step_summaries.append(step_summary)
+            
+            # Get LLM service
+            llm_service = get_llm_service()
+            
+            # Build prompt for resolution analysis
+            prompt = f"""Analyze whether the following issue has been resolved based on the execution steps.
+
+Issue: {issue_description}
+Ticket: {ticket.title}
+
+Execution Summary:
+- Total steps: {len(all_steps)}
+- Successful: {len([s for s in all_steps if s.success])}
+- Failed: {len([s for s in all_steps if s.success is False])}
+- Initial assessment: {'Resolved' if initial_resolved else 'Not Resolved'} (confidence: {initial_confidence:.2f})
+- Initial reasoning: {initial_reasoning}
+
+Step Details:
+{json.dumps(step_summaries, indent=2)}
+
+Based on the step outputs and execution results, determine:
+1. Is the issue actually resolved? (yes/no)
+2. What is your confidence level? (0.0 to 1.0)
+3. Provide reasoning for your assessment.
+
+Respond in JSON format:
+{{
+    "resolved": true/false,
+    "confidence": 0.0-1.0,
+    "reasoning": "detailed explanation"
+}}"""
+            
+            # Call LLM
+            response_text = await llm_service._chat_once_with_system(
+                system="You are an expert IT operations analyst. Analyze execution results to determine if issues are resolved.",
+                user=prompt,
+                tenant_id=ticket.tenant_id
+            )
+            
+            if not response_text:
+                logger.warning("LLM returned empty response for resolution analysis")
+                return None
+            
+            # Parse LLM response (try JSON first, then extract from text)
+            try:
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{[^{}]*"resolved"[^{}]*\}', response_text, re.DOTALL)
+                if json_match:
+                    analysis_result = json.loads(json_match.group(0))
+                else:
+                    # Try parsing entire response as JSON
+                    analysis_result = json.loads(response_text)
+                
+                # Validate and return result
+                if isinstance(analysis_result, dict):
+                    resolved = analysis_result.get("resolved", initial_resolved)
+                    confidence = float(analysis_result.get("confidence", initial_confidence))
+                    reasoning = analysis_result.get("reasoning", initial_reasoning)
+                    
+                    # Clamp confidence to valid range
+                    confidence = max(0.0, min(1.0, confidence))
+                    
+                    logger.info(
+                        f"LLM analysis for ticket {ticket.id}: "
+                        f"resolved={resolved}, confidence={confidence:.2f}, "
+                        f"reasoning={reasoning[:100]}..."
+                    )
+                    
+                    return {
+                        "resolved": resolved,
+                        "confidence": confidence,
+                        "reasoning": reasoning
+                    }
+            except (json.JSONDecodeError, ValueError, KeyError) as parse_error:
+                logger.warning(f"Failed to parse LLM response for resolution analysis: {parse_error}")
+                logger.debug(f"LLM response: {response_text[:500]}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Error in LLM resolution analysis: {e}", exc_info=True)
+            return None
+        
+        return None
 
 
 # Global instance

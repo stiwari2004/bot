@@ -62,6 +62,16 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     DeploymentApproval = None
 
+# Provisioning models
+try:
+    from app.models.provisioning_project import ProvisioningProject
+    from app.models.provisioned_resource import ProvisionedResource
+    from app.models.infrastructure_template import InfrastructureTemplate
+except ImportError:  # pragma: no cover - optional dependency
+    ProvisioningProject = None
+    ProvisionedResource = None
+    InfrastructureTemplate = None
+
 
 # Export for backward compatibility
 __all__ = [
@@ -101,4 +111,22 @@ if Runbook:
 
 if DeploymentApproval:
     __all__.append("DeploymentApproval")
+
+if ProvisioningProject:
+    __all__.extend(["ProvisioningProject", "ProvisionedResource", "InfrastructureTemplate"])
+
+# Prediction models
+try:
+    from app.models.log_entry import LogEntry
+    from app.models.log_pattern import LogPattern
+    from app.models.prediction import Prediction, PredictionPattern, PredictionModel
+except ImportError:  # pragma: no cover - optional dependency
+    LogEntry = None
+    LogPattern = None
+    Prediction = None
+    PredictionPattern = None
+    PredictionModel = None
+
+if LogEntry:
+    __all__.extend(["LogEntry", "LogPattern", "Prediction", "PredictionPattern", "PredictionModel"])
 
