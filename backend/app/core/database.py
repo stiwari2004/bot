@@ -91,6 +91,14 @@ async def init_db():
             from app.models import deployment_approval  # Deployment approval models
         except ImportError:
             pass
+        try:
+            from app.models import provisioning_project, provisioned_resource, infrastructure_template  # Provisioning models
+        except ImportError:
+            pass
+        try:
+            from app.models import log_entry, log_pattern, prediction  # Prediction models
+        except ImportError:
+            pass
         
         # Enable required PostgreSQL extensions
         with engine.connect() as conn:

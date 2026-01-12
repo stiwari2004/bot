@@ -316,18 +316,122 @@ class NetworkDeviceExecutor:
         vendor: str
     ) -> Dict[str, Any]:
         """Execute command via Telnet"""
-        # TODO: Implement Telnet connection
+        import telnetlib
+        import asyncio
+        from io import StringIO
+        
         management_ip = device.get('management_ip')
         port = device.get('management_port', 23)
+        username = credential.get('username') if credential else None
+        password = credential.get('password') if credential else None
+        
+        if not management_ip:
+            return {
+                'success': False,
+                'error': 'Management IP not provided',
+                'output': '',
+                'exit_code': 1,
+                'protocol': 'telnet',
+                'device_ip': management_ip
+            }
+        
+        if not username or not password:
+            return {
+                'success': False,
+                'error': 'Telnet requires username and password',
+                'output': '',
+                'exit_code': 1,
+                'protocol': 'telnet',
+                'device_ip': management_ip
+            }
         
         logger.info(f"Executing Telnet command on {management_ip}:{port}")
         
-        return {
-            'success': False,
-            'error': 'Telnet execution not yet implemented',
-            'output': '',
-            'exit_code': 1
-        }
+        try:
+            # Run telnet in thread pool to avoid blocking
+            def _run_telnet_command():
+                """Synchronous telnet execution"""
+                tn = None
+                try:
+                    # Connect to device
+                    tn = telnetlib.Telnet(management_ip, port, timeout=timeout)
+                    
+                    # Wait for login prompt (common patterns)
+                    login_prompts = [b'login:', b'Login:', b'Username:', b'username:', b'User Name:']
+                    tn.read_until(login_prompts, timeout=timeout)
+                    tn.write(username.encode('ascii') + b'\n')
+                    
+                    # Wait for password prompt
+                    password_prompts = [b'Password:', b'password:', b'Passwd:']
+                    tn.read_until(password_prompts, timeout=timeout)
+                    tn.write(password.encode('ascii') + b'\n')
+                    
+                    # Wait for command prompt (common patterns)
+                    command_prompts = [b'#', b'$', b'>', b'%']
+                    tn.read_until(command_prompts, timeout=timeout)
+                    
+                    # Send command
+                    tn.write(command.encode('ascii') + b'\n')
+                    
+                    # Read output until prompt appears again
+                    output = tn.read_until(command_prompts, timeout=timeout).decode('ascii', errors='ignore')
+                    
+                    # Clean up output (remove command echo and prompt)
+                    lines = output.split('\n')
+                    # Remove first line (command echo) and last line (prompt)
+                    if len(lines) > 2:
+                        output = '\n'.join(lines[1:-1])
+                    else:
+                        output = output.strip()
+                    
+                    return {
+                        'success': True,
+                        'error': None,
+                        'output': output,
+                        'exit_code': 0,
+                        'protocol': 'telnet',
+                        'device_ip': management_ip
+                    }
+                    
+                except telnetlib.socket.timeout:
+                    return {
+                        'success': False,
+                        'error': f'Telnet connection timeout after {timeout}s',
+                        'output': '',
+                        'exit_code': 1,
+                        'protocol': 'telnet',
+                        'device_ip': management_ip
+                    }
+                except Exception as e:
+                    return {
+                        'success': False,
+                        'error': f'Telnet execution error: {str(e)}',
+                        'output': '',
+                        'exit_code': 1,
+                        'protocol': 'telnet',
+                        'device_ip': management_ip
+                    }
+                finally:
+                    if tn:
+                        try:
+                            tn.close()
+                        except:
+                            pass
+            
+            # Execute in thread pool
+            result = await asyncio.to_thread(_run_telnet_command)
+            return result
+            
+        except Exception as e:
+            logger.error(f"Telnet execution failed for {management_ip}:{port}: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': f'Telnet execution failed: {str(e)}',
+                'output': '',
+                'exit_code': 1,
+                'protocol': 'telnet',
+                'device_ip': management_ip
+            }
     
     async def _execute_api(
         self,

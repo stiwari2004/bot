@@ -98,7 +98,7 @@ async def start_execution(
             issue_description=request.issue_description,
             ticket_id=request.ticket_id,
             user_id=user_id,
-            metadata=request.metadata,
+            metadata=request.metadata,  # Metadata is stored in AgentWorkerAssignment.details and used for context
             auto_start=False  # Don't auto-start here - we'll do it in background
         )
         
