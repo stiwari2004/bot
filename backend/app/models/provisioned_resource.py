@@ -19,7 +19,7 @@ class ProvisionedResource(Base):
     name = Column(String(255), nullable=True)
     provider = Column(String(50), nullable=False)
     region = Column(String(100), nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    resource_metadata = Column("metadata", JSONB, nullable=True)  # Renamed to avoid SQLAlchemy conflict
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

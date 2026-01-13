@@ -170,7 +170,7 @@ class IacProjectService:
                 name=name,
                 provider=provider,
                 region=region,
-                metadata=metadata or {}
+                resource_metadata=metadata or {}
             )
             
             db.add(resource)
