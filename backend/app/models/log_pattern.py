@@ -21,7 +21,7 @@ class LogPattern(Base):
     last_seen = Column(DateTime(timezone=True), nullable=True)
     associated_incidents = Column(Integer, default=0)
     confidence_score = Column(Float, nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    pattern_metadata = Column("metadata", JSONB, nullable=True)  # Renamed to avoid SQLAlchemy conflict
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

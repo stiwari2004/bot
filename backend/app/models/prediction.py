@@ -23,7 +23,7 @@ class Prediction(Base):
     occurred = Column(Boolean, default=False)
     occurred_at = Column(DateTime(timezone=True), nullable=True)
     false_positive = Column(Boolean, default=False)
-    metadata = Column(JSONB, nullable=True)
+    prediction_metadata = Column("metadata", JSONB, nullable=True)  # Renamed to avoid SQLAlchemy conflict
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -65,7 +65,7 @@ class PredictionModel(Base):
     f1_score = Column(Float, nullable=True)
     trained_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
-    metadata = Column(JSONB, nullable=True)
+    model_metadata = Column("metadata", JSONB, nullable=True)  # Renamed to avoid SQLAlchemy conflict
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

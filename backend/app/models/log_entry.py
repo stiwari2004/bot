@@ -23,7 +23,7 @@ class LogEntry(Base):
     timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
     service = Column(String(255), nullable=True, index=True)
     environment = Column(String(50), nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    log_metadata = Column("metadata", JSONB, nullable=True)  # Renamed to avoid SQLAlchemy conflict
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
