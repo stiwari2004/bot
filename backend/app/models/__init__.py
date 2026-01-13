@@ -7,6 +7,12 @@ imported early so SQLAlchemy can register their metadata.
 
 from app.models.ticket import Ticket
 from app.models.alert import Alert
+
+# Change management models
+try:
+    from app.models.change_ticket import ChangeTicket
+except ImportError:
+    ChangeTicket = None
 from app.models.credential import Credential, InfrastructureConnection
 from app.models.execution_session import (
     ExecutionSession,

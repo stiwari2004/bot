@@ -59,6 +59,7 @@ async def init_db():
             runbook_citation,
         )
         from app.models import ticket, alert, credential  # New models for Phase 2
+        from app.models import change_ticket  # Change ticket model (must be imported before ticket relationships are resolved)
         from app.models import execution_session  # Execution tracking + orchestration tables
         from app.models import execution_pattern  # Execution pattern tracking
         from app.models import pattern_feedback  # Pattern feedback tracking
