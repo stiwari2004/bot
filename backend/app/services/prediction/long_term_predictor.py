@@ -2,7 +2,7 @@
 Long-term Predictor - Predict incidents in next 1-7 days
 """
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from app.core.logging import get_logger

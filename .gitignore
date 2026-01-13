@@ -58,6 +58,7 @@ logs/
 
 # Docker
 *.tar
+.docker/buildx/
 
 # Temporary files
 *.tmp
