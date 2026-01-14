@@ -206,10 +206,9 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
                   Demo mode uses public endpoints and doesn't require authentication
                 </p>
               )}
-              {/* Show super admin login link for admin/dev domains */}
+              {/* Show super admin login link only for dev environment, not on production admin portal */}
               {typeof window !== 'undefined' && 
-               (window.location.hostname === 'admin.resolvify.tech' || 
-                window.location.hostname === 'dev.resolvify.tech') && (
+               window.location.hostname === 'dev.resolvify.tech' && (
                 <div className="pt-2 border-t border-neutral-200">
                   <p className="text-xs text-neutral-500 mb-2">
                     Are you a super administrator?
