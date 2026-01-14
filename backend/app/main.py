@@ -72,10 +72,10 @@ async def lifespan(app: FastAPI):
     
     # Start WebSocket cleanup task
     import asyncio
-    from app.api.v1.endpoints.agent_execution import cleanup_idle_connections
+    from app.services.execution.websocket_manager import WebSocketManager
     cleanup_task = None
     try:
-        cleanup_task = asyncio.create_task(cleanup_idle_connections())
+        cleanup_task = asyncio.create_task(WebSocketManager.cleanup_idle_connections())
         logger.info("WebSocket cleanup task started")
     except Exception as e:
         logger.warning(f"Failed to start WebSocket cleanup task: {e}")

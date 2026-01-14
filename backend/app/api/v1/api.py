@@ -91,6 +91,19 @@ if ticket_ingestion:
     api_router.include_router(ticket_ingestion.router, prefix="/tickets", tags=["ticket-ingestion"])
 if agent_execution:
     api_router.include_router(agent_execution.router, prefix="/agent", tags=["agent-execution"])
+    
+    # Execution-related endpoints (WebSocket, debug, Azure debug)
+    try:
+        from app.api.v1.endpoints import execution_websocket, execution_debug, azure_debug
+        api_router.include_router(execution_websocket.router, prefix="/agent", tags=["execution-websocket"])
+        api_router.include_router(execution_debug.router, prefix="/agent", tags=["execution-debug"])
+        api_router.include_router(azure_debug.router, prefix="/agent", tags=["azure-debug"])
+        logger.info("Execution WebSocket and debug endpoints loaded successfully")
+    except ImportError as e:
+        logger.warning(f"Execution WebSocket/debug endpoints not available (ImportError): {e}")
+    except Exception as e:
+        logger.error(f"Error loading execution WebSocket/debug endpoints: {e}", exc_info=True)
+
 api_router.include_router(network.router, prefix="/network", tags=["network"])
 if ticket_csv_upload:
     api_router.include_router(ticket_csv_upload.router, prefix="/tickets", tags=["ticket-csv-upload"])
