@@ -86,4 +86,104 @@ def mock_tenant():
     return tenant
 
 
+@pytest.fixture
+def mock_runbook():
+    """Create a mock runbook for testing"""
+    from unittest.mock import Mock
+    from app.models.runbook import Runbook
+    
+    runbook = Mock(spec=Runbook)
+    runbook.id = 1
+    runbook.tenant_id = 1
+    runbook.title = "Test Runbook"
+    runbook.status = "approved"
+    runbook.is_active = "active"
+    runbook.body_md = "# Test Runbook\nTest content"
+    runbook.meta_data = '{"service": "server", "env": "prod", "risk": "low"}'
+    runbook.confidence = 0.85
+    return runbook
+
+
+@pytest.fixture
+def mock_execution_session():
+    """Create a mock execution session for testing"""
+    from unittest.mock import Mock
+    from app.models.execution_session import ExecutionSession
+    
+    session = Mock(spec=ExecutionSession)
+    session.id = 1
+    session.runbook_id = 1
+    session.tenant_id = 1
+    session.status = "pending"
+    session.current_step = 0
+    session.waiting_for_approval = False
+    session.approval_step_number = None
+    session.ticket_id = None
+    session.started_at = None
+    session.completed_at = None
+    return session
+
+
+@pytest.fixture
+def mock_llm_service():
+    """Create a mock LLM service for testing"""
+    from unittest.mock import AsyncMock, Mock
+    
+    llm = Mock()
+    llm.generate_yaml_runbook = AsyncMock(return_value="runbook_id: test\nsteps: []")
+    llm.generate_content = AsyncMock(return_value="Generated content")
+    llm._chat_once = AsyncMock(return_value="LLM response")
+    return llm
+
+
+@pytest.fixture
+def mock_vector_service():
+    """Create a mock vector store service for testing"""
+    from unittest.mock import AsyncMock, Mock
+    
+    vector_service = Mock()
+    vector_service.hybrid_search = AsyncMock(return_value=[])
+    vector_service.search = AsyncMock(return_value=[])
+    return vector_service
+
+
+@pytest.fixture
+def authenticated_client(client, db):
+    """Create an authenticated test client"""
+    from app.models.user import User
+    from app.models.tenant import Tenant
+    from app.services.auth import get_password_hash, create_access_token
+    
+    # Create test tenant
+    tenant = Tenant(
+        id=1,
+        name="test_tenant",
+        description="Test tenant",
+        is_active=True
+    )
+    db.add(tenant)
+    db.commit()
+    
+    # Create test user
+    user = User(
+        id=1,
+        email="test@example.com",
+        password_hash=get_password_hash("testpassword123"),
+        tenant_id=1,
+        full_name="Test User",
+        role="user",
+        is_active=True
+    )
+    db.add(user)
+    db.commit()
+    
+    # Create access token
+    token = create_access_token(data={"sub": user.email})
+    
+    # Set authorization header
+    client.headers = {"Authorization": f"Bearer {token}"}
+    
+    return client, user
+
+
 
