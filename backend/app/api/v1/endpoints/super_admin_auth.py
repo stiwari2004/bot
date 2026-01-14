@@ -40,8 +40,10 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """Super Admin login endpoint"""
+    logger.info(f"Super admin login attempt for: {form_data.username}")
     super_admin = authenticate_super_admin(db, form_data.username, form_data.password)
     if not super_admin:
+        logger.warning(f"Super admin login failed for: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

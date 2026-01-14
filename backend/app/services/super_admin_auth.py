@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.super_admin import SuperAdmin
 from app.services.auth import verify_password, get_password_hash, create_access_token
+from app.core.logging import get_logger
 
 # OAuth2 scheme for super admin (separate from regular auth)
 super_admin_oauth2_scheme = OAuth2PasswordBearer(
@@ -23,14 +24,37 @@ super_admin_oauth2_scheme = OAuth2PasswordBearer(
 
 def authenticate_super_admin(db: Session, email: str, password: str) -> Optional[SuperAdmin]:
     """Authenticate a super admin"""
-    super_admin = db.query(SuperAdmin).filter(SuperAdmin.email == email).first()
-    if not super_admin:
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    try:
+        # Case-insensitive email lookup
+        from sqlalchemy import func
+        super_admin = db.query(SuperAdmin).filter(func.lower(SuperAdmin.email) == func.lower(email)).first()
+        if not super_admin:
+            logger.warning(f"Super admin not found for email: {email}")
+            return None
+        if not super_admin.is_active:
+            logger.warning(f"Super admin {email} is inactive")
+            return None
+        
+        password_valid = verify_password(password, super_admin.password_hash)
+        if not password_valid:
+            logger.warning(f"Password verification failed for super admin: {email}")
+            logger.debug(f"Hash in DB: {super_admin.password_hash[:50]}...")
+            # Test if hash is valid format
+            try:
+                test_hash = get_password_hash(password)
+                logger.debug(f"New hash would be: {test_hash[:50]}...")
+            except Exception as e:
+                logger.error(f"Error generating test hash: {e}")
+            return None
+        
+        logger.info(f"Super admin {email} authenticated successfully")
+        return super_admin
+    except Exception as e:
+        logger.error(f"Error authenticating super admin {email}: {e}", exc_info=True)
         return None
-    if not super_admin.is_active:
-        return None
-    if not verify_password(password, super_admin.password_hash):
-        return None
-    return super_admin
 
 
 async def get_current_super_admin(
