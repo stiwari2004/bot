@@ -13,9 +13,21 @@ from app.models.user import User
 from app.models.prediction import Prediction
 from app.models.log_entry import LogEntry
 from app.models.log_pattern import LogPattern
-from app.services.prediction.log_ingestion_service import LogIngestionService
-from app.services.prediction.log_pattern_extractor import LogPatternExtractor
-from app.services.prediction.prediction_aggregator import PredictionAggregator
+# Import with error handling
+try:
+    from app.services.prediction.log_ingestion_service import LogIngestionService
+except ImportError:
+    LogIngestionService = None
+
+try:
+    from app.services.prediction.log_pattern_extractor import LogPatternExtractor
+except ImportError:
+    LogPatternExtractor = None
+
+try:
+    from app.services.prediction.prediction_aggregator import PredictionAggregator
+except ImportError:
+    PredictionAggregator = None
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -468,6 +480,9 @@ async def ingest_linux_syslog(
 ):
     """Ingest logs from Linux syslog"""
     try:
+        if LogIngestionService is None:
+            raise HTTPException(status_code=503, detail="Log ingestion service not available")
+        
         ingestion_service = LogIngestionService()
         result = await ingestion_service.ingest_from_linux_syslog(
             log_type=request.log_type,
@@ -493,6 +508,9 @@ async def ingest_journald(
 ):
     """Ingest logs from systemd journal (journalctl)"""
     try:
+        if LogIngestionService is None:
+            raise HTTPException(status_code=503, detail="Log ingestion service not available")
+        
         ingestion_service = LogIngestionService()
         result = await ingestion_service.ingest_from_journald(
             unit=request.unit,
