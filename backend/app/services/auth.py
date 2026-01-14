@@ -42,16 +42,32 @@ def generate_reset_token() -> str:
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     """Authenticate a user (email is case-insensitive)"""
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
     from sqlalchemy import func
-    # Case-insensitive email lookup
-    user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
-    if not user:
+    
+    try:
+        # Case-insensitive email lookup
+        user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
+        if not user:
+            logger.debug(f"User not found for email: {email}")
+            return None
+        
+        if not user.is_active:
+            logger.debug(f"User {email} is inactive")
+            return None  # Inactive users cannot authenticate
+        
+        # Verify password
+        password_valid = verify_password(password, user.password_hash)
+        if not password_valid:
+            logger.debug(f"Password verification failed for user: {email}")
+            return None
+        
+        logger.debug(f"Password verification successful for user: {email}")
+        return user
+    except Exception as e:
+        logger.error(f"Error during authentication for {email}: {e}", exc_info=True)
         return None
-    if not user.is_active:
-        return None  # Inactive users cannot authenticate
-    if not verify_password(password, user.password_hash):
-        return None
-    return user
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):

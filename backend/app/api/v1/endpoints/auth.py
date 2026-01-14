@@ -86,6 +86,7 @@ async def login(
             )
         
         # Now authenticate (keep original user reference for failed login tracking)
+        logger.info(f"Attempting to authenticate user: {form_data.username}")
         authenticated_user = authenticate_user(db, form_data.username, form_data.password)
         if not authenticated_user:
             # Increment failed login attempts
@@ -98,7 +99,11 @@ async def login(
                 logger.warning(f"Account locked for {form_data.username} after {user.failed_login_attempts} failed attempts")
             
             db.commit()
-            logger.warning(f"Login attempt with incorrect password for: {form_data.username} (attempt {user.failed_login_attempts})")
+            logger.warning(
+                f"Login attempt with incorrect password for: {form_data.username} "
+                f"(attempt {user.failed_login_attempts}, user_id: {user.id}, active: {user.is_active}, "
+                f"locked_until: {user.locked_until})"
+            )
             
             # Track failed login in history
             try:

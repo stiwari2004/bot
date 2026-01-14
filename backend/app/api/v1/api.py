@@ -58,6 +58,13 @@ api_router = APIRouter()
 
 # Include all endpoint routers
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
+
+# Debug endpoint for auth issues (only in dev)
+try:
+    from app.api.v1.endpoints import auth_debug
+    api_router.include_router(auth_debug.router, prefix="/debug", tags=["debug"])
+except ImportError:
+    pass
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(runbooks.router, prefix="/runbooks", tags=["runbooks"])
