@@ -5,8 +5,14 @@ import sys
 import os
 
 # Add /app to Python path so we can import app modules
-if '/app' not in sys.path:
-    sys.path.insert(0, '/app')
+# This must be done BEFORE any app imports
+_app_path = '/app'
+if _app_path not in sys.path:
+    sys.path.insert(0, _app_path)
+
+# Verify path was added
+if _app_path not in sys.path:
+    raise ImportError(f"Failed to add {_app_path} to Python path. Current path: {sys.path}")
 
 import pytest
 from sqlalchemy import create_engine

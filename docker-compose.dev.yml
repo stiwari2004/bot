@@ -72,6 +72,7 @@ services:
       - DEBUG=true
       - FRONTEND_BASE_URL=https://dev.resolvify.tech
       - BACKEND_BASE_URL=https://dev.resolvify.tech
+      - PYTHONPATH=/app
     depends_on:
       postgres:
         condition: service_healthy
