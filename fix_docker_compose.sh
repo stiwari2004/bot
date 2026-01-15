@@ -22,9 +22,13 @@ docker container prune -f
 # BUT preserve production network
 echo "4. Pruning Docker system (preserving production network)..."
 # Remove only unused networks, not the production one
-docker network prune -f --filter "name!=bot_app-network"
-# Prune other resources
-docker system prune -f --filter "label!=com.docker.compose.project"
+docker network prune -f 2>/dev/null || true
+# Don't remove bot_app-network
+if docker network inspect bot_app-network >/dev/null 2>&1; then
+    echo "   ✅ Preserved bot_app-network"
+fi
+# Prune other resources (images, containers)
+docker system prune -f 2>/dev/null || true
 
 # Remove specific images if they exist
 echo "5. Removing old images..."
