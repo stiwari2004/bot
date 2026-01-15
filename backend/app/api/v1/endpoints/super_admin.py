@@ -220,16 +220,17 @@ async def create_tenant(
 ):
     """Create a new tenant"""
     try:
-        # Check if tenant name already exists
-        existing = db.query(Tenant).filter(Tenant.name == tenant_data.name).first()
+        # Check if tenant name already exists (case-insensitive)
+        from sqlalchemy import func
+        existing = db.query(Tenant).filter(func.lower(Tenant.name) == func.lower(tenant_data.name)).first()
         if existing:
-            raise HTTPException(status_code=400, detail=f"Tenant with name '{tenant_data.name}' already exists")
+            raise HTTPException(status_code=400, detail=f"Tenant with name '{tenant_data.name}' already exists (ID: {existing.id})")
         
-        # Check subdomain slug if provided
+        # Check subdomain slug if provided (case-insensitive)
         if tenant_data.subdomain_slug:
-            existing_slug = db.query(Tenant).filter(Tenant.subdomain_slug == tenant_data.subdomain_slug).first()
+            existing_slug = db.query(Tenant).filter(func.lower(Tenant.subdomain_slug) == func.lower(tenant_data.subdomain_slug)).first()
             if existing_slug:
-                raise HTTPException(status_code=400, detail=f"Tenant with subdomain '{tenant_data.subdomain_slug}' already exists")
+                raise HTTPException(status_code=400, detail=f"Tenant with subdomain '{tenant_data.subdomain_slug}' already exists (ID: {existing_slug.id}, Name: {existing_slug.name})")
         
         # Create tenant
         tenant = Tenant(
