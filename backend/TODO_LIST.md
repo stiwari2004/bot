@@ -2,27 +2,28 @@
 
 ## High Priority - Critical Functionality
 
-### 1. LLM Analysis for Resolution Verification
-**File**: `backend/app/services/resolution_verification_service.py:258`
-**Context**: 
-```python
-# TODO: Enhance with LLM analysis of step outputs
-```
-**Description**: Currently uses rule-based verification. Should enhance with LLM analysis to better determine if issue is resolved based on step outputs.
-**Impact**: Improves accuracy of resolution detection
-**Effort**: Medium (2-3 days)
-**Dependencies**: LLM service already available
+### 1. ✅ LLM Analysis for Resolution Verification - COMPLETED
+**File**: `backend/app/services/resolution_verification_service.py:878`
+**Status**: ✅ **IMPLEMENTED**
+**Description**: LLM analysis is fully implemented in `_analyze_resolution_with_llm()` method. It analyzes step outputs to determine if issues are resolved, providing more nuanced analysis than rule-based verification. The method is called from `verify_resolution()` and overrides rule-based results when LLM confidence is higher.
+**Implementation Details**:
+- Uses `_chat_once_with_system()` for LLM calls
+- Includes proper error handling and JSON parsing
+- Falls back gracefully if LLM analysis fails
+- Added safety check for method existence
+**Date Completed**: 2026-01-15
 
-### 2. Embedding Model Loading - Non-blocking
-**File**: `backend/app/services/runbook/generation/runbook_indexer.py:58`
-**Context**:
-```python
-# TODO: Re-enable when embedding model loading is made non-blocking
-```
-**Description**: Embedding model loading is currently blocking. Need to make it async/non-blocking to improve startup time.
-**Impact**: Faster application startup, better user experience
-**Effort**: Medium (1-2 days)
-**Dependencies**: May need to refactor embedding service
+### 2. ✅ Embedding Model Loading - Non-blocking - COMPLETED
+**File**: `backend/app/core/vector_store.py:23`
+**Status**: ✅ **IMPLEMENTED**
+**Description**: Embedding model loading is now fully async and non-blocking. The `get_shared_embedding_model()` function uses `asyncio.to_thread()` to load the SentenceTransformer model in a background thread, preventing blocking during application startup.
+**Implementation Details**:
+- Uses `asyncio.to_thread()` for non-blocking model loading
+- Implements proper locking to prevent concurrent loads
+- Includes timeout handling (5 minutes)
+- Model is cached as singleton after first load
+- All embedding operations are async
+**Date Completed**: 2026-01-15
 
 ## Medium Priority - Feature Enhancements
 
