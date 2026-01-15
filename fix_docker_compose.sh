@@ -19,8 +19,12 @@ echo "3. Pruning stopped containers..."
 docker container prune -f
 
 # Prune system (removes unused images, networks, etc.)
-echo "4. Pruning Docker system..."
-docker system prune -f
+# BUT preserve production network
+echo "4. Pruning Docker system (preserving production network)..."
+# Remove only unused networks, not the production one
+docker network prune -f --filter "name!=bot_app-network"
+# Prune other resources
+docker system prune -f --filter "label!=com.docker.compose.project"
 
 # Remove specific images if they exist
 echo "5. Removing old images..."
