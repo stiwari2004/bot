@@ -1,6 +1,13 @@
 """
 Pytest configuration and shared fixtures
 """
+import sys
+import os
+
+# Add /app to Python path so we can import app modules
+if '/app' not in sys.path:
+    sys.path.insert(0, '/app')
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
