@@ -96,10 +96,6 @@ class CompressionMiddleware(BaseHTTPMiddleware):
                 )
                 compressed_response.headers["content-encoding"] = "gzip"
                 compressed_response.headers["content-length"] = str(len(compressed_data))
-                # Remove original content-length if present
-                if "content-length" in response.headers:
-                    del compressed_response.headers["content-length"]
-                compressed_response.headers["content-length"] = str(len(compressed_data))
                 
                 logger.debug(
                     f"Compressed response: {len(body)} -> {len(compressed_data)} bytes "
