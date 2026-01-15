@@ -85,6 +85,7 @@ async def get_current_super_admin(
     # Update last login
     super_admin.last_login = datetime.utcnow()
     db.commit()
+    db.refresh(super_admin)  # Refresh to ensure object is still attached to session
     
     return super_admin
 
