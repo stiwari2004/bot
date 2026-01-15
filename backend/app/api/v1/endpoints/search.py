@@ -22,8 +22,25 @@ async def semantic_search(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Perform semantic search across documents"""
+    """Perform semantic search across documents (cached)"""
+    from app.core.cache import cache_service, cache_key
+    
     try:
+        # Generate cache key from search parameters
+        cache_key_str = cache_key(
+            "search:semantic",
+            current_user.tenant_id,
+            request.query,
+            request.top_k or 10,
+            request.source_types or []
+        )
+        
+        # Try to get from cache
+        cached_result = await cache_service.get(cache_key_str)
+        if cached_result is not None:
+            return SearchResponse(**cached_result)
+        
+        # Perform search
         vector_service = VectorStoreService()
         results = await vector_service.hybrid_search(
             query=request.query,
@@ -47,11 +64,16 @@ async def semantic_search(
                 document_source=result.document_source
             ))
         
-        return SearchResponse(
+        response = SearchResponse(
             query=request.query,
             results=search_results,
             total=len(search_results)
         )
+        
+        # Cache for 15 minutes
+        await cache_service.set(cache_key_str, response.dict(), ttl=900)
+        
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 

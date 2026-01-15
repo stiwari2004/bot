@@ -223,6 +223,9 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RequestIDMiddleware)
 # Proxy headers middleware (before CORS, after RequestID)
 app.add_middleware(ProxyHeadersMiddleware)
+# Security headers middleware (after proxy, before CORS)
+from app.core.security_middleware import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS middleware - Security: Restrict methods and headers
 # In sandbox/dev mode, allow all localhost origins for easier testing

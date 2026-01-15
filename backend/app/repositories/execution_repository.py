@@ -18,10 +18,18 @@ class ExecutionRepository(BaseRepository[ExecutionSession]):
         super().__init__(ExecutionSession, db)
     
     def get_by_id(self, session_id: int) -> Optional[ExecutionSession]:
-        """Get execution session by ID"""
-        return self.db.query(ExecutionSession).filter(
+        """Get execution session by ID with eager loading"""
+        from sqlalchemy.orm import joinedload
+        query = self.db.query(ExecutionSession).filter(
             ExecutionSession.id == session_id
-        ).first()
+        )
+        # Eager load relationships
+        query = query.options(
+            joinedload(ExecutionSession.runbook),
+            joinedload(ExecutionSession.ticket),
+            joinedload(ExecutionSession.steps)
+        )
+        return query.first()
     
     def get_by_tenant(
         self,

@@ -2,11 +2,12 @@
 Repository for runbook data access
 """
 from typing import Optional, List
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from app.models.runbook import Runbook
 from app.repositories.base_repository import BaseRepository
 from app.core.logging import get_logger
+from app.core.performance import QueryOptimizer
 
 logger = get_logger(__name__)
 
@@ -25,9 +26,12 @@ class RunbookRepository(BaseRepository[Runbook]):
         active_only: bool = True,
         environment: Optional[str] = None
     ) -> List[Runbook]:
-        """Get all runbooks for a tenant with pagination"""
+        """Get all runbooks for a tenant with pagination and eager loading"""
         try:
             query = self.db.query(Runbook).filter(Runbook.tenant_id == tenant_id)
+            
+            # Eager load tenant relationship to prevent N+1 queries
+            query = query.options(joinedload(Runbook.tenant))
             
             if active_only:
                 query = query.filter(Runbook.is_active == "active")
@@ -47,13 +51,16 @@ class RunbookRepository(BaseRepository[Runbook]):
         tenant_id: int,
         environment: Optional[str] = None
     ) -> Optional[Runbook]:
-        """Get runbook by ID and tenant"""
+        """Get runbook by ID and tenant with eager loading"""
         query = self.db.query(Runbook).filter(
             and_(
                 Runbook.id == runbook_id,
                 Runbook.tenant_id == tenant_id
             )
         )
+        
+        # Eager load tenant relationship
+        query = query.options(joinedload(Runbook.tenant))
         
         # Filter by environment if specified
         if environment:
@@ -67,7 +74,7 @@ class RunbookRepository(BaseRepository[Runbook]):
         tenant_id: int,
         environment: Optional[str] = None
     ) -> Optional[Runbook]:
-        """Get approved runbook by ID and tenant"""
+        """Get approved runbook by ID and tenant with eager loading"""
         query = self.db.query(Runbook).filter(
             and_(
                 Runbook.id == runbook_id,
@@ -75,6 +82,9 @@ class RunbookRepository(BaseRepository[Runbook]):
                 Runbook.status == "approved"
             )
         )
+        
+        # Eager load tenant relationship
+        query = query.options(joinedload(Runbook.tenant))
         
         # Filter by environment if specified (default to production for approved runbooks)
         if environment:

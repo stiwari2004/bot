@@ -479,9 +479,27 @@ async def list_runbooks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List runbooks for the current tenant"""
+    """List runbooks for the current tenant (cached)"""
+    from app.core.cache import cache_service, cache_key
+    
+    # Generate cache key
+    cache_key_str = cache_key("runbooks:list", current_user.tenant_id, skip, limit)
+    
+    # Try to get from cache
+    cached_result = await cache_service.get(cache_key_str)
+    if cached_result is not None:
+        # Convert dict back to RunbookResponse objects
+        return [RunbookResponse(**item) if isinstance(item, dict) else item for item in cached_result]
+    
+    # Get from database
     controller = RunbookController(db, current_user.tenant_id)
-    return controller.list_runbooks(skip, limit)
+    result = controller.list_runbooks(skip, limit)
+    
+    # Cache for 1 hour (convert to dict for storage)
+    cache_data = [item.dict() if hasattr(item, 'dict') else item for item in result]
+    await cache_service.set(cache_key_str, cache_data, ttl=3600)
+    
+    return result
 
 
 @router.get("/{runbook_id}", response_model=RunbookResponse)
@@ -490,9 +508,27 @@ async def get_runbook(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get a specific runbook by ID"""
+    """Get a specific runbook by ID (cached)"""
+    from app.core.cache import cache_service, cache_key
+    
+    # Generate cache key
+    cache_key_str = cache_key("runbook:get", runbook_id, current_user.tenant_id)
+    
+    # Try to get from cache
+    cached_result = await cache_service.get(cache_key_str)
+    if cached_result is not None:
+        # Convert dict back to RunbookResponse
+        return RunbookResponse(**cached_result) if isinstance(cached_result, dict) else cached_result
+    
+    # Get from database
     controller = RunbookController(db, current_user.tenant_id)
-    return controller.get_runbook(runbook_id)
+    result = controller.get_runbook(runbook_id)
+    
+    # Cache for 1 hour (convert to dict for storage)
+    cache_data = result.dict() if hasattr(result, 'dict') else result
+    await cache_service.set(cache_key_str, cache_data, ttl=3600)
+    
+    return result
 
 
 @router.put("/{runbook_id}", response_model=RunbookResponse)
@@ -502,9 +538,21 @@ async def update_runbook(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update a runbook"""
+    """Update a runbook (invalidates cache)"""
+    from app.core.cache import cache_service, cache_key
+    
     controller = RunbookController(db, current_user.tenant_id)
-    return controller.update_runbook(runbook_id, runbook_update)
+    result = controller.update_runbook(runbook_id, runbook_update)
+    
+    # Invalidate cache for this runbook
+    cache_key_str = cache_key("runbook:get", runbook_id, current_user.tenant_id)
+    await cache_service.delete(cache_key_str)
+    
+    # Invalidate list cache for this tenant
+    list_cache_pattern = f"runbooks:list:{current_user.tenant_id}:*"
+    await cache_service.delete_pattern(list_cache_pattern)
+    
+    return result
 
 
 @router.delete("/{runbook_id}")
@@ -513,9 +561,21 @@ async def delete_runbook(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a runbook (soft delete)"""
+    """Delete a runbook (soft delete, invalidates cache)"""
+    from app.core.cache import cache_service, cache_key
+    
     controller = RunbookController(db, current_user.tenant_id)
-    return controller.delete_runbook(runbook_id)
+    result = controller.delete_runbook(runbook_id)
+    
+    # Invalidate cache for this runbook
+    cache_key_str = cache_key("runbook:get", runbook_id, current_user.tenant_id)
+    await cache_service.delete(cache_key_str)
+    
+    # Invalidate list cache for this tenant
+    list_cache_pattern = f"runbooks:list:{current_user.tenant_id}:*"
+    await cache_service.delete_pattern(list_cache_pattern)
+    
+    return result
 
 
 @router.post("/demo/cleanup-orphaned-references")

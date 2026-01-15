@@ -21,6 +21,7 @@ from app.models.user import User
 from app.core.rate_limiting import rate_limit
 from app.services.email_service import get_email_service
 from app.services.password_validator import get_password_validator
+from app.core.password_policy import PasswordPolicy
 import json
 
 router = APIRouter()
@@ -247,12 +248,22 @@ async def register(
             detail="Email already registered"
         )
     
-    # Create new user (simplified for now)
-    # In production, you'd hash the password and create tenant
+    # Validate password using PasswordPolicy
+    is_valid, errors = PasswordPolicy.validate_password(user_data.password, user_data.email)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="; ".join(errors)
+        )
+    
+    # Hash password
+    password_hash = get_password_hash(user_data.password)
+    
+    # Create new user
     new_user = User(
         tenant_id=1,  # Default tenant for now
         email=user_data.email,
-        password_hash="hashed_password",  # Hash this properly
+        password_hash=password_hash,
         full_name=user_data.full_name,
         role="user"
     )
@@ -282,14 +293,21 @@ async def change_password(
                 detail="Current password is incorrect"
             )
         
-        # Enhanced password validation
-        password_validator = get_password_validator()
-        is_valid, errors = password_validator.validate_password_strength(password_data.new_password)
-        
+        # Enhanced password validation using PasswordPolicy
+        is_valid, errors = PasswordPolicy.validate_password(password_data.new_password, current_user.email)
         if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="; ".join(errors)
+            )
+        
+        # Also use existing password validator for additional checks
+        password_validator = get_password_validator()
+        validator_valid, validator_errors = password_validator.validate_password_strength(password_data.new_password)
+        if not validator_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="; ".join(validator_errors)
             )
         
         # Check password history
@@ -428,14 +446,21 @@ async def reset_password(
                 detail="Invalid or expired reset token"
             )
         
-        # Enhanced password validation
-        password_validator = get_password_validator()
-        is_valid, errors = password_validator.validate_password_strength(request.new_password)
-        
+        # Enhanced password validation using PasswordPolicy
+        is_valid, errors = PasswordPolicy.validate_password(request.new_password, user.email)
         if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="; ".join(errors)
+            )
+        
+        # Also use existing password validator for additional checks
+        password_validator = get_password_validator()
+        validator_valid, validator_errors = password_validator.validate_password_strength(request.new_password)
+        if not validator_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="; ".join(validator_errors)
             )
         
         # Check password history (if exists)

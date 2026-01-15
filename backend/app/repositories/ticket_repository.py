@@ -3,7 +3,7 @@ Repository for ticket data access
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from app.models.ticket import Ticket
 from app.repositories.base_repository import BaseRepository
@@ -24,9 +24,12 @@ class TicketRepository(BaseRepository[Ticket]):
         status: Optional[str] = None,
         limit: int = 50
     ) -> List[Ticket]:
-        """Get all tickets for a tenant, optionally filtered by status"""
+        """Get all tickets for a tenant, optionally filtered by status with eager loading"""
         try:
             query = self.db.query(Ticket).filter(Ticket.tenant_id == tenant_id)
+            
+            # Eager load tenant relationship to prevent N+1 queries
+            query = query.options(joinedload(Ticket.tenant))
             
             if status:
                 # Handle comma-separated status values
@@ -47,13 +50,16 @@ class TicketRepository(BaseRepository[Ticket]):
         ticket_id: int,
         tenant_id: int
     ) -> Optional[Ticket]:
-        """Get ticket by ID and tenant"""
-        return self.db.query(Ticket).filter(
+        """Get ticket by ID and tenant with eager loading"""
+        query = self.db.query(Ticket).filter(
             and_(
                 Ticket.id == ticket_id,
                 Ticket.tenant_id == tenant_id
             )
-        ).first()
+        )
+        # Eager load tenant relationship
+        query = query.options(joinedload(Ticket.tenant))
+        return query.first()
     
     def delete_by_source(
         self,
