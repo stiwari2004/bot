@@ -226,6 +226,9 @@ app.add_middleware(ProxyHeadersMiddleware)
 # Security headers middleware (after proxy, before CORS)
 from app.core.security_middleware import SecurityHeadersMiddleware
 app.add_middleware(SecurityHeadersMiddleware)
+# Compression middleware (after security, before CORS)
+from app.core.compression_middleware import CompressionMiddleware
+app.add_middleware(CompressionMiddleware)
 
 # CORS middleware - Security: Restrict methods and headers
 # In sandbox/dev mode, allow all localhost origins for easier testing
