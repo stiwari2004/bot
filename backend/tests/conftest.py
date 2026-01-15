@@ -15,7 +15,7 @@ if _app_path not in sys.path:
     raise ImportError(f"Failed to add {_app_path} to Python path. Current path: {sys.path}")
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from app.core.database import Base, get_db
 from app.core.config import settings
@@ -23,7 +23,31 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 # Test database URL (use separate test database)
-TEST_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/test_troubleshooting_ai"
+# When running in Docker, use 'postgres' as hostname (Docker service name)
+# When running locally, use 'localhost'
+import os
+
+# Get database password from environment or use default
+# Try to extract from DATABASE_URL first, then fallback to POSTGRES_PASSWORD env var
+_db_password = "dev_password_change_me"  # Default
+_db_host = "postgres"  # Docker service name
+
+# Try to get password from DATABASE_URL if available
+_db_url = os.getenv("DATABASE_URL", "")
+if _db_url and "@" in _db_url:
+    # Extract password from DATABASE_URL format: postgresql://user:password@host:port/db
+    try:
+        _parts = _db_url.split("@")[0].split("://")[1]
+        if ":" in _parts:
+            _db_password = _parts.split(":")[1]
+    except (IndexError, AttributeError):
+        pass
+
+# Allow override via environment variable
+_db_password = os.getenv("POSTGRES_PASSWORD", _db_password)
+_db_host = os.getenv("TEST_DB_HOST", _db_host)
+
+TEST_DATABASE_URL = f"postgresql://postgres:{_db_password}@{_db_host}:5432/test_troubleshooting_ai"
 
 # Create test engine
 test_engine = create_engine(
@@ -39,6 +63,11 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_
 @pytest.fixture(scope="function")
 def db():
     """Create a test database session"""
+    # Enable pgvector extension if not already enabled
+    with test_engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        conn.commit()
+    
     # Create all tables
     Base.metadata.create_all(bind=test_engine)
     
