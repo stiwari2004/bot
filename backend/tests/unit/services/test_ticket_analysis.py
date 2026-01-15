@@ -252,12 +252,13 @@ class TestParseResponse:
         self, ticket_analysis_service
     ):
         """Test parsing JSON wrapped in markdown code block"""
-        response = f"```json\n{json.dumps({
+        json_data = json.dumps({
             'classification': 'false_positive',
             'confidence': 0.8,
             'reasoning': 'Test',
             'suggested_action': 'close'
-        })}\n```"
+        })
+        response = f"```json\n{json_data}\n```"
         
         result = ticket_analysis_service._parse_response(response)
         
