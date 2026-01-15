@@ -929,6 +929,11 @@ Provide your analysis as JSON with the structure specified above."""
             # Get LLM service
             llm_service = get_llm_service()
             
+            # Check if LLM service supports the required method
+            if not hasattr(llm_service, '_chat_once_with_system'):
+                logger.warning("LLM service does not support _chat_once_with_system, skipping LLM analysis")
+                return None
+            
             # Build prompt for resolution analysis
             prompt = f"""Analyze whether the following issue has been resolved based on the execution steps.
 
