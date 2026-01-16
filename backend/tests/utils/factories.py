@@ -47,12 +47,26 @@ class TenantFactory:
     @staticmethod
     def create(
         db,
-        name: str = "test_tenant",
+        name: str = None,
         description: str = "Test tenant",
         is_active: bool = True,
         **kwargs
     ) -> Tenant:
         """Create a test tenant in the database"""
+        # Generate unique name if not provided to avoid conflicts
+        if name is None:
+            import random
+            import string
+            name = f"test_tenant_{''.join(random.choices(string.ascii_lowercase + string.digits, k=8))}"
+        
+        # Check if tenant with this name already exists
+        existing = db.query(Tenant).filter(Tenant.name == name).first()
+        if existing:
+            # If exists, generate a new unique name
+            import random
+            import string
+            name = f"test_tenant_{''.join(random.choices(string.ascii_lowercase + string.digits, k=8))}"
+        
         tenant = Tenant(
             name=name,
             description=description,
@@ -140,6 +154,9 @@ class TicketFactory:
         title: str = "Test Ticket",
         description: str = "Test ticket description",
         status: str = "open",
+        source: str = "test",
+        severity: str = "medium",
+        environment: str = "prod",
         **kwargs
     ) -> Ticket:
         """Create a test ticket in the database"""
@@ -148,6 +165,9 @@ class TicketFactory:
             title=title,
             description=description,
             status=status,
+            source=source,
+            severity=severity,
+            environment=environment,
             **kwargs
         )
         db.add(ticket)
