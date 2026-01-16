@@ -11,7 +11,7 @@ from tests.utils.factories import (
 
 @pytest.mark.integration
 class TestListTicketsEndpoint:
-    """Test GET /api/v1/ticket-ingestion/demo/tickets endpoint"""
+    """Test GET /api/v1/tickets/demo/tickets endpoint"""
     
     def test_list_tickets_returns_tickets(
         self, authenticated_client, db
@@ -33,7 +33,7 @@ class TestListTicketsEndpoint:
             status="resolved"
         )
         
-        response = client.get("/api/v1/ticket-ingestion/demo/tickets")
+        response = client.get("/api/v1/tickets/demo/tickets")
         
         assert response.status_code == 200
         data = response.json()
@@ -60,7 +60,7 @@ class TestListTicketsEndpoint:
         )
         
         response = client.get(
-            "/api/v1/ticket-ingestion/demo/tickets?status=open"
+            "/api/v1/tickets/demo/tickets?status=open"
         )
         
         assert response.status_code == 200
@@ -83,7 +83,7 @@ class TestListTicketsEndpoint:
             )
         
         response = client.get(
-            "/api/v1/ticket-ingestion/demo/tickets?limit=5"
+            "/api/v1/tickets/demo/tickets?limit=5"
         )
         
         assert response.status_code == 200
@@ -93,7 +93,7 @@ class TestListTicketsEndpoint:
 
 @pytest.mark.integration
 class TestGetTicketEndpoint:
-    """Test GET /api/v1/ticket-ingestion/demo/tickets/{ticket_id} endpoint"""
+    """Test GET /api/v1/tickets/demo/tickets/{ticket_id} endpoint"""
     
     def test_get_ticket_returns_ticket_details(
         self, authenticated_client, db
@@ -110,7 +110,7 @@ class TestGetTicketEndpoint:
         )
         
         response = client.get(
-            f"/api/v1/ticket-ingestion/demo/tickets/{ticket.id}"
+            f"/api/v1/tickets/demo/tickets/{ticket.id}"
         )
         
         assert response.status_code == 200
@@ -125,7 +125,7 @@ class TestGetTicketEndpoint:
         """Test getting nonexistent ticket returns 404"""
         client, user = authenticated_client
         
-        response = client.get("/api/v1/ticket-ingestion/demo/tickets/99999")
+        response = client.get("/api/v1/tickets/demo/tickets/99999")
         
         assert response.status_code == 404
     
@@ -159,7 +159,7 @@ class TestGetTicketEndpoint:
         db.commit()
         
         response = client.get(
-            f"/api/v1/ticket-ingestion/demo/tickets/{ticket.id}"
+            f"/api/v1/tickets/demo/tickets/{ticket.id}"
         )
         
         assert response.status_code == 200
@@ -170,7 +170,7 @@ class TestGetTicketEndpoint:
 
 @pytest.mark.integration
 class TestCreateDemoTicketEndpoint:
-    """Test POST /api/v1/ticket-ingestion/demo/ticket endpoint"""
+    """Test POST /api/v1/tickets/demo/ticket endpoint"""
     
     def test_create_demo_ticket_creates_ticket(
         self, client, db
@@ -206,7 +206,7 @@ class TestCreateDemoTicketEndpoint:
                     mock_change.return_value.check_and_suppress_ticket.return_value = False
                     
                     response = client.post(
-                        "/api/v1/ticket-ingestion/demo/ticket",
+                        "/api/v1/tickets/demo/ticket",
                         json=ticket_data
                     )
                     
@@ -232,7 +232,7 @@ class TestCreateDemoTicketEndpoint:
             mock_change.return_value.check_and_suppress_ticket.return_value = True
             
             response = client.post(
-                "/api/v1/ticket-ingestion/demo/ticket",
+                "/api/v1/tickets/demo/ticket",
                 json=ticket_data
             )
             

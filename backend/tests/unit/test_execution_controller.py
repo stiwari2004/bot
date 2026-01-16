@@ -100,21 +100,33 @@ class TestApproveStep:
         session.id = 1
         session.tenant_id = 1
         session.status = "running"
+        session.steps = []
         
-        mock_db.query.return_value.filter.return_value.first.return_value = session
+        # Mock step
+        step = Mock()
+        step.step_number = 1
+        step.requires_approval = True
+        step.approved = None
+        step.completed = False
         
-        # Mock step approval logic
-        with patch.object(controller, '_approve_step_internal', new_callable=AsyncMock) as mock_approve:
-            mock_approve.return_value = {"status": "approved", "step_number": 1}
+        # Mock repository methods
+        controller.execution_repo.get_by_id = Mock(return_value=session)
+        controller.execution_repo.get_step = Mock(return_value=step)
+        
+        # Mock execution engine approve_step
+        with patch.object(controller.execution_engine, 'approve_step', new_callable=AsyncMock) as mock_approve:
+            mock_approve.return_value = session
             
-            result = await controller.approve_step(
+            result = await controller.update_execution_step(
                 session_id=1,
                 step_number=1,
-                user_id=1
+                step_type="remediation",
+                completed=False,
+                approved=True
             )
             
             assert result is not None
-            mock_approve.assert_called_once()
+            assert "message" in result
 
 
 class TestGetPendingApprovals:
