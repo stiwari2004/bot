@@ -12,9 +12,20 @@ NC='\033[0m' # No Color
 
 # Configuration
 COMPOSE_FILE="docker-compose.dev.yml"
-CONTAINER_NAME="bot-dev-backend"
 TEST_OUTPUT_DIR="./test_results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Auto-detect backend container name (handles different naming conventions)
+CONTAINER_NAME=$(docker ps --format "{{.Names}}" | grep -E "(bot-dev-backend|bot_backend|backend)" | head -1)
+if [ -z "$CONTAINER_NAME" ]; then
+    # Fallback: try to find any container with "backend" in the name
+    CONTAINER_NAME=$(docker ps --format "{{.Names}}" | grep -i backend | head -1)
+    if [ -z "$CONTAINER_NAME" ]; then
+        CONTAINER_NAME="bot-dev-backend"  # Default fallback
+        echo -e "${YELLOW}Warning: Could not auto-detect container name, using default: $CONTAINER_NAME${NC}"
+        echo -e "${YELLOW}If this is wrong, set CONTAINER_NAME environment variable before running script${NC}"
+    fi
+fi
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Comprehensive Test Suite Runner${NC}"
@@ -27,12 +38,41 @@ if ! command -v docker-compose &> /dev/null; then
     exit 1
 fi
 
-# Check if backend container is running
-if ! docker-compose -f "$COMPOSE_FILE" ps | grep -q "$CONTAINER_NAME.*Up"; then
-    echo -e "${YELLOW}Warning: Backend container not running. Starting services...${NC}"
-    docker-compose -f "$COMPOSE_FILE" up -d backend postgres redis
-    echo "Waiting for services to be ready..."
-    sleep 10
+echo -e "${GREEN}Using container: $CONTAINER_NAME${NC}"
+echo ""
+
+# Check if backend container is running (using docker ps directly to avoid compose issues)
+if ! docker ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+    echo -e "${YELLOW}Warning: Backend container not running. Attempting to start services...${NC}"
+    
+    # Try to start services, but don't fail if ContainerConfig error occurs
+    if docker-compose -f "$COMPOSE_FILE" up -d backend postgres redis 2>&1 | grep -q "ContainerConfig"; then
+        echo -e "${YELLOW}ContainerConfig error detected. This is a Docker Compose metadata issue.${NC}"
+        echo -e "${YELLOW}Checking if containers are actually running...${NC}"
+        
+        # Re-detect container name in case it's different
+        CONTAINER_NAME=$(docker ps --format "{{.Names}}" | grep -E "(bot-dev-backend|bot_backend|backend)" | head -1)
+        if [ -z "$CONTAINER_NAME" ]; then
+            CONTAINER_NAME=$(docker ps --format "{{.Names}}" | grep -i backend | head -1)
+        fi
+        
+        # Check if containers are actually running despite the error
+        if [ -n "$CONTAINER_NAME" ] && docker ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+            echo -e "${GREEN}Found running container: $CONTAINER_NAME${NC}"
+            echo -e "${GREEN}Containers are running despite the error. Continuing with tests...${NC}"
+        else
+            echo -e "${RED}Containers are not running. Please fix the ContainerConfig issue:${NC}"
+            echo -e "${YELLOW}  Option 1: Restart Docker daemon: sudo systemctl restart docker${NC}"
+            echo -e "${YELLOW}  Option 2: Remove orphaned containers: docker-compose -f $COMPOSE_FILE down --remove-orphans${NC}"
+            echo -e "${YELLOW}  Option 3: Remove and recreate: docker-compose -f $COMPOSE_FILE down && docker-compose -f $COMPOSE_FILE up -d${NC}"
+            exit 1
+        fi
+    else
+        echo "Waiting for services to be ready..."
+        sleep 10
+    fi
+else
+    echo -e "${GREEN}Backend container is already running.${NC}"
 fi
 
 # Create test results directory
@@ -49,7 +89,8 @@ run_test_suite() {
     
     echo -e "${YELLOW}Running $test_type tests...${NC}"
     
-    docker-compose -f "$COMPOSE_FILE" exec -T backend pytest \
+    # Use docker exec directly to avoid ContainerConfig issues
+    docker exec -i "$CONTAINER_NAME" pytest \
         "$test_path" \
         -v \
         --no-cov \
@@ -76,7 +117,15 @@ echo ""
 
 FULL_OUTPUT="$TEST_OUTPUT_DIR/full_test_run_${TIMESTAMP}.txt"
 
-docker-compose -f "$COMPOSE_FILE" exec -T backend pytest \
+# Verify backend container is accessible
+if ! docker exec "$CONTAINER_NAME" echo "Container check" > /dev/null 2>&1; then
+    echo -e "${RED}Error: Cannot access backend container '$CONTAINER_NAME'${NC}"
+    echo -e "${YELLOW}Please ensure the container is running: docker ps | grep $CONTAINER_NAME${NC}"
+    exit 1
+fi
+
+# Use docker exec directly instead of docker-compose exec to avoid ContainerConfig issues
+docker exec -i "$CONTAINER_NAME" pytest \
     tests/ \
     -v \
     --no-cov \
