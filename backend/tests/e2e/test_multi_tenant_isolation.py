@@ -138,20 +138,20 @@ class TestMultiTenantIsolation:
         app.dependency_overrides[get_db] = override_get_db_tenant1
         
         # User1 should see their ticket
-        response1 = client1.get(f"/api/v1/ticket-ingestion/demo/tickets/{ticket1.id}")
+        response1 = client1.get(f"/api/v1/tickets/demo/tickets/{ticket1.id}")
         assert response1.status_code == 200
         
         # User1 should NOT see tenant2's ticket
-        response2 = client1.get(f"/api/v1/ticket-ingestion/demo/tickets/{ticket2.id}")
+        response2 = client1.get(f"/api/v1/tickets/demo/tickets/{ticket2.id}")
         assert response2.status_code == 404
         
         # User2 should see their ticket
         app.dependency_overrides[get_db] = override_get_db_tenant2
-        response3 = client2.get(f"/api/v1/ticket-ingestion/demo/tickets/{ticket2.id}")
+        response3 = client2.get(f"/api/v1/tickets/demo/tickets/{ticket2.id}")
         assert response3.status_code == 200
         
         # User2 should NOT see tenant1's ticket
-        response4 = client2.get(f"/api/v1/ticket-ingestion/demo/tickets/{ticket1.id}")
+        response4 = client2.get(f"/api/v1/tickets/demo/tickets/{ticket1.id}")
         assert response4.status_code == 404
         
         app.dependency_overrides.clear()
