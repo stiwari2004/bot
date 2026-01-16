@@ -78,7 +78,7 @@ class TestInvalidInputHandling:
         """Test that invalid ticket ID returns 404"""
         client, user = authenticated_client
         
-        response = client.get("/api/v1/ticket-ingestion/demo/tickets/99999")
+        response = client.get("/api/v1/tickets/demo/tickets/99999")
         assert response.status_code == 404
     
     def test_invalid_execution_session_id_returns_404(

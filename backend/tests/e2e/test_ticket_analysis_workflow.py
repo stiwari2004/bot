@@ -50,7 +50,7 @@ class TestTicketAnalysisWorkflow:
                     mock_change.return_value.check_and_suppress_ticket.return_value = False
                     
                     create_response = client.post(
-                        "/api/v1/ticket-ingestion/demo/ticket",
+                        "/api/v1/tickets/demo/ticket",
                         json=ticket_data
                     )
                     
@@ -72,7 +72,7 @@ class TestTicketAnalysisWorkflow:
                     
                     # Step 3: Get ticket details
                     get_response = client.get(
-                        f"/api/v1/ticket-ingestion/demo/tickets/{ticket_id}"
+                        f"/api/v1/tickets/demo/tickets/{ticket_id}"
                     )
                     
                     assert get_response.status_code == 200
@@ -108,7 +108,7 @@ class TestTicketAnalysisWorkflow:
                 mock_change.return_value.check_and_suppress_ticket.return_value = False
                 
                 create_response = client.post(
-                    "/api/v1/ticket-ingestion/demo/ticket",
+                    "/api/v1/tickets/demo/ticket",
                     json=ticket_data
                 )
                 
@@ -117,7 +117,7 @@ class TestTicketAnalysisWorkflow:
                 
                 # Verify ticket is classified as false positive
                 get_response = client.get(
-                    f"/api/v1/ticket-ingestion/demo/tickets/{ticket_id}"
+                    f"/api/v1/tickets/demo/tickets/{ticket_id}"
                 )
                 
                 assert get_response.status_code == 200
@@ -218,7 +218,7 @@ class TestTicketToExecutionWorkflow:
                     mock_change.return_value.check_and_suppress_ticket.return_value = False
                     
                     create_response = client.post(
-                        "/api/v1/ticket-ingestion/demo/ticket",
+                        "/api/v1/tickets/demo/ticket",
                         json=ticket_data
                     )
                     
@@ -230,7 +230,7 @@ class TestTicketToExecutionWorkflow:
                         mock_step.return_value.execute_next_step = AsyncMock()
                         
                         execute_response = client.post(
-                            f"/api/v1/ticket-ingestion/demo/tickets/{ticket_id}/execute",
+                            f"/api/v1/tickets/demo/tickets/{ticket_id}/execute",
                             json={
                                 "runbook_id": runbook.id
                             }

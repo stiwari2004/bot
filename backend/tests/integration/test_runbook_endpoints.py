@@ -33,7 +33,7 @@ class TestListRunbooksEndpoint:
             status="draft"
         )
         
-        response = client.get("/api/v1/runbooks/")
+        response = client.get("/api/v1/runbooks/demo")
         
         assert response.status_code == 200
         data = response.json()
@@ -55,7 +55,7 @@ class TestListRunbooksEndpoint:
                 status="approved"
             )
         
-        response = client.get("/api/v1/runbooks/?skip=0&limit=2")
+        response = client.get("/api/v1/runbooks/demo?skip=0&limit=2")
         
         assert response.status_code == 200
         data = response.json()
@@ -82,7 +82,7 @@ class TestListRunbooksEndpoint:
             title="Other Tenant Runbook"
         )
         
-        response = client.get("/api/v1/runbooks/")
+        response = client.get("/api/v1/runbooks/demo")
         
         assert response.status_code == 200
         data = response.json()
@@ -109,7 +109,7 @@ class TestGetRunbookEndpoint:
             status="approved"
         )
         
-        response = client.get(f"/api/v1/runbooks/{runbook.id}")
+        response = client.get(f"/api/v1/runbooks/demo/{runbook.id}")
         
         assert response.status_code == 200
         data = response.json()
@@ -122,7 +122,7 @@ class TestGetRunbookEndpoint:
         """Test getting nonexistent runbook returns 404"""
         client, user = authenticated_client
         
-        response = client.get("/api/v1/runbooks/99999")
+        response = client.get("/api/v1/runbooks/demo/99999")
         
         assert response.status_code == 404
     
@@ -140,7 +140,7 @@ class TestGetRunbookEndpoint:
             title="Other Tenant Runbook"
         )
         
-        response = client.get(f"/api/v1/runbooks/{runbook.id}")
+        response = client.get(f"/api/v1/runbooks/demo/{runbook.id}")
         
         assert response.status_code == 404
 
@@ -163,7 +163,7 @@ class TestUpdateRunbookEndpoint:
         )
         
         response = client.put(
-            f"/api/v1/runbooks/{runbook.id}",
+            f"/api/v1/runbooks/demo/{runbook.id}",
             json={
                 "title": "Updated Title"
             }
@@ -186,7 +186,7 @@ class TestUpdateRunbookEndpoint:
         )
         
         response = client.put(
-            f"/api/v1/runbooks/{runbook.id}",
+            f"/api/v1/runbooks/demo/{runbook.id}",
             json={
                 "body_md": "# Updated Content"
             }
@@ -226,7 +226,7 @@ class TestDeleteRunbookEndpoint:
             title="To Be Deleted"
         )
         
-        response = client.delete(f"/api/v1/runbooks/{runbook.id}")
+        response = client.delete(f"/api/v1/runbooks/demo/{runbook.id}")
         
         assert response.status_code == 200
         data = response.json()
@@ -244,7 +244,7 @@ class TestDeleteRunbookEndpoint:
         """Test deleting nonexistent runbook returns 404"""
         client, user = authenticated_client
         
-        response = client.delete("/api/v1/runbooks/99999")
+        response = client.delete("/api/v1/runbooks/demo/99999")
         
         assert response.status_code == 404
 
