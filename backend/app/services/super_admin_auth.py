@@ -12,17 +12,40 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
-# CRITICAL: Import model MODULES (not classes) in dependency order, exactly like init_db() does
-# This ensures all classes in each module are registered with SQLAlchemy Base before mapper configuration
-# Import order: dependents (TenantBillingConfig, TenantSubscription) before dependees (Tenant)
+# CRITICAL: Import ALL model modules in dependency order, exactly like init_db() does
+# This ensures all classes are registered with SQLAlchemy Base before any query runs
+# SQLAlchemy configures ALL mappers when ANY query is made, so ALL models must be imported first
+from app.models import (
+    tenant,
+    user,
+    document,
+    chunk,
+    embedding,
+    runbook,
+    execution,
+    audit,
+)
+from app.models import super_admin  # Super Admin model
+from app.models import (
+    system_config,
+    runbook_usage,
+    runbook_similarity,
+    runbook_citation,  # Must be imported before citation_verification
+)
+from app.models import ticket, alert, credential
+from app.models import change_ticket  # Must be imported before ticket relationships are resolved
+from app.models import execution_session
+from app.models import execution_pattern
+from app.models import pattern_feedback
+from app.models import runbook_metrics
+from app.models import confidence_breakdown
+from app.models import runbook_version
+from app.models import citation_verification  # Depends on runbook_citation
+from app.models import resolution_flow
+from app.models import decision_analytics
+from app.models import metadata_mapping
 from app.models import tenant_billing_config  # Must be imported before tenant
 from app.models import tenant_subscription  # Must be imported before tenant
-from app.models import change_ticket  # Must be imported before tenant (Tenant references ChangeTicket)
-from app.models import tenant  # Depends on tenant_billing_config, tenant_subscription, change_ticket
-from app.models import user  # Depends on tenant
-from app.models import ticket  # Depends on tenant
-from app.models import alert  # Depends on tenant
-from app.models import super_admin  # No dependencies
 
 # Now import the SuperAdmin class for use
 from app.models.super_admin import SuperAdmin
