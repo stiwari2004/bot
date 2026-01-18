@@ -31,30 +31,12 @@ from app.models import (
     runbook_usage,
     runbook_similarity,
 )
-# Import RunbookCitation CLASS (not module) to ensure it's registered in SQLAlchemy registry
-try:
-    from app.models.runbook_citation import RunbookCitation
-    # #region agent log
-    import json
-    try:
-        with open('/app/.cursor/debug.log', 'a') as f:
-            from app.core.database import Base
-            f.write(json.dumps({
-                "location": "super_admin_auth.py:36",
-                "message": "After importing RunbookCitation class",
-                "data": {
-                    "in_registry": "RunbookCitation" in Base.registry._class_registry
-                },
-                "timestamp": __import__("time").time() * 1000,
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "B"
-            }) + "\n")
-    except Exception:
-        pass
-    # #endregion
-except ImportError:
-    RunbookCitation = None
+from app.models import (
+    system_config,
+    runbook_usage,
+    runbook_similarity,
+    runbook_citation,  # Must be imported before citation_verification (as MODULE, matching init_db)
+)
 from app.models import ticket, alert, credential
 from app.models import change_ticket  # Must be imported before ticket relationships are resolved
 from app.models import execution_session
@@ -63,31 +45,7 @@ from app.models import pattern_feedback
 from app.models import runbook_metrics
 from app.models import confidence_breakdown
 from app.models import runbook_version
-# Import CitationVerification CLASS (not module) to ensure proper registration order
-try:
-    from app.models.citation_verification import CitationVerification
-    # #region agent log
-    import json
-    try:
-        with open('/app/.cursor/debug.log', 'a') as f:
-            from app.core.database import Base
-            f.write(json.dumps({
-                "location": "super_admin_auth.py:52",
-                "message": "After importing CitationVerification class",
-                "data": {
-                    "runbook_citation_in_registry": "RunbookCitation" in Base.registry._class_registry,
-                    "citation_verification_in_registry": "CitationVerification" in Base.registry._class_registry
-                },
-                "timestamp": __import__("time").time() * 1000,
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "C"
-            }) + "\n")
-    except Exception:
-        pass
-    # #endregion
-except ImportError:
-    CitationVerification = None
+from app.models import citation_verification  # Depends on runbook_citation (import as MODULE, matching init_db)
 from app.models import resolution_flow
 from app.models import decision_analytics
 from app.models import metadata_mapping
