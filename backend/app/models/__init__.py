@@ -3,8 +3,16 @@ Database models convenience imports.
 
 This module exposes the most commonly used models and ensures they are
 imported early so SQLAlchemy can register their metadata.
+
+IMPORTANT: Import order matters for SQLAlchemy relationships.
+Import Tenant and User before Ticket to ensure relationships resolve correctly.
 """
 
+# Import core models first (Tenant, User) before models that reference them
+from app.models.tenant import Tenant
+from app.models.user import User
+
+# Now import models that have relationships to Tenant/User
 from app.models.ticket import Ticket
 from app.models.alert import Alert
 
@@ -81,6 +89,8 @@ except ImportError:  # pragma: no cover - optional dependency
 
 # Export for backward compatibility
 __all__ = [
+    "Tenant",
+    "User",
     "Ticket",
     "Alert",
     "Credential",
