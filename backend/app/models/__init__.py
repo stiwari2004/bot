@@ -53,6 +53,11 @@ from app.models.pattern_feedback import PatternFeedback
 from app.models.runbook_metrics import RunbookMetrics
 from app.models.confidence_breakdown import ConfidenceBreakdown
 from app.models.runbook_version import RunbookVersion
+# Import runbook_citation before citation_verification (CitationVerification depends on RunbookCitation)
+try:
+    from app.models.runbook_citation import RunbookCitation
+except ImportError:
+    RunbookCitation = None
 from app.models.citation_verification import CitationVerification
 from app.models.resolution_flow import ResolutionFlow
 from app.models.decision_analytics import DecisionAnalytics
