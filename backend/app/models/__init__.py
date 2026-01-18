@@ -11,16 +11,9 @@ Models that are referenced by relationships must be imported BEFORE the models t
 # CRITICAL: Import models that Tenant depends on FIRST
 # Tenant has relationships to TenantBillingConfig, TenantSubscription, and ChangeTicket
 # These must be imported before Tenant so they're in the registry when Tenant's mapper is configured
-try:
-    from app.models.tenant_billing_config import TenantBillingConfig
-except ImportError:
-    TenantBillingConfig = None
-
-try:
-    from app.models.tenant_subscription import TenantSubscription
-except ImportError:
-    TenantSubscription = None
-
+# MUST import these BEFORE Tenant - no try/except so we fail fast if there's an issue
+from app.models.tenant_billing_config import TenantBillingConfig
+from app.models.tenant_subscription import TenantSubscription
 try:
     from app.models.change_ticket import ChangeTicket
 except ImportError:
@@ -105,6 +98,8 @@ except ImportError:  # pragma: no cover - optional dependency
 
 # Export for backward compatibility
 __all__ = [
+    "TenantBillingConfig",  # Must be exported - Tenant depends on it
+    "TenantSubscription",   # Must be exported - Tenant depends on it
     "Tenant",
     "User",
     "Ticket",
