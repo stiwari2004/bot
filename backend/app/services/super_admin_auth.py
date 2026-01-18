@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+# Import models/__init__.py to ensure all models are registered before relationships are resolved
+# This is critical for SQLAlchemy to resolve relationships correctly
+import app.models  # noqa: F401
 from app.models.super_admin import SuperAdmin
 from app.services.auth import verify_password, get_password_hash, create_access_token
 from app.core.logging import get_logger
