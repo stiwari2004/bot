@@ -15,6 +15,23 @@ from app.core.database import get_db
 # CRITICAL: Import ALL model modules in dependency order, exactly like init_db() does
 # This ensures all classes are registered with SQLAlchemy Base before any query runs
 # SQLAlchemy configures ALL mappers when ANY query is made, so ALL models must be imported first
+
+# #region agent log - Start imports
+import json
+try:
+    with open('/app/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({
+            "location": "super_admin_auth.py:module_load",
+            "message": "Starting model imports at module load time",
+            "timestamp": __import__("time").time() * 1000,
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "E"
+        }) + "\n")
+except Exception:
+    pass
+# #endregion
+
 from app.models import (
     tenant,
     user,
@@ -31,12 +48,53 @@ from app.models import (
     runbook_usage,
     runbook_similarity,
 )
+# #region agent log - Before runbook_citation import
+import json
+try:
+    with open('/app/.cursor/debug.log', 'a') as f:
+        from app.core.database import Base
+        registry_before = list(Base.registry._class_registry.keys())
+        f.write(json.dumps({
+            "location": "super_admin_auth.py:before_runbook_citation",
+            "message": "Registry state before importing runbook_citation",
+            "data": {"registry_classes": sorted(registry_before)},
+            "timestamp": __import__("time").time() * 1000,
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "F"
+        }) + "\n")
+except Exception:
+    pass
+# #endregion
+
 from app.models import (
     system_config,
     runbook_usage,
     runbook_similarity,
     runbook_citation,  # Must be imported before citation_verification (as MODULE, matching init_db)
 )
+
+# #region agent log - After runbook_citation import
+import json
+try:
+    with open('/app/.cursor/debug.log', 'a') as f:
+        from app.core.database import Base
+        registry_after = list(Base.registry._class_registry.keys())
+        f.write(json.dumps({
+            "location": "super_admin_auth.py:after_runbook_citation",
+            "message": "Registry state after importing runbook_citation",
+            "data": {
+                "registry_classes": sorted(registry_after),
+                "has_runbook_citation": "RunbookCitation" in registry_after
+            },
+            "timestamp": __import__("time").time() * 1000,
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "G"
+        }) + "\n")
+except Exception:
+    pass
+# #endregion
 from app.models import ticket, alert, credential
 from app.models import change_ticket  # Must be imported before ticket relationships are resolved
 from app.models import execution_session
@@ -45,7 +103,52 @@ from app.models import pattern_feedback
 from app.models import runbook_metrics
 from app.models import confidence_breakdown
 from app.models import runbook_version
+# #region agent log - Before citation_verification import
+import json
+try:
+    with open('/app/.cursor/debug.log', 'a') as f:
+        from app.core.database import Base
+        registry_before_cv = list(Base.registry._class_registry.keys())
+        f.write(json.dumps({
+            "location": "super_admin_auth.py:before_citation_verification",
+            "message": "Registry state before importing citation_verification",
+            "data": {
+                "registry_classes": sorted(registry_before_cv),
+                "has_runbook_citation": "RunbookCitation" in registry_before_cv
+            },
+            "timestamp": __import__("time").time() * 1000,
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "H"
+        }) + "\n")
+except Exception:
+    pass
+# #endregion
+
 from app.models import citation_verification  # Depends on runbook_citation (import as MODULE, matching init_db)
+
+# #region agent log - After citation_verification import
+import json
+try:
+    with open('/app/.cursor/debug.log', 'a') as f:
+        from app.core.database import Base
+        registry_after_cv = list(Base.registry._class_registry.keys())
+        f.write(json.dumps({
+            "location": "super_admin_auth.py:after_citation_verification",
+            "message": "Registry state after importing citation_verification",
+            "data": {
+                "registry_classes": sorted(registry_after_cv),
+                "has_runbook_citation": "RunbookCitation" in registry_after_cv,
+                "has_citation_verification": "CitationVerification" in registry_after_cv
+            },
+            "timestamp": __import__("time").time() * 1000,
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "I"
+        }) + "\n")
+except Exception:
+    pass
+# #endregion
 from app.models import resolution_flow
 from app.models import decision_analytics
 from app.models import metadata_mapping
@@ -69,27 +172,35 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
     from app.core.logging import get_logger
     logger = get_logger(__name__)
     
-    # #region agent log
+    # #region agent log - Check registry BEFORE query
     import json
     try:
         with open('/app/.cursor/debug.log', 'a') as f:
             from app.core.database import Base
             registry_classes = list(Base.registry._class_registry.keys())
+            # Force import RunbookCitation directly to ensure it's registered
+            try:
+                from app.models.runbook_citation import RunbookCitation
+                runbook_citation_imported = True
+            except ImportError:
+                runbook_citation_imported = False
+            
             f.write(json.dumps({
-                "location": "super_admin_auth.py:66",
-                "message": "SQLAlchemy registry classes before query",
+                "location": "super_admin_auth.py:authenticate_super_admin",
+                "message": "SQLAlchemy registry state before query",
                 "data": {
                     "registry_size": len(registry_classes),
                     "has_runbook_citation": "RunbookCitation" in registry_classes,
                     "has_citation_verification": "CitationVerification" in registry_classes,
-                    "sample_classes": registry_classes[:10]
+                    "runbook_citation_class_imported": runbook_citation_imported,
+                    "all_registry_classes": sorted(registry_classes)
                 },
                 "timestamp": __import__("time").time() * 1000,
                 "sessionId": "debug-session",
                 "runId": "run1",
-                "hypothesisId": "A"
+                "hypothesisId": "D"
             }) + "\n")
-    except Exception:
+    except Exception as e:
         pass
     # #endregion
     
