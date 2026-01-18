@@ -12,19 +12,18 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
-# CRITICAL: Import all models in the correct dependency order to ensure SQLAlchemy relationships resolve
-# This mimics the order used in init_db() to avoid relationship resolution errors
-# Core models first
-from app.models import tenant, user, super_admin
-# Models that Tenant references
-from app.models import tenant_billing_config, tenant_subscription
-from app.models import change_ticket
-# Models that reference Tenant/User
-from app.models import ticket, alert
+# CRITICAL: Import model CLASSES in dependency order to ensure SQLAlchemy relationships resolve
+# SQLAlchemy configures ALL models when ANY query runs, so all dependent models must be registered first
+# Import order matters: dependents must be imported before dependees
+from app.models.tenant_billing_config import TenantBillingConfig  # No dependencies
+from app.models.tenant_subscription import TenantSubscription  # No dependencies  
+from app.models.change_ticket import ChangeTicket  # Depends on Tenant
+from app.models.tenant import Tenant  # Depends on TenantBillingConfig, TenantSubscription, ChangeTicket
+from app.models.user import User  # Depends on Tenant
+from app.models.ticket import Ticket  # Depends on Tenant
+from app.models.alert import Alert  # Depends on Tenant
 
-# Now import app.models to ensure everything else is registered
-import app.models  # noqa: F401
-
+# Now import SuperAdmin (no dependencies on Tenant models)
 from app.models.super_admin import SuperAdmin
 from app.services.auth import verify_password, get_password_hash, create_access_token
 from app.core.logging import get_logger
