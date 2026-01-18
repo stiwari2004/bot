@@ -126,6 +126,9 @@ services:
       - "3005:3000"  # Host 3005 to match nginx upstream for dev.resolvify.tech
     environment:
       - NODE_ENV=development
+      # Required for next.config.js to detect Docker and use backend:8000 instead of localhost:8000
+      - DOCKER=1
+      - IN_DOCKER=1
       # Leave empty to use same-origin (nginx proxies /api to backend)
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
     restart: unless-stopped
