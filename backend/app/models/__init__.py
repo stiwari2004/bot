@@ -5,22 +5,38 @@ This module exposes the most commonly used models and ensures they are
 imported early so SQLAlchemy can register their metadata.
 
 IMPORTANT: Import order matters for SQLAlchemy relationships.
-Import Tenant and User before Ticket to ensure relationships resolve correctly.
+Models that are referenced by relationships must be imported BEFORE the models that reference them.
 """
 
-# Import core models first (Tenant, User) before models that reference them
+# CRITICAL: Import models that Tenant depends on FIRST
+# Tenant has relationships to TenantBillingConfig, TenantSubscription, and ChangeTicket
+# These must be imported before Tenant so they're in the registry when Tenant's mapper is configured
+try:
+    from app.models.tenant_billing_config import TenantBillingConfig
+except ImportError:
+    TenantBillingConfig = None
+
+try:
+    from app.models.tenant_subscription import TenantSubscription
+except ImportError:
+    TenantSubscription = None
+
+try:
+    from app.models.change_ticket import ChangeTicket
+except ImportError:
+    ChangeTicket = None
+
+# Now import Tenant (depends on TenantBillingConfig, TenantSubscription, ChangeTicket)
 from app.models.tenant import Tenant
+
+# Import User (depends on Tenant)
 from app.models.user import User
 
 # Now import models that have relationships to Tenant/User
 from app.models.ticket import Ticket
 from app.models.alert import Alert
 
-# Change management models
-try:
-    from app.models.change_ticket import ChangeTicket
-except ImportError:
-    ChangeTicket = None
+# ChangeTicket already imported above (before Tenant)
 from app.models.credential import Credential, InfrastructureConnection
 from app.models.execution_session import (
     ExecutionSession,
