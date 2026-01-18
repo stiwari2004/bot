@@ -24,9 +24,15 @@ docker ps -a --format "{{.ID}} {{.Names}}" | grep -i bot | awk '{print $1}' | xa
 echo "🖼️  Cleaning up dangling images..."
 docker image prune -f
 
-# Step 5: Remove bot-specific images (but keep base images)
+# Step 5: Remove bot-specific images (aggressive - remove all related images)
 echo "🗑️  Removing bot-specific images..."
-docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" | grep -E "bot|backend|frontend" | awk '{print $2}' | xargs -r docker rmi -f 2>/dev/null || true
+docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" | grep -E "bot|backend|frontend|worker" | awk '{print $2}' | xargs -r docker rmi -f 2>/dev/null || true
+
+# Also remove by exact image names from compose file
+echo "🗑️  Removing images by compose service names..."
+docker-compose -f docker-compose.dev.yml config 2>/dev/null | grep -E "^\s+image:" | awk '{print $2}' | xargs -r docker rmi -f 2>/dev/null || true
+docker rmi bot_backend bot_frontend bot_worker 2>/dev/null || true
+docker rmi $(docker images -f "dangling=true" -q) 2>/dev/null || true
 
 # Step 6: Verify networks are preserved
 echo "✅ Checking networks (should be preserved)..."
