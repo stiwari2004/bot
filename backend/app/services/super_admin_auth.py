@@ -30,8 +30,12 @@ from app.models import (
     system_config,
     runbook_usage,
     runbook_similarity,
-    runbook_citation,  # Must be imported before citation_verification
 )
+# Import RunbookCitation CLASS (not module) to ensure it's registered in SQLAlchemy registry
+try:
+    from app.models.runbook_citation import RunbookCitation
+except ImportError:
+    RunbookCitation = None
 from app.models import ticket, alert, credential
 from app.models import change_ticket  # Must be imported before ticket relationships are resolved
 from app.models import execution_session
@@ -63,6 +67,30 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
     """Authenticate a super admin"""
     from app.core.logging import get_logger
     logger = get_logger(__name__)
+    
+    # #region agent log
+    import json
+    try:
+        with open('/app/.cursor/debug.log', 'a') as f:
+            from app.core.database import Base
+            registry_classes = list(Base.registry._class_registry.keys())
+            f.write(json.dumps({
+                "location": "super_admin_auth.py:66",
+                "message": "SQLAlchemy registry classes before query",
+                "data": {
+                    "registry_size": len(registry_classes),
+                    "has_runbook_citation": "RunbookCitation" in registry_classes,
+                    "has_citation_verification": "CitationVerification" in registry_classes,
+                    "sample_classes": registry_classes[:10]
+                },
+                "timestamp": __import__("time").time() * 1000,
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A"
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion
     
     try:
         # Case-insensitive email lookup
