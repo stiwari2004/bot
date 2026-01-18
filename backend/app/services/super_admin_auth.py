@@ -12,18 +12,19 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
-# CRITICAL: Import model CLASSES in dependency order to ensure SQLAlchemy relationships resolve
-# SQLAlchemy configures ALL models when ANY query runs, so all dependent models must be registered first
-# Import order matters: dependents must be imported before dependees
-from app.models.tenant_billing_config import TenantBillingConfig  # No dependencies
-from app.models.tenant_subscription import TenantSubscription  # No dependencies  
-from app.models.change_ticket import ChangeTicket  # Depends on Tenant
-from app.models.tenant import Tenant  # Depends on TenantBillingConfig, TenantSubscription, ChangeTicket
-from app.models.user import User  # Depends on Tenant
-from app.models.ticket import Ticket  # Depends on Tenant
-from app.models.alert import Alert  # Depends on Tenant
+# CRITICAL: Import model MODULES (not classes) in dependency order, exactly like init_db() does
+# This ensures all classes in each module are registered with SQLAlchemy Base before mapper configuration
+# Import order: dependents (TenantBillingConfig, TenantSubscription) before dependees (Tenant)
+from app.models import tenant_billing_config  # Must be imported before tenant
+from app.models import tenant_subscription  # Must be imported before tenant
+from app.models import change_ticket  # Must be imported before tenant (Tenant references ChangeTicket)
+from app.models import tenant  # Depends on tenant_billing_config, tenant_subscription, change_ticket
+from app.models import user  # Depends on tenant
+from app.models import ticket  # Depends on tenant
+from app.models import alert  # Depends on tenant
+from app.models import super_admin  # No dependencies
 
-# Now import SuperAdmin (no dependencies on Tenant models)
+# Now import the SuperAdmin class for use
 from app.models.super_admin import SuperAdmin
 from app.services.auth import verify_password, get_password_hash, create_access_token
 from app.core.logging import get_logger
