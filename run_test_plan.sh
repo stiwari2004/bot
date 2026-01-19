@@ -42,6 +42,11 @@ if ! docker ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
     exit 1
 fi
 
+# Fix permissions for coverage files (run as root temporarily)
+echo -e "${YELLOW}Fixing permissions for test coverage files...${NC}"
+docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage /tmp/htmlcov && chmod 777 /tmp/coverage /tmp/htmlcov" 2>/dev/null || true
+docker exec "$CONTAINER_NAME" bash -c "rm -f /app/.coverage /tmp/.coverage 2>/dev/null || true" 2>/dev/null || true
+
 # Create test results directory
 mkdir -p "$TEST_OUTPUT_DIR"
 
@@ -57,11 +62,18 @@ run_test_category() {
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
-    docker exec -i "$CONTAINER_NAME" pytest \
+    # Create writable directory for coverage files and fix permissions
+    docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage && chmod 777 /tmp/coverage" 2>/dev/null || true
+    
+    # Set coverage data file to writable location
+    export COVERAGE_FILE=/tmp/coverage/.coverage
+    
+    docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage "$CONTAINER_NAME" pytest \
         "$test_path" \
         -v \
         --tb=short \
         --maxfail=10 \
+        --no-cov \
         2>&1 | tee "$output_file"
     
     local exit_code=${PIPESTATUS[0]}
@@ -92,12 +104,15 @@ run_with_coverage() {
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
-    docker exec -i "$CONTAINER_NAME" pytest \
+    # Create writable directory for coverage files
+    docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage /tmp/htmlcov && chmod 777 /tmp/coverage /tmp/htmlcov" 2>/dev/null || true
+    
+    docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage "$CONTAINER_NAME" pytest \
         "$test_path" \
         -v \
         --cov=app \
         --cov-report=term-missing \
-        --cov-report=html:htmlcov/${category} \
+        --cov-report=html:/tmp/htmlcov/${category} \
         --tb=short \
         2>&1 | tee "$output_file"
     
@@ -164,11 +179,14 @@ echo ""
 
 COVERAGE_OUTPUT="$TEST_OUTPUT_DIR/coverage_report_${TIMESTAMP}.txt"
 
-docker exec -i "$CONTAINER_NAME" pytest \
+# Create writable directory for coverage files
+docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage /tmp/htmlcov && chmod 777 /tmp/coverage /tmp/htmlcov" 2>/dev/null || true
+
+docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage "$CONTAINER_NAME" pytest \
     tests/ \
     --cov=app \
     --cov-report=term-missing \
-    --cov-report=html:htmlcov/full \
+    --cov-report=html:/tmp/htmlcov/full \
     --cov-fail-under=$COVERAGE_THRESHOLD \
     -v \
     --tb=line \
