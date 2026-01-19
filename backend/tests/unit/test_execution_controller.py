@@ -28,24 +28,29 @@ class TestCreateExecutionSession:
     @pytest.mark.asyncio
     async def test_create_session_with_valid_runbook(self, controller, mock_db):
         """Test creating a session with a valid runbook"""
-        # Mock runbook
+        # Mock runbook with all required attributes
         runbook = Mock(spec=Runbook)
         runbook.id = 1
         runbook.tenant_id = 1
         runbook.status = "approved"
         runbook.is_active = "active"
+        runbook.title = "Test Runbook"
+        runbook.body_md = "```yaml\nrunbook_id: test\nsteps: []\n```"  # Required: string, not Mock
         
-        # Mock database query
-        mock_db.query.return_value.filter.return_value.first.return_value = runbook
+        # Mock repository methods
+        controller.runbook_repo.get_approved_by_id_and_tenant = Mock(return_value=runbook)
         
         # Mock session creation
         mock_session = Mock(spec=ExecutionSession)
         mock_session.id = 1
-        mock_db.add = Mock()
-        mock_db.commit = Mock()
-        mock_db.refresh = Mock()
+        mock_session.status = "pending"
+        mock_session.runbook_id = 1
         
-        with patch('app.controllers.execution_controller.ExecutionSession', return_value=mock_session):
+        # Mock execution orchestrator
+        with patch('app.controllers.execution_controller.execution_orchestrator') as mock_orch:
+            mock_orch.enqueue_session = AsyncMock(return_value=mock_session)
+            mock_orch.serialize_session = Mock(return_value={"id": 1, "status": "pending"})
+            
             result = await controller.create_execution_session(
                 runbook_id=1,
                 issue_description="Test issue",
@@ -53,8 +58,8 @@ class TestCreateExecutionSession:
             )
             
             assert result is not None
-            mock_db.add.assert_called_once()
-            mock_db.commit.assert_called_once()
+            assert "id" in result
+            mock_orch.enqueue_session.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_create_session_with_nonexistent_runbook(self, controller, mock_db):
@@ -78,6 +83,7 @@ class TestCreateExecutionSession:
         runbook.tenant_id = 1
         runbook.status = "draft"
         runbook.is_active = "active"
+        runbook.body_md = "```yaml\nrunbook_id: test\nsteps: []\n```"  # Required: string, not Mock
         
         mock_db.query.return_value.filter.return_value.first.return_value = runbook
         

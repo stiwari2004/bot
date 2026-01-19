@@ -24,23 +24,26 @@ echo ""
 echo -e "${YELLOW}Running diagnostic on failing tests...${NC}"
 echo ""
 
+# Fix permissions first
+docker exec "$CONTAINER_NAME" bash -c "rm -f /app/.coverage /tmp/.coverage 2>/dev/null || true" 2>/dev/null || true
+
 # Test 1: Execution Engine - approve_step
 echo -e "${BLUE}1. Testing ExecutionEngine.approve_step...${NC}"
-docker exec "$CONTAINER_NAME" pytest \
+docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
     tests/unit/services/test_execution_engine.py::TestApproveStep::test_approve_step_with_valid_session \
-    -v -s --tb=long 2>&1 | head -50
+    -v -s --tb=long --no-cov -o cache_dir=/tmp/.pytest_cache 2>&1 | head -50
 
 echo ""
 echo -e "${BLUE}2. Testing ExecutionEngine.start_execution...${NC}"
-docker exec "$CONTAINER_NAME" pytest \
+docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
     tests/unit/services/test_execution_engine.py::TestStartExecution::test_start_execution_creates_steps \
-    -v -s --tb=long 2>&1 | head -50
+    -v -s --tb=long --no-cov -o cache_dir=/tmp/.pytest_cache 2>&1 | head -50
 
 echo ""
 echo -e "${BLUE}3. Testing RunbookGeneratorService...${NC}"
-docker exec "$CONTAINER_NAME" pytest \
+docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
     tests/unit/services/test_runbook_generator.py::TestGenerateRunbook::test_generate_runbook_with_valid_description \
-    -v -s --tb=long 2>&1 | head -50
+    -v -s --tb=long --no-cov -o cache_dir=/tmp/.pytest_cache 2>&1 | head -50
 
 echo ""
 echo -e "${YELLOW}Checking ExecutionEngine implementation...${NC}"
