@@ -1,6 +1,7 @@
 services:
   # PostgreSQL with pgvector extension
   postgres:
+    container_name: bot-prod-postgres
     image: pgvector/pgvector:pg15
     environment:
       POSTGRES_DB: troubleshooting_ai
@@ -24,6 +25,7 @@ services:
       - app-network
 
   redis:
+    container_name: bot-prod-redis
     image: redis:7.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
     # Redis is only needed by backend/worker inside the Docker network.
@@ -62,6 +64,7 @@ services:
 
   # FastAPI Backend
   backend:
+    container_name: bot-prod-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -99,6 +102,7 @@ services:
       - app-network
 
   worker:
+    container_name: bot-prod-worker
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -122,6 +126,7 @@ services:
 
   # Next.js Frontend
   frontend:
+    container_name: bot-prod-frontend
     build:
       context: ./frontend-nextjs
       dockerfile: Dockerfile
