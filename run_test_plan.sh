@@ -42,9 +42,9 @@ if ! docker ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
     exit 1
 fi
 
-# Fix permissions for coverage files (run as root temporarily)
-echo -e "${YELLOW}Fixing permissions for test coverage files...${NC}"
-docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage /tmp/htmlcov && chmod 777 /tmp/coverage /tmp/htmlcov" 2>/dev/null || true
+# Fix permissions for coverage files and pytest cache (run as root temporarily)
+echo -e "${YELLOW}Fixing permissions for test files...${NC}"
+docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage /tmp/htmlcov /tmp/.pytest_cache && chmod 777 /tmp/coverage /tmp/htmlcov /tmp/.pytest_cache" 2>/dev/null || true
 docker exec "$CONTAINER_NAME" bash -c "rm -f /app/.coverage /tmp/.coverage 2>/dev/null || true" 2>/dev/null || true
 
 # Create test results directory
@@ -68,12 +68,13 @@ run_test_category() {
     # Set coverage data file to writable location
     export COVERAGE_FILE=/tmp/coverage/.coverage
     
-    docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage "$CONTAINER_NAME" pytest \
+    docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
         "$test_path" \
         -v \
         --tb=short \
         --maxfail=10 \
         --no-cov \
+        -o cache_dir=/tmp/.pytest_cache \
         2>&1 | tee "$output_file"
     
     local exit_code=${PIPESTATUS[0]}
@@ -182,12 +183,13 @@ COVERAGE_OUTPUT="$TEST_OUTPUT_DIR/coverage_report_${TIMESTAMP}.txt"
 # Create writable directory for coverage files
 docker exec "$CONTAINER_NAME" bash -c "mkdir -p /tmp/coverage /tmp/htmlcov && chmod 777 /tmp/coverage /tmp/htmlcov" 2>/dev/null || true
 
-docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage "$CONTAINER_NAME" pytest \
+docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
     tests/ \
     --cov=app \
     --cov-report=term-missing \
     --cov-report=html:/tmp/htmlcov/full \
     --cov-fail-under=$COVERAGE_THRESHOLD \
+    -o cache_dir=/tmp/.pytest_cache \
     -v \
     --tb=line \
     2>&1 | tee "$COVERAGE_OUTPUT"
