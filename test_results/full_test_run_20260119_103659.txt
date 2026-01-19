@@ -1,0 +1,39 @@
+/usr/local/lib/python3.11/site-packages/_pytest/config/__init__.py:331: PluggyTeardownRaisedWarning: A plugin raised an exception during an old-style hookwrapper teardown.
+Plugin: helpconfig, Hook: pytest_cmdline_parse
+ConftestImportFailure: PermissionError: [Errno 13] Permission denied: '.env' (from /app/tests/conftest.py)
+For more information see https://pluggy.readthedocs.io/en/stable/api_reference.html#pluggy.PluggyTeardownRaisedWarning
+  config = pluginmanager.hook.pytest_cmdline_parse(
+ImportError while loading conftest '/app/tests/conftest.py'.
+tests/conftest.py:20: in <module>
+    from app.core.database import Base, get_db
+app/core/database.py:9: in <module>
+    from app.core.config import settings
+app/core/config.py:213: in <module>
+    settings = Settings()
+/usr/local/lib/python3.11/site-packages/pydantic_settings/main.py:72: in __init__
+    **__pydantic_self__._settings_build_values(
+/usr/local/lib/python3.11/site-packages/pydantic_settings/main.py:139: in _settings_build_values
+    dotenv_settings = DotEnvSettingsSource(
+/usr/local/lib/python3.11/site-packages/pydantic_settings/sources.py:570: in __init__
+    super().__init__(settings_cls, case_sensitive, env_prefix, env_nested_delimiter)
+/usr/local/lib/python3.11/site-packages/pydantic_settings/sources.py:377: in __init__
+    self.env_vars = self._load_env_vars()
+/usr/local/lib/python3.11/site-packages/pydantic_settings/sources.py:573: in _load_env_vars
+    return self._read_env_files(self.case_sensitive)
+/usr/local/lib/python3.11/site-packages/pydantic_settings/sources.py:588: in _read_env_files
+    read_env_file(env_path, encoding=self.env_file_encoding, case_sensitive=case_sensitive)
+/usr/local/lib/python3.11/site-packages/pydantic_settings/sources.py:624: in read_env_file
+    file_vars: dict[str, str | None] = dotenv_values(file_path, encoding=encoding or 'utf8')
+/usr/local/lib/python3.11/site-packages/dotenv/main.py:382: in dotenv_values
+    ).dict()
+/usr/local/lib/python3.11/site-packages/dotenv/main.py:75: in dict
+    self._dict = OrderedDict(resolve_variables(raw_values, override=self.override))
+/usr/local/lib/python3.11/site-packages/dotenv/main.py:233: in resolve_variables
+    for (name, value) in values:
+/usr/local/lib/python3.11/site-packages/dotenv/main.py:82: in parse
+    with self._get_stream() as stream:
+/usr/local/lib/python3.11/contextlib.py:137: in __enter__
+    return next(self.gen)
+/usr/local/lib/python3.11/site-packages/dotenv/main.py:55: in _get_stream
+    with open(self.dotenv_path, encoding=self.encoding) as stream:
+E   PermissionError: [Errno 13] Permission denied: '.env'
