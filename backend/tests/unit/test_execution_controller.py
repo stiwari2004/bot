@@ -144,17 +144,39 @@ class TestGetPendingApprovals:
         session1 = Mock(spec=ExecutionSession)
         session1.id = 1
         session1.waiting_for_approval = True
+        session1.approval_step_number = 1
+        session1.runbook_id = 1
         
         session2 = Mock(spec=ExecutionSession)
         session2.id = 2
         session2.waiting_for_approval = True
+        session2.approval_step_number = 2
+        session2.runbook_id = 2
         
-        mock_db.query.return_value.filter.return_value.all.return_value = [session1, session2]
+        # Mock repository methods
+        controller.execution_repo.get_pending_approvals = Mock(return_value=[session1, session2])
+        
+        # Mock step retrieval
+        mock_step1 = Mock()
+        mock_step1.step_type = "remediation"
+        mock_step2 = Mock()
+        mock_step2.step_type = "verification"
+        controller.execution_repo.get_step = Mock(side_effect=[mock_step1, mock_step2])
+        
+        # Mock runbook retrieval
+        mock_runbook1 = Mock()
+        mock_runbook1.title = "Runbook 1"
+        mock_runbook2 = Mock()
+        mock_runbook2.title = "Runbook 2"
+        controller.runbook_repo.get_by_id_and_tenant = Mock(side_effect=[mock_runbook1, mock_runbook2])
         
         result = controller.get_pending_approvals()
         
         assert result is not None
+        assert isinstance(result, list)
         assert len(result) == 2
+        assert result[0]["session_id"] == 1
+        assert result[1]["session_id"] == 2
 
 
 
