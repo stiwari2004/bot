@@ -19,9 +19,10 @@ echo ""
 echo "📋 Production database connectivity:"
 docker exec -it bot-prod-backend python -c "
 from app.core.database import SessionLocal
+from sqlalchemy import text
 try:
     db = SessionLocal()
-    result = db.execute('SELECT 1').scalar()
+    result = db.execute(text('SELECT 1')).scalar()
     print('✅ Database connection: OK')
     db.close()
 except Exception as e:
