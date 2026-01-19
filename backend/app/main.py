@@ -30,11 +30,21 @@ if settings.RATE_LIMIT_ENABLED:
         from slowapi.util import get_remote_address
         from slowapi.errors import RateLimitExceeded
         
-        limiter = Limiter(key_func=get_remote_address)
-        # Set global limiter for use in endpoints
-        from app.core.rate_limiting import set_limiter
-        set_limiter(limiter)
-        logger.info("Rate limiting enabled (slowapi installed)")
+        try:
+            # Try to initialize limiter - it may try to read .env file
+            limiter = Limiter(key_func=get_remote_address)
+            # Set global limiter for use in endpoints
+            from app.core.rate_limiting import set_limiter
+            set_limiter(limiter)
+            logger.info("Rate limiting enabled (slowapi installed)")
+        except PermissionError as e:
+            # If .env file has permission issues, disable rate limiting gracefully
+            logger.warning(
+                f"Rate limiting disabled: Permission denied reading .env file. "
+                f"Error: {e}. Rate limiting will be disabled. "
+                f"This is OK if all required settings are set via environment variables."
+            )
+            limiter = None
     except ImportError:
         logger.warning("Rate limiting disabled: slowapi not installed. Install with: pip install slowapi")
         limiter = None
