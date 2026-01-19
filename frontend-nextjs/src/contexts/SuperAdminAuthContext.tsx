@@ -82,6 +82,7 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     // #region agent log
+    console.log('[DEBUG] Login attempt started', { email, hasPassword: !!password, hostname: typeof window !== 'undefined' ? window.location.hostname : 'server' });
     fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:83',message:'Login attempt started',data:{email,hasPassword:!!password,hostname:typeof window!=='undefined'?window.location.hostname:'server'},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'A'})}).catch(()=>{});
     // #endregion
     const formData = new URLSearchParams();
@@ -90,11 +91,13 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
 
     const loginUrl = apiConfig.endpoints.superAdmin.auth.login();
     // #region agent log
+    console.log('[DEBUG] Login URL determined', { loginUrl, apiBaseUrl: apiConfig.baseUrl, formDataKeys: ['username', 'password'] });
     fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:88',message:'Login URL determined',data:{loginUrl,apiBaseUrl:apiConfig.baseUrl,formDataKeys:['username','password']},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'A'})}).catch(()=>{});
     // #endregion
     
     try {
       // #region agent log
+      console.log('[DEBUG] Fetch request initiated', { method: 'POST', url: loginUrl, hasBody: !!formData.toString() });
       fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:91',message:'Fetch request initiated',data:{method:'POST',url:loginUrl,hasBody:!!formData.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       const response = await fetch(loginUrl, {
@@ -106,6 +109,7 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
       });
 
       // #region agent log
+      console.log('[DEBUG] Response received', { status: response.status, statusText: response.statusText, ok: response.ok, url: response.url });
       fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:99',message:'Response received',data:{status:response.status,statusText:response.statusText,ok:response.ok,url:response.url},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
 
@@ -119,6 +123,7 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
           errorMessage = `Login failed: ${response.status} ${response.statusText}`;
         }
         // #region agent log
+        console.error('[DEBUG] Login failed - error response', { status: response.status, errorMessage, errorBody });
         fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:107',message:'Login failed - error response',data:{status:response.status,errorMessage,errorBody},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
         throw new Error(errorMessage);
@@ -128,6 +133,7 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
       const authToken = data.access_token;
 
       // #region agent log
+      console.log('[DEBUG] Login success - token received', { hasToken: !!authToken, tokenLength: authToken?.length });
       fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:115',message:'Login success - token received',data:{hasToken:!!authToken,tokenLength:authToken?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
 
@@ -140,6 +146,7 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
       await fetchAdminInfo(authToken);
     } catch (error) {
       // #region agent log
+      console.error('[DEBUG] Login exception caught', { errorType: error?.constructor?.name, errorMessage: error instanceof Error ? error.message : String(error), isFetchError: error instanceof TypeError && error.message.includes('fetch') });
       fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:125',message:'Login exception caught',data:{errorType:error?.constructor?.name,errorMessage:error instanceof Error?error.message:String(error),isFetchError:error instanceof TypeError&&error.message.includes('fetch')},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'D'})}).catch(()=>{});
       // #endregion
       if (error instanceof TypeError && error.message.includes('fetch')) {
