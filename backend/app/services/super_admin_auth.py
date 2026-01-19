@@ -19,7 +19,7 @@ from app.core.database import get_db
 # #region agent log - Start imports
 import json
 try:
-    with open('/app/.cursor/debug.log', 'a') as f:
+    with open('/app/super_admin_debug.log', 'a') as f:
         f.write(json.dumps({
             "location": "super_admin_auth.py:module_load",
             "message": "Starting model imports at module load time",
@@ -51,7 +51,7 @@ from app.models import (
 # #region agent log - Before runbook_citation import
 import json
 try:
-    with open('/app/.cursor/debug.log', 'a') as f:
+    with open('/app/super_admin_debug.log', 'a') as f:
         from app.core.database import Base
         registry_before = list(Base.registry._class_registry.keys())
         f.write(json.dumps({
@@ -77,7 +77,7 @@ from app.models import (
 # #region agent log - After runbook_citation import
 import json
 try:
-    with open('/app/.cursor/debug.log', 'a') as f:
+    with open('/app/super_admin_debug.log', 'a') as f:
         from app.core.database import Base
         registry_after = list(Base.registry._class_registry.keys())
         f.write(json.dumps({
@@ -106,7 +106,7 @@ from app.models import runbook_version
 # #region agent log - Before citation_verification import
 import json
 try:
-    with open('/app/.cursor/debug.log', 'a') as f:
+    with open('/app/super_admin_debug.log', 'a') as f:
         from app.core.database import Base
         registry_before_cv = list(Base.registry._class_registry.keys())
         f.write(json.dumps({
@@ -130,7 +130,7 @@ from app.models import citation_verification  # Depends on runbook_citation (imp
 # #region agent log - After citation_verification import
 import json
 try:
-    with open('/app/.cursor/debug.log', 'a') as f:
+    with open('/app/super_admin_debug.log', 'a') as f:
         from app.core.database import Base
         registry_after_cv = list(Base.registry._class_registry.keys())
         f.write(json.dumps({
@@ -175,7 +175,7 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
     # #region agent log - Check registry BEFORE query
     import json
     try:
-        with open('/app/.cursor/debug.log', 'a') as f:
+        with open('/app/super_admin_debug.log', 'a') as f:
             from app.core.database import Base
             registry_classes = list(Base.registry._class_registry.keys())
             # Force import RunbookCitation directly to ensure it's registered
@@ -215,7 +215,76 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
             logger.warning(f"Super admin {email} is inactive")
             return None
         
-        password_valid = verify_password(password, super_admin.password_hash)
+        # #region agent log - Before password verification
+        import json
+        try:
+            with open('/app/super_admin_debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "super_admin_auth.py:before_password_verify",
+                    "message": "About to verify password",
+                    "data": {
+                        "email": email,
+                        "has_password": bool(password),
+                        "password_length": len(password) if password else 0,
+                        "has_hash": bool(super_admin.password_hash),
+                        "hash_length": len(super_admin.password_hash) if super_admin.password_hash else 0,
+                        "hash_preview": super_admin.password_hash[:50] + "..." if super_admin.password_hash and len(super_admin.password_hash) > 50 else (super_admin.password_hash or "NULL")
+                    },
+                    "timestamp": __import__("time").time() * 1000,
+                    "sessionId": "debug-session",
+                    "runId": "password-verify",
+                    "hypothesisId": "H"
+                }) + "\n")
+        except Exception as e:
+            pass
+        # #endregion
+        
+        try:
+            password_valid = verify_password(password, super_admin.password_hash)
+            # #region agent log - After password verification
+            try:
+                with open('/app/super_admin_debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "super_admin_auth.py:after_password_verify",
+                        "message": "Password verification result",
+                        "data": {
+                            "email": email,
+                            "password_valid": password_valid,
+                            "verification_success": password_valid
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": "debug-session",
+                        "runId": "password-verify",
+                        "hypothesisId": "H"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+        except Exception as verify_error:
+            # #region agent log - Password verification exception
+            try:
+                import traceback
+                with open('/app/super_admin_debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "super_admin_auth.py:password_verify_exception",
+                        "message": "Exception during password verification",
+                        "data": {
+                            "email": email,
+                            "error": str(verify_error),
+                            "error_type": type(verify_error).__name__,
+                            "traceback": traceback.format_exc()
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": "debug-session",
+                        "runId": "password-verify",
+                        "hypothesisId": "H"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            logger.error(f"Exception during password verification for {email}: {verify_error}", exc_info=True)
+            password_valid = False
+        
         if not password_valid:
             logger.warning(f"Password verification failed for super admin: {email}")
             logger.debug(f"Hash in DB: {super_admin.password_hash[:50]}...")
@@ -223,6 +292,28 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
             try:
                 test_hash = get_password_hash(password)
                 logger.debug(f"New hash would be: {test_hash[:50]}...")
+                # #region agent log - Test hash generation
+                try:
+                    with open('/app/super_admin_debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "super_admin_auth.py:test_hash_generation",
+                            "message": "Generated test hash for comparison",
+                            "data": {
+                                "email": email,
+                                "test_hash_preview": test_hash[:50] + "..." if len(test_hash) > 50 else test_hash,
+                                "test_hash_length": len(test_hash),
+                                "db_hash_preview": super_admin.password_hash[:50] + "..." if super_admin.password_hash and len(super_admin.password_hash) > 50 else (super_admin.password_hash or "NULL"),
+                                "db_hash_length": len(super_admin.password_hash) if super_admin.password_hash else 0,
+                                "hashes_match": test_hash == super_admin.password_hash
+                            },
+                            "timestamp": __import__("time").time() * 1000,
+                            "sessionId": "debug-session",
+                            "runId": "password-verify",
+                            "hypothesisId": "H"
+                        }) + "\n")
+                except Exception:
+                    pass
+                # #endregion
             except Exception as e:
                 logger.error(f"Error generating test hash: {e}")
             return None

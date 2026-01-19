@@ -26,7 +26,73 @@ http_bearer = HTTPBearer(auto_error=False)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    # #region agent log - Password verification
+    import json
+    try:
+        with open('/app/auth_debug.log', 'a') as f:
+            f.write(json.dumps({
+                "location": "auth.py:verify_password",
+                "message": "Verifying password",
+                "data": {
+                    "has_plain_password": bool(plain_password),
+                    "plain_password_length": len(plain_password) if plain_password else 0,
+                    "has_hashed_password": bool(hashed_password),
+                    "hashed_password_length": len(hashed_password) if hashed_password else 0,
+                    "hashed_password_preview": hashed_password[:50] + "..." if hashed_password and len(hashed_password) > 50 else (hashed_password or "NULL"),
+                    "hash_scheme": hashed_password.split('$')[0] if hashed_password and '$' in hashed_password else "unknown"
+                },
+                "timestamp": __import__("time").time() * 1000,
+                "sessionId": "debug-session",
+                "runId": "password-verify",
+                "hypothesisId": "I"
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion
+    
+    try:
+        result = pwd_context.verify(plain_password, hashed_password)
+        # #region agent log - Verification result
+        try:
+            with open('/app/auth_debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "auth.py:verify_password_result",
+                    "message": "Password verification completed",
+                    "data": {
+                        "result": result,
+                        "verification_success": result
+                    },
+                    "timestamp": __import__("time").time() * 1000,
+                    "sessionId": "debug-session",
+                    "runId": "password-verify",
+                    "hypothesisId": "I"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        return result
+    except Exception as e:
+        # #region agent log - Verification exception
+        try:
+            import traceback
+            with open('/app/auth_debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "auth.py:verify_password_exception",
+                    "message": "Exception during password verification",
+                    "data": {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    },
+                    "timestamp": __import__("time").time() * 1000,
+                    "sessionId": "debug-session",
+                    "runId": "password-verify",
+                    "hypothesisId": "I"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        raise
 
 
 def get_password_hash(password: str) -> str:
