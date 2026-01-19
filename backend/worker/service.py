@@ -32,16 +32,67 @@ class WorkerService:
         backend_base_url: str,
         redis_url: Optional[str] = None,
     ) -> None:
+        import json
+        from datetime import datetime
+        # #region agent log
+        try:
+            with open("/app/worker_debug.log", "a") as f:
+                f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:35", "message": "WorkerService.__init__ entry", "data": {"hypothesisId": "B", "worker_id": worker_id, "backend_base_url": backend_base_url}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+        except: pass
+        # #endregion
+        
         self.worker_id = worker_id
         self.backend_base_url = backend_base_url.rstrip("/")
-        self.queue = RedisQueueClient(redis_url=redis_url or settings.REDIS_URL)
-        self._http_client = httpx.AsyncClient(base_url=self.backend_base_url, timeout=30.0)
+        
+        try:
+            self.queue = RedisQueueClient(redis_url=redis_url or settings.REDIS_URL)
+            # #region agent log
+            try:
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:45", "message": "RedisQueueClient created", "data": {"hypothesisId": "D"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            try:
+                import traceback
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:50", "message": "Failed to create RedisQueueClient", "data": {"hypothesisId": "D", "error": str(e), "traceback": traceback.format_exc()}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+            raise
+        
+        try:
+            self._http_client = httpx.AsyncClient(base_url=self.backend_base_url, timeout=30.0)
+            # #region agent log
+            try:
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:57", "message": "HTTP client created", "data": {"hypothesisId": "C"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            try:
+                import traceback
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:62", "message": "Failed to create HTTP client", "data": {"hypothesisId": "C", "error": str(e), "traceback": traceback.format_exc()}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+            raise
+        
         self._running = False
         self._heartbeat_interval = int(os.getenv("WORKER_HEARTBEAT_INTERVAL", "15"))
         self._last_assignment_id: Optional[int] = None
         self._current_load: int = 0
         self._session_connections: Dict[int, Dict[str, Any]] = {}
         self._cluster_sessions: Dict[str, Dict[str, Any]] = {}
+        
+        # #region agent log
+        try:
+            with open("/app/worker_debug.log", "a") as f:
+                f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:70", "message": "WorkerService.__init__ completed", "data": {"hypothesisId": "B"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+        except: pass
+        # #endregion
 
     async def run(self) -> None:
         """Register worker then begin polling assignment stream."""
@@ -69,6 +120,16 @@ class WorkerService:
             await self.queue.close()
 
     async def register(self) -> None:
+        import json
+        from datetime import datetime
+        import traceback
+        # #region agent log
+        try:
+            with open("/app/worker_debug.log", "a") as f:
+                f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:73", "message": "register() entry", "data": {"hypothesisId": "C"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+        except: pass
+        # #endregion
+        
         payload = {
             "worker_id": self.worker_id,
             "capabilities": os.getenv(
@@ -80,9 +141,38 @@ class WorkerService:
             "max_concurrency": int(os.getenv("WORKER_MAX_CONCURRENCY", "1")),
             "metadata": {"hostname": os.getenv("HOSTNAME")},
         }
-        resp = await self._http_client.post("/api/v1/agent/workers/register", json=payload)
-        resp.raise_for_status()
-        logger.info("Registered worker %s", self.worker_id)
+        
+        # #region agent log
+        try:
+            with open("/app/worker_debug.log", "a") as f:
+                f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:88", "message": "About to POST to register endpoint", "data": {"hypothesisId": "C", "url": f"{self.backend_base_url}/api/v1/agent/workers/register"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+        except: pass
+        # #endregion
+        
+        try:
+            resp = await self._http_client.post("/api/v1/agent/workers/register", json=payload)
+            # #region agent log
+            try:
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:93", "message": "Register response received", "data": {"hypothesisId": "C", "status_code": resp.status_code}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+            resp.raise_for_status()
+            logger.info("Registered worker %s", self.worker_id)
+            # #region agent log
+            try:
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:97", "message": "Worker registered successfully", "data": {"hypothesisId": "C"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            try:
+                with open("/app/worker_debug.log", "a") as f:
+                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:101", "message": "Failed to register worker", "data": {"hypothesisId": "C", "error": str(e), "traceback": traceback.format_exc()}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+            except: pass
+            # #endregion
+            raise
 
     async def _heartbeat_loop(self) -> None:
         while self._running:
