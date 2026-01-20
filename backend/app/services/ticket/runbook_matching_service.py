@@ -113,7 +113,19 @@ class RunbookMatchingService:
         """Get matched runbooks from ticket meta_data, verifying they exist (include archived if they were matched)"""
         matched_runbooks = []
         
-        if not ticket_meta_data or not isinstance(ticket_meta_data, dict):
+        # Handle both dict and JSON string cases (SQLAlchemy JSON columns can sometimes return strings)
+        if not ticket_meta_data:
+            return matched_runbooks
+        
+        # If it's a string, try to parse it as JSON
+        if isinstance(ticket_meta_data, str):
+            try:
+                import json
+                ticket_meta_data = json.loads(ticket_meta_data)
+            except (json.JSONDecodeError, TypeError):
+                return matched_runbooks
+        
+        if not isinstance(ticket_meta_data, dict):
             return matched_runbooks
         
         stored_runbooks = ticket_meta_data.get("matched_runbooks", [])

@@ -151,12 +151,24 @@ async def approve_step(
         tenant_id = get_tenant_id(current_user)
         user_id = current_user.id if current_user else None
         
+        # If step_number not provided, use session's approval_step_number
+        step_number = request.step_number
+        if step_number is None:
+            session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail=f"Execution session {session_id} not found")
+            if session.tenant_id != tenant_id:
+                raise HTTPException(status_code=404, detail=f"Execution session {session_id} not found")
+            step_number = session.approval_step_number
+            if step_number is None:
+                raise HTTPException(status_code=400, detail="Step number not provided and session has no pending approval step")
+        
         # Delegate to controller
         from app.controllers.execution_controller import ExecutionController
         controller = ExecutionController(db, tenant_id=tenant_id)
         result = await controller.approve_step(
             session_id=session_id,
-            step_number=request.step_number,
+            step_number=step_number,
             user_id=user_id,
             approve=request.approve,
             notes=request.notes

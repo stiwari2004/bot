@@ -8,7 +8,7 @@ from datetime import datetime
 
 class TicketAnalysisRequest(BaseModel):
     """Request for ticket analysis"""
-    issue_description: str = Field(..., description="Description of the IT issue")
+    issue_description: str = Field(..., min_length=1, description="Description of the IT issue")
     severity: str = Field(default="medium", description="Issue severity level")
     service_type: Optional[str] = Field(None, description="Service type (server, network, database, etc.)")
     environment: str = Field(default="prod", description="Environment (prod, staging, dev)")
