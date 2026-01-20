@@ -140,9 +140,12 @@ async def revoke_all_sessions(
                 detail="Your session has been revoked. Please log in again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         return response_data
-        
+
+    except HTTPException:
+        # Propagate intentional HTTP error codes (e.g. 401) without wrapping
+        raise
     except Exception as e:
         logger.error(f"Error revoking all sessions: {e}", exc_info=True)
         db.rollback()
