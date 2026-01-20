@@ -95,7 +95,7 @@ async def login(
         if not authenticated_user:
             # Increment failed login attempts
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-            user.last_failed_login_at = datetime.utcnow()
+            user.last_failed_login_at = datetime.now(timezone.utc)
             
             # Lock account after 5 failed attempts
             if user.failed_login_attempts >= 5:
@@ -114,7 +114,7 @@ async def login(
                 from app.models.user_login_history import UserLoginHistory
                 login_history = UserLoginHistory(
                     user_id=user.id,
-                    login_at=datetime.utcnow(),
+                    login_at=datetime.now(timezone.utc),
                     success=False,
                     failure_reason="Incorrect password"
                 )
@@ -150,7 +150,7 @@ async def login(
             
             login_history = UserLoginHistory(
                 user_id=user.id,
-                login_at=datetime.utcnow(),
+                login_at=datetime.now(timezone.utc),
                 ip_address=ip_address,
                 user_agent=user_agent,
                 success=True
@@ -181,7 +181,7 @@ async def login(
                 token_hash=token_hash,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                expires_at=datetime.utcnow() + access_token_expires
+                expires_at=datetime.now(timezone.utc) + access_token_expires
             )
             db.add(session)
             db.commit()
@@ -349,10 +349,10 @@ async def change_password(
         # Update password
         current_user.password_hash = new_password_hash
         current_user.password_history = json.dumps(updated_history) if updated_history else json.dumps([])
-        current_user.password_changed_at = datetime.utcnow()
+        current_user.password_changed_at = datetime.now(timezone.utc)
         current_user.password_expires_at = password_validator.calculate_expiration_date(days=90)
         current_user.must_change_password = False  # Clear the flag after password change
-        current_user.updated_at = datetime.utcnow()
+        current_user.updated_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(current_user)
@@ -398,7 +398,7 @@ async def forgot_password(
         
         # Generate reset token
         reset_token = generate_reset_token()
-        reset_expires = datetime.utcnow() + timedelta(hours=1)  # Token expires in 1 hour
+        reset_expires = datetime.now(timezone.utc) + timedelta(hours=1)  # Token expires in 1 hour
         
         # Store token in user record
         user.password_reset_token = reset_token
@@ -440,7 +440,7 @@ async def reset_password(
         # Find user by reset token
         user = db.query(User).filter(
             User.password_reset_token == request.token,
-            User.password_reset_expires > datetime.utcnow()
+            User.password_reset_expires > datetime.now(timezone.utc)
         ).first()
         
         if not user:
@@ -504,12 +504,12 @@ async def reset_password(
         # Update password
         user.password_hash = new_password_hash
         user.password_history = json.dumps(updated_history) if updated_history else json.dumps([])
-        user.password_changed_at = datetime.utcnow()
+        user.password_changed_at = datetime.now(timezone.utc)
         user.password_expires_at = password_validator.calculate_expiration_date(days=90)
         user.password_reset_token = None
         user.password_reset_expires = None
         user.must_change_password = False  # Clear force change flag
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(user)
@@ -552,7 +552,7 @@ async def verify_email_get(
         # Mark email as verified
         user.email_verified = True
         user.email_verification_token = None
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(user)
@@ -595,7 +595,7 @@ async def verify_email(
         # Mark email as verified
         user.email_verified = True
         user.email_verification_token = None
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(user)
