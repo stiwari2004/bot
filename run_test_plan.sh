@@ -128,6 +128,46 @@ TOTAL_PASSED=0
 TOTAL_FAILED=0
 TOTAL_ERRORS=0
 
+# Phase 0: Fixed Unit Tests (All Recently Fixed Tests)
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}PHASE 0: Fixed Unit Tests${NC}"
+echo -e "${GREEN}Running all recently fixed unit tests${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo ""
+
+echo -e "${BLUE}Running all fixed unit tests together...${NC}"
+FIXED_TESTS_OUTPUT="$TEST_OUTPUT_DIR/fixed_unit_tests_${TIMESTAMP}.txt"
+
+docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
+    tests/unit/test_execution_controller.py \
+    tests/unit/services/test_execution_engine.py \
+    tests/unit/services/test_runbook_generator.py \
+    tests/unit/test_command_validator.py \
+    tests/unit/services/test_ticket_analysis.py \
+    tests/unit/test_runbook_validation.py \
+    tests/unit/controllers/test_runbook_controller.py \
+    -v \
+    --tb=short \
+    --no-cov \
+    -o cache_dir=/tmp/.pytest_cache \
+    2>&1 | tee "$FIXED_TESTS_OUTPUT"
+
+FIXED_EXIT=${PIPESTATUS[0]}
+
+# Extract summary from fixed tests
+FIXED_PASSED=$(grep -oP '\d+(?= passed)' "$FIXED_TESTS_OUTPUT" | tail -1 || echo "0")
+FIXED_FAILED=$(grep -oP '\d+(?= failed)' "$FIXED_TESTS_OUTPUT" | tail -1 || echo "0")
+FIXED_ERRORS=$(grep -oP '\d+(?= error)' "$FIXED_TESTS_OUTPUT" | tail -1 || echo "0")
+
+echo ""
+if [ $FIXED_EXIT -eq 0 ]; then
+    echo -e "${GREEN}✓ Fixed Unit Tests: $FIXED_PASSED passed, $FIXED_FAILED failed, $FIXED_ERRORS errors${NC}"
+else
+    echo -e "${RED}✗ Fixed Unit Tests: $FIXED_PASSED passed, $FIXED_FAILED failed, $FIXED_ERRORS errors${NC}"
+    echo -e "${YELLOW}Check $FIXED_TESTS_OUTPUT for details${NC}"
+fi
+echo ""
+
 # Phase 1: Foundation Tests (Unit Tests - Services)
 echo -e "${YELLOW}PHASE 1: Foundation Tests (Unit Tests - Services)${NC}"
 echo ""
@@ -211,10 +251,20 @@ FINAL_ERRORS=$(grep -oP '\d+(?= error)' "$COVERAGE_OUTPUT" | tail -1 || echo "0"
 # Extract coverage percentage
 COVERAGE_PCT=$(grep -oP 'TOTAL\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)%' "$COVERAGE_OUTPUT" | grep -oP '\d+%' | head -1 || echo "N/A")
 
-echo -e "${GREEN}Total Tests Passed: $FINAL_PASSED${NC}"
-echo -e "${RED}Total Tests Failed: $FINAL_FAILED${NC}"
-echo -e "${RED}Total Errors: $FINAL_ERRORS${NC}"
-echo -e "${BLUE}Coverage: $COVERAGE_PCT${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Final Test Summary${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+echo -e "${GREEN}Fixed Unit Tests:${NC}"
+echo -e "  Passed: $FIXED_PASSED"
+echo -e "  Failed: $FIXED_FAILED"
+echo -e "  Errors: $FIXED_ERRORS"
+echo ""
+echo -e "${GREEN}Overall Test Results:${NC}"
+echo -e "  Total Passed: $FINAL_PASSED"
+echo -e "  Total Failed: $FINAL_FAILED"
+echo -e "  Total Errors: $FINAL_ERRORS"
+echo -e "  Coverage: $COVERAGE_PCT"
 echo ""
 
 # Generate detailed report
@@ -225,7 +275,12 @@ echo "" >> "$REPORT_FILE"
 echo "Container: $CONTAINER_NAME" >> "$REPORT_FILE"
 echo "Timestamp: $TIMESTAMP" >> "$REPORT_FILE"
 echo "" >> "$REPORT_FILE"
-echo "Summary:" >> "$REPORT_FILE"
+echo "Fixed Unit Tests Summary:" >> "$REPORT_FILE"
+echo "  Tests Passed: $FIXED_PASSED" >> "$REPORT_FILE"
+echo "  Tests Failed: $FIXED_FAILED" >> "$REPORT_FILE"
+echo "  Errors: $FIXED_ERRORS" >> "$REPORT_FILE"
+echo "" >> "$REPORT_FILE"
+echo "Overall Summary:" >> "$REPORT_FILE"
 echo "  Tests Passed: $FINAL_PASSED" >> "$REPORT_FILE"
 echo "  Tests Failed: $FINAL_FAILED" >> "$REPORT_FILE"
 echo "  Errors: $FINAL_ERRORS" >> "$REPORT_FILE"
@@ -241,9 +296,13 @@ cat "$REPORT_FILE"
 
 echo ""
 echo -e "${GREEN}Test results saved to:${NC}"
+echo "  - Fixed unit tests: $FIXED_TESTS_OUTPUT"
 echo "  - Coverage report: $COVERAGE_OUTPUT"
 echo "  - Summary report: $REPORT_FILE"
 echo "  - HTML coverage: htmlcov/full/index.html (in container)"
+echo ""
+echo -e "${YELLOW}To view fixed unit test details:${NC}"
+echo "  cat $FIXED_TESTS_OUTPUT"
 echo ""
 
 # Exit with appropriate code
