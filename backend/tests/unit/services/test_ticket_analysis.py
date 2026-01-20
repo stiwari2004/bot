@@ -198,8 +198,12 @@ class TestAnalyzeTicket:
             )
             
             # Verify tenant_id was passed to LLM service
+            mock_chat.assert_called_once()
             call_args = mock_chat.call_args
-            assert call_args[1]["tenant_id"] == 999
+            # The call should be: _chat_once(prompt, tenant_id=999)
+            # So tenant_id should be in kwargs
+            assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
+            assert call_args.kwargs["tenant_id"] == 999
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_uses_tenant_id_from_ticket_data(
@@ -223,8 +227,12 @@ class TestAnalyzeTicket:
             await ticket_analysis_service.analyze_ticket(sample_ticket_data)
             
             # Verify tenant_id from ticket_data was used
+            mock_chat.assert_called_once()
             call_args = mock_chat.call_args
-            assert call_args[1]["tenant_id"] == 1
+            # The call should be: _chat_once(prompt, tenant_id=1)
+            # So tenant_id should be in kwargs
+            assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
+            assert call_args.kwargs["tenant_id"] == 1
 
 
 class TestParseResponse:
@@ -301,7 +309,7 @@ class TestParseResponse:
         """Test that missing required fields return default response"""
         response = json.dumps({
             "classification": "true_positive"
-            # Missing other fields
+            # Missing other fields (confidence, reasoning, suggested_action)
         })
         
         result = ticket_analysis_service._parse_response(response)
