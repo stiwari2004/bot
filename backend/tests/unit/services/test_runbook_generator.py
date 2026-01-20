@@ -4,6 +4,7 @@ Unit tests for runbook generator service
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.services.runbook.generation.runbook_generator_core import RunbookGeneratorService
 from app.services.runbook.generation.yaml_generation_pipeline import YamlGenerationPipeline
@@ -42,9 +43,33 @@ class TestGenerateRunbook:
     ):
         """Test generating a runbook with valid description"""
         # Mock vector service
+        from app.schemas.search import SearchResult
         mock_search_results = [
-            Mock(text="Similar runbook content", document_title="Similar Runbook", score=0.85)
+            SearchResult(text="Similar runbook content", document_title="Similar Runbook", score=0.85, document_source="test")
         ]
+        
+        # Mock settings
+        mock_settings = Mock()
+        mock_settings.ENVIRONMENT = "development"
+        
+        # Mock Runbook object for database operations
+        mock_runbook = Mock(spec=Runbook)
+        mock_runbook.id = 1
+        mock_runbook.title = "Runbook: CPU usage is high on Windows server. Need to identify and kill the process...."
+        mock_runbook.body_md = "# Generated Runbook\nTest content"
+        mock_runbook.confidence = 0.85
+        mock_runbook.meta_data = '{"issue_description": "test", "sources_used": 1}'
+        mock_runbook.created_at = datetime.now()
+        mock_runbook.updated_at = datetime.now()
+        
+        # Mock db operations
+        def db_add_side_effect(obj):
+            # Set id on the object when added
+            if isinstance(obj, Runbook):
+                obj.id = 1
+        
+        mock_db.add.side_effect = db_add_side_effect
+        mock_db.refresh.side_effect = lambda obj: setattr(obj, 'id', 1) if hasattr(obj, 'id') else None
         
         with patch.object(
             generator_service.vector_service,
@@ -65,17 +90,22 @@ class TestGenerateRunbook:
                     'calculate_confidence',
                     return_value=0.85
                 ):
-                    result = await generator_service.generate_runbook(
-                        issue_description=sample_issue_description,
-                        tenant_id=1,
-                        db=mock_db,
-                        top_k=5
-                    )
-                    
-                    assert result is not None
-                    assert result.confidence == 0.85
-                    mock_search.assert_called_once()
-                    mock_generate.assert_called_once()
+                    with patch('app.services.runbook.generation.runbook_generator_core.get_settings', return_value=mock_settings):
+                        with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
+                            result = await generator_service.generate_runbook(
+                                issue_description=sample_issue_description,
+                                tenant_id=1,
+                                db=mock_db,
+                                top_k=5
+                            )
+                            
+                            assert result is not None
+                            assert result.confidence == 0.85
+                            assert result.id == 1
+                            mock_search.assert_called_once()
+                            mock_generate.assert_called_once()
+                            mock_db.add.assert_called_once()
+                            mock_db.commit.assert_called_once()
 
 
 class TestGenerateAgentRunbook:
@@ -86,6 +116,28 @@ class TestGenerateAgentRunbook:
         self, generator_service, mock_db, sample_issue_description
     ):
         """Test that agent runbook generation creates YAML"""
+        # Mock Runbook object
+        mock_runbook = Mock(spec=Runbook)
+        mock_runbook.id = 1
+        mock_runbook.title = "Runbook: Test"
+        mock_runbook.body_md = "```yaml\nrunbook_id: test\nsteps: []\n```"
+        mock_runbook.confidence = 0.75
+        mock_runbook.meta_data = '{"issue_description": "test"}'
+        mock_runbook.created_at = datetime.now()
+        mock_runbook.updated_at = datetime.now()
+        
+        # Mock db operations
+        def db_add_side_effect(obj):
+            if isinstance(obj, Runbook):
+                obj.id = 1
+        
+        mock_db.add.side_effect = db_add_side_effect
+        mock_db.refresh.side_effect = lambda obj: setattr(obj, 'id', 1) if hasattr(obj, 'id') else None
+        
+        # Mock settings
+        mock_settings = Mock()
+        mock_settings.ENVIRONMENT = "development"
+        
         # Mock all dependencies
         with patch.object(
             generator_service.service_classifier,
@@ -133,7 +185,7 @@ class TestGenerateAgentRunbook:
                                     with patch.object(
                                         generator_service.spec_post_processor,
                                         'post_process',
-                                        return_value={"runbook_id": "test", "steps": []}
+                                        return_value={"runbook_id": "test", "steps": [], "title": "Test"}
                                     ):
                                         with patch.object(
                                             generator_service.validation_pipeline,
@@ -143,26 +195,44 @@ class TestGenerateAgentRunbook:
                                             with patch.object(
                                                 generator_service.validation_pipeline,
                                                 'validate_commands',
-                                                new_callable=AsyncMock,
-                                                return_value={"is_valid": True}
-                                            ):
+                                                new_callable=AsyncMock
+                                            ) as mock_validate_cmds:
+                                                mock_validate_cmds.return_value = {"is_valid": True}
                                                 with patch.object(
                                                     generator_service.validation_pipeline,
                                                     'critique_runbook',
-                                                    new_callable=AsyncMock,
-                                                    return_value={"is_valid": True}
-                                                ):
-                                                    result = await generator_service.generate_agent_runbook(
-                                                        issue_description=sample_issue_description,
-                                                        tenant_id=1,
-                                                        db=mock_db,
-                                                        service="auto",
-                                                        env="prod",
-                                                        risk="low"
-                                                    )
+                                                    new_callable=AsyncMock
+                                                ) as mock_critique:
+                                                    mock_critique.return_value = {"is_valid": True}
                                                     
-                                                    assert result is not None
-                                                    assert result.id is not None
+                                                    # Mock RunbookValidator.validate_runbook to avoid actual validation
+                                                    # Patch at the module level where it's imported inside the function
+                                                    with patch('app.schemas.runbook_yaml.RunbookValidator') as mock_validator_class:
+                                                        mock_validated_spec = Mock()
+                                                        mock_validated_spec.model_dump.return_value = {"runbook_id": "test", "steps": [], "title": "Test"}
+                                                        mock_validator_class.validate_runbook.return_value = (mock_validated_spec, [])
+                                                        
+                                                        # Mock get_settings
+                                                        with patch('app.services.runbook.generation.runbook_generator_core.get_settings', return_value=mock_settings):
+                                                            # Mock Runbook creation
+                                                            with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
+                                                                # Mock citation_manager
+                                                                with patch.object(
+                                                                    generator_service.citation_manager,
+                                                                    'store_citations',
+                                                                    return_value=None
+                                                                ):
+                                                                    result = await generator_service.generate_agent_runbook(
+                                                                        issue_description=sample_issue_description,
+                                                                        tenant_id=1,
+                                                                        db=mock_db,
+                                                                        service="auto",
+                                                                        env="prod",
+                                                                        risk="low"
+                                                                    )
+                                                                    
+                                                                    assert result is not None
+                                                                    assert result.id == 1
 
 
 class TestYamlGenerationPipeline:
