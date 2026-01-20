@@ -91,13 +91,17 @@ async def generate_agent_runbook(
     if service_value in ["Windows", "Linux"]:
         service_value = "server"
     
-    controller = RunbookController(db, current_user.tenant_id)
-    return await controller.generate_agent_runbook(
-        request.issue_description,
-        service_value,
-        request.env.value,
-        request.risk.value
-    )
+    try:
+        controller = RunbookController(db, current_user.tenant_id)
+        return await controller.generate_agent_runbook(
+            request.issue_description,
+            service_value,
+            request.env.value,
+            request.risk.value
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (e.g., 409 for duplicates)
+        raise
 
 
 @router.get("/demo/detect-os")
@@ -521,14 +525,21 @@ async def list_runbooks(
         return [RunbookResponse(**item) if isinstance(item, dict) else item for item in cached_result]
     
     # Get from database
-    controller = RunbookController(db, current_user.tenant_id)
-    result = controller.list_runbooks(skip, limit)
-    
-    # Cache for 1 hour (convert to dict for storage)
-    cache_data = [item.dict() if hasattr(item, 'dict') else item for item in result]
-    await cache_service.set(cache_key_str, cache_data, ttl=3600)
-    
-    return result
+    try:
+        controller = RunbookController(db, current_user.tenant_id)
+        result = controller.list_runbooks(skip, limit)
+        
+        # Cache for 1 hour (convert to dict for storage)
+        cache_data = [item.dict() if hasattr(item, 'dict') else item for item in result]
+        await cache_service.set(cache_key_str, cache_data, ttl=3600)
+        
+        return result
+    except Exception as e:
+        # Handle database connection errors gracefully
+        error_str = str(e).lower()
+        if "connection" in error_str or "database" in error_str or "operational" in error_str:
+            raise HTTPException(status_code=503, detail="Database connection failed")
+        raise
 
 
 @router.get("/{runbook_id}", response_model=RunbookResponse)
