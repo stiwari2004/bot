@@ -114,13 +114,18 @@ def test_dependency_on_unknown_variable_fails():
     assert any("references dependency 'unknown_var'" in err for err in errors)
 
 
-def test_requires_three_remediation_steps():
+def test_requires_minimum_remediation_steps():
     spec = _base_spec()
-    # Downgrade one remediation step to diagnostic to force failure
-    spec["steps"][2]["purpose"] = "diagnose"
+    # Downgrade two remediation steps to diagnostic to force failure
+    # Base spec has 3 remediation steps (indices 2, 3, 4)
+    # Change two of them to "diagnose" to reduce to 1 remediation step
+    spec["steps"][2]["purpose"] = "diagnose"  # "Kill runaway process" -> diagnose
+    spec["steps"][3]["purpose"] = "diagnose"  # "Restart IIS" -> diagnose
+    # Now we have only 1 remediation step (step[4] "Clear system cache")
+    # MIN_REMEDIATION_STEPS is 2, so this should fail
     is_valid, errors = _validate(spec)
     assert not is_valid
-    assert any("must include at least 3 REMEDIATION actions" in err for err in errors)
+    assert any("must include at least 2 REMEDIATION actions" in err for err in errors)
 
 
 def test_valid_spec_passes():

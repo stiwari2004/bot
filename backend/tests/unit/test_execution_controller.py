@@ -173,10 +173,14 @@ class TestGetPendingApprovals:
         result = controller.get_pending_approvals()
         
         assert result is not None
-        assert isinstance(result, list)
-        assert len(result) == 2
-        assert result[0]["session_id"] == 1
-        assert result[1]["session_id"] == 2
+        # get_pending_approvals returns {"pending_approvals": [...]}
+        assert isinstance(result, dict)
+        assert "pending_approvals" in result
+        pending_list = result["pending_approvals"]
+        assert isinstance(pending_list, list)
+        assert len(pending_list) == 2
+        assert pending_list[0]["session_id"] == 1
+        assert pending_list[1]["session_id"] == 2
 
 
 

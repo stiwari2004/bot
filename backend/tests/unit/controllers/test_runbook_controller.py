@@ -72,6 +72,8 @@ class TestGenerateAgentRunbook:
                     risk="low"
                 )
                 
+                # generate_agent_runbook returns RunbookResponse (or mock with same attributes)
+                assert result is not None
                 assert result.id == 1
                 assert result.title == "Test Runbook"
     
