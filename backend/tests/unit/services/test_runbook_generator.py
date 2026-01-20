@@ -105,13 +105,13 @@ class TestGenerateRunbook:
                     
                     try:
                         with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
-                        result = await generator_service.generate_runbook(
-                            issue_description=sample_issue_description,
-                            tenant_id=1,
-                            db=mock_db,
-                            top_k=5
-                        )
-                        
+                            result = await generator_service.generate_runbook(
+                                issue_description=sample_issue_description,
+                                tenant_id=1,
+                                db=mock_db,
+                                top_k=5
+                            )
+                            
                             assert result is not None
                             assert result.confidence == 0.85
                             assert result.id == 1
