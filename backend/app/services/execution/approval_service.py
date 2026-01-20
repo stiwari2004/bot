@@ -51,8 +51,8 @@ class ApprovalService:
         step.approved_at = datetime.now(timezone.utc)
         
         if not approve:
-            # Rejected - mark session as failed
-            session.status = "failed"
+            # Rejected - mark session as abandoned
+            session.status = "abandoned"
             session.waiting_for_approval = False
             session.completed_at = datetime.now(timezone.utc)
             
