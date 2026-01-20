@@ -152,12 +152,20 @@ class TestApproveStep:
             assert result == mock_execution_session
             # Verify the approval service was called with correct parameters
             mock_approve.assert_called_once()
+            # Check call arguments (can be positional or keyword)
             call_args = mock_approve.call_args
-            assert call_args[0][0] == mock_db  # db
-            assert call_args[0][1] == 1  # session_id
-            assert call_args[0][2] == 1  # step_number
-            assert call_args[0][3] == 1  # user_id
-            assert call_args[0][4] is True  # approve
+            if call_args.args:  # Positional arguments
+                assert call_args.args[0] == mock_db  # db
+                assert call_args.args[1] == 1  # session_id
+                assert call_args.args[2] == 1  # step_number
+                assert call_args.args[3] == 1  # user_id
+                assert call_args.args[4] is True  # approve
+            else:  # Keyword arguments
+                assert call_args.kwargs['db'] == mock_db
+                assert call_args.kwargs['session_id'] == 1
+                assert call_args.kwargs['step_number'] == 1
+                assert call_args.kwargs['user_id'] == 1
+                assert call_args.kwargs['approve'] is True
     
     @pytest.mark.asyncio
     async def test_approve_step_rejects_step(
@@ -184,8 +192,12 @@ class TestApproveStep:
             assert result is not None
             assert result.status == "failed"
             mock_approve.assert_called_once()
+            # Check call arguments (can be positional or keyword)
             call_args = mock_approve.call_args
-            assert call_args[0][4] is False  # approve=False
+            if call_args.args:  # Positional arguments
+                assert call_args.args[4] is False  # approve=False
+            else:  # Keyword arguments
+                assert call_args.kwargs['approve'] is False
 
 
 class TestStartExecution:
