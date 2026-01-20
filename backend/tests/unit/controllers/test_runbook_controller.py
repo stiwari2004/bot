@@ -272,8 +272,8 @@ class TestAssociateWithTicket:
                 
                 # Should still return True but not add duplicate
                 assert result is True
-                # Verify runbook was not added again
-                call_args = mock_update.call_args
-                meta_data = call_args[1]["meta_data"]
-                assert len(meta_data["matched_runbooks"]) == 1
+                # Verify update_ticket_metadata was NOT called (duplicate detected, early return)
+                mock_update.assert_not_called()
+                # Verify the original meta_data is unchanged
+                assert len(mock_ticket.meta_data["matched_runbooks"]) == 1
 

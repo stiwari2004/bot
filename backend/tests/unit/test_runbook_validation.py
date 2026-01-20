@@ -6,7 +6,7 @@ def _base_spec():
     return {
         "runbook_id": "rb-server-cpu",
         "version": "1.0.0",
-        "title": "Fix high CPU",
+        "title": "Fix CPU running hot",
         "service": "server",
         "env": "prod",
         "risk": "low",
@@ -129,7 +129,15 @@ def test_requires_minimum_remediation_steps():
 
 
 def test_valid_spec_passes():
-    is_valid, errors = _validate(_base_spec())
-    assert is_valid
+    spec = _base_spec()
+    is_valid, errors = _validate(spec)
+    
+    # Debug: print errors if validation fails
+    if not is_valid:
+        print(f"\nValidation failed with {len(errors)} errors:")
+        for error in errors:
+            print(f"  - {error}")
+    
+    assert is_valid, f"Validation failed with errors: {errors}"
     assert errors == []
 
