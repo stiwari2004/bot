@@ -434,9 +434,16 @@ class TicketController(BaseController):
             execution_mode = ConfigService.get_execution_mode(self.db, self.tenant_id)
             
             # Start execution if mode is auto and no approval needed
-            if execution_mode == 'auto':
-                if session.status == "pending":
+            if execution_mode == 'auto' and session.status == "pending":
+                try:
                     session = await self.execution_engine.start_execution(self.db, session.id)
+                except Exception as e:
+                    # Log but don't fail ticket->execution workflow; allow manual control
+                    logger.error(
+                        f"Error auto-starting execution for ticket {ticket_id}, "
+                        f"session {session.id}: {e}",
+                        exc_info=True,
+                    )
             
             return {
                 "session_id": session.id,
