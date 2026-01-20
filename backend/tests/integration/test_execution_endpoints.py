@@ -4,7 +4,7 @@ Integration tests for execution endpoints
 import pytest
 from fastapi.testclient import TestClient
 from tests.utils.factories import (
-    UserFactory, TenantFactory, RunbookFactory, ExecutionSessionFactory
+    UserFactory, TenantFactory, RunbookFactory, ExecutionSessionFactory, ExecutionStepFactory
 )
 
 
@@ -99,6 +99,15 @@ class TestApproveStepEndpoint:
             approval_step_number=1
         )
         
+        # Create execution step that requires approval
+        step = ExecutionStepFactory.create(
+            db,
+            session_id=session.id,
+            step_number=1,
+            requires_approval=True,
+            approved=None
+        )
+        
         response = client.post(
             f"/api/v1/agent/{session.id}/approve-step",
             json={
@@ -124,6 +133,15 @@ class TestApproveStepEndpoint:
             status="waiting_approval",
             waiting_for_approval=True,
             approval_step_number=1
+        )
+        
+        # Create execution step that requires approval
+        step = ExecutionStepFactory.create(
+            db,
+            session_id=session.id,
+            step_number=1,
+            requires_approval=True,
+            approved=None
         )
         
         response = client.post(

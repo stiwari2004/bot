@@ -257,18 +257,24 @@ class TestGenerateAgentRunbookEndpoint:
         self, authenticated_client, db
     ):
         """Test generating an agent runbook"""
+        from datetime import datetime, timezone
+        from app.schemas.runbook import RunbookResponse
+        
         client, user = authenticated_client
         
         # Mock the generator to avoid actual LLM calls
         with patch('app.controllers.runbook_controller.RunbookGeneratorService') as mock_gen:
-            mock_response = Mock()
-            mock_response.id = 1
-            mock_response.title = "Generated Runbook"
-            mock_response.body_md = "# Generated"
-            mock_response.confidence = 0.85
-            mock_response.meta_data = {}
-            mock_response.created_at = None
-            mock_response.updated_at = None
+            # Create a proper RunbookResponse object
+            mock_response = RunbookResponse(
+                id=1,
+                title="Generated Runbook",
+                body_md="# Generated",
+                confidence=0.85,
+                meta_data={},
+                status="draft",
+                created_at=datetime.now(timezone.utc),
+                updated_at=None
+            )
             
             mock_generator = Mock()
             mock_generator.generate_agent_runbook = AsyncMock(
@@ -286,8 +292,10 @@ class TestGenerateAgentRunbookEndpoint:
                 }
             )
             
-            # Note: This will fail if mocking doesn't work, but shows the structure
-            assert response.status_code in [200, 500]  # 500 if mocking fails
+            assert response.status_code == 200
+            data = response.json()
+            assert data["id"] == 1
+            assert data["title"] == "Generated Runbook"
     
     def test_generate_agent_runbook_validates_input(
         self, authenticated_client, db

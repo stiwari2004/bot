@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.models.runbook import Runbook
-from app.models.execution_session import ExecutionSession
+from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.models.ticket import Ticket
 from app.services.auth import get_password_hash
 
@@ -142,6 +142,34 @@ class ExecutionSessionFactory:
         db.commit()
         db.refresh(session)
         return session
+
+
+class ExecutionStepFactory:
+    """Factory for creating test execution steps"""
+    
+    @staticmethod
+    def create(
+        db,
+        session_id: int,
+        step_number: int = 1,
+        step_type: str = "main",
+        command: str = "echo 'test command'",
+        requires_approval: bool = False,
+        **kwargs
+    ) -> ExecutionStep:
+        """Create a test execution step in the database"""
+        step = ExecutionStep(
+            session_id=session_id,
+            step_number=step_number,
+            step_type=step_type,
+            command=command,
+            requires_approval=requires_approval,
+            **kwargs
+        )
+        db.add(step)
+        db.commit()
+        db.refresh(step)
+        return step
 
 
 class TicketFactory:

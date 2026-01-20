@@ -301,6 +301,45 @@ class ExecutionController(BaseController):
             self.db.rollback()
             raise self.handle_error(e, "Failed to update step")
     
+    async def approve_step(
+        self,
+        session_id: int,
+        step_number: int,
+        user_id: Optional[int],
+        approve: bool,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Approve or reject a step in an execution session"""
+        try:
+            # Verify session exists and belongs to tenant
+            session = self.execution_repo.get_by_id(session_id)
+            if not session:
+                raise self.not_found("Execution session", session_id)
+            
+            if session.tenant_id != self.tenant_id:
+                raise self.not_found("Execution session", session_id)
+            
+            # Delegate to execution engine
+            updated_session = await self.execution_engine.approve_step(
+                db=self.db,
+                session_id=session_id,
+                step_number=step_number,
+                user_id=user_id,
+                approve=approve
+            )
+            
+            # Serialize and return
+            payload = execution_orchestrator.serialize_session(updated_session)
+            return payload
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise self.bad_request(str(e))
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error approving step: {e}", exc_info=True)
+            raise self.handle_error(e, "Failed to approve step")
+    
     async def submit_manual_command(
         self,
         session_id: int,
