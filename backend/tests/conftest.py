@@ -248,25 +248,24 @@ def authenticated_client(client, db):
     from datetime import datetime, timedelta, timezone
     import hashlib
     
-    # Create test tenant
+    # Create test tenant (let the database assign the primary key)
     tenant = Tenant(
-        id=1,
         name="test_tenant",
         description="Test tenant",
-        is_active=True
+        is_active=True,
     )
     db.add(tenant)
     db.commit()
+    db.refresh(tenant)
     
-    # Create test user
+    # Create test user for that tenant (let the database assign the primary key)
     user = User(
-        id=1,
         email="test@example.com",
         password_hash=get_password_hash("testpassword123"),
-        tenant_id=1,
+        tenant_id=tenant.id,
         full_name="Test User",
         role="user",
-        is_active=True
+        is_active=True,
     )
     db.add(user)
     db.commit()
