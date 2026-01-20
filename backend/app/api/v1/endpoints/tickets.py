@@ -94,11 +94,41 @@ async def analyze_ticket(
                     "Review suggested runbooks for ideas"
                 ]
         
+        # Normalize matched runbooks into RunbookMatch schema, filling defaults where needed
+        normalized_matches = []
+        for rb in matched_runbooks:
+            try:
+                normalized = {
+                    "id": rb.get("id"),
+                    "title": rb.get("title", "Unnamed runbook"),
+                    # If similarity_score is missing, fall back to confidence_score or 0.0
+                    "similarity_score": rb.get(
+                        "similarity_score",
+                        rb.get("confidence_score", 0.0),
+                    ),
+                    # If confidence_score is missing, fall back to similarity_score or 0.0
+                    "confidence_score": rb.get(
+                        "confidence_score",
+                        rb.get("similarity_score", 0.0),
+                    ),
+                    "success_rate": rb.get("success_rate"),
+                    "times_used": rb.get("times_used", 0),
+                    "last_used": rb.get("last_used"),
+                    "reasoning": rb.get(
+                        "reasoning",
+                        "Suggested by runbook search service",
+                    ),
+                }
+                normalized_matches.append(RunbookMatch(**normalized))
+            except Exception as e:
+                # Log and skip malformed entries rather than failing the whole request
+                logger.warning(f"Skipping malformed runbook match entry {rb}: {e}")
+
         return TicketAnalysisResponse(
             recommendation=recommendation,
             confidence=confidence,
             reasoning=reasoning,
-            matched_runbooks=[RunbookMatch(**rb) for rb in matched_runbooks],
+            matched_runbooks=normalized_matches,
             suggested_actions=suggested_actions,
             threshold_used=threshold
         )
