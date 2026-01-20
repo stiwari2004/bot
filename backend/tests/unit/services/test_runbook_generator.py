@@ -45,7 +45,15 @@ class TestGenerateRunbook:
         # Mock vector service
         from app.schemas.search import SearchResult
         mock_search_results = [
-            SearchResult(text="Similar runbook content", document_title="Similar Runbook", score=0.85, document_source="test")
+            SearchResult(
+                chunk_id=1,
+                document_id=1,
+                text="Similar runbook content",
+                document_title="Similar Runbook",
+                score=0.85,
+                document_source="test",
+                meta_data={}
+            )
         ]
         
         # Mock settings
@@ -85,13 +93,13 @@ class TestGenerateRunbook:
             ) as mock_generate:
                 mock_generate.return_value = "# Generated Runbook\nTest content"
                 
-                with patch.object(
-                    generator_service.content_builder,
-                    'calculate_confidence',
-                    return_value=0.85
-                ):
-                    with patch('app.services.runbook.generation.runbook_generator_core.get_settings', return_value=mock_settings):
-                        with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
+                    with patch.object(
+                        generator_service.content_builder,
+                        'calculate_confidence',
+                        return_value=0.85
+                    ):
+                        with patch('app.core.config.get_settings', return_value=mock_settings):
+                            with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
                             result = await generator_service.generate_runbook(
                                 issue_description=sample_issue_description,
                                 tenant_id=1,
@@ -212,8 +220,8 @@ class TestGenerateAgentRunbook:
                                                         mock_validated_spec.model_dump.return_value = {"runbook_id": "test", "steps": [], "title": "Test"}
                                                         mock_validator_class.validate_runbook.return_value = (mock_validated_spec, [])
                                                         
-                                                        # Mock get_settings
-                                                        with patch('app.services.runbook.generation.runbook_generator_core.get_settings', return_value=mock_settings):
+                                                        # Mock get_settings (imported from app.core.config inside the function)
+                                                        with patch('app.core.config.get_settings', return_value=mock_settings):
                                                             # Mock Runbook creation
                                                             with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
                                                                 # Mock citation_manager
