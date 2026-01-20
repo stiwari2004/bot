@@ -4,7 +4,7 @@ Authentication endpoints
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.core.database import get_db
@@ -58,9 +58,12 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        # Use timezone-aware timestamps for all account lock checks
+        now = datetime.now(timezone.utc)
+
         # Check if account is locked
-        if user.locked_until and user.locked_until > datetime.utcnow():
-            remaining_minutes = int((user.locked_until - datetime.utcnow()).total_seconds() / 60)
+        if user.locked_until and user.locked_until > now:
+            remaining_minutes = int((user.locked_until - now).total_seconds() / 60)
             logger.warning(f"Login attempt for locked account: {form_data.username} (locked for {remaining_minutes} more minutes)")
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
@@ -69,7 +72,7 @@ async def login(
             )
         
         # Auto-unlock if lockout period has expired
-        if user.locked_until and user.locked_until <= datetime.utcnow():
+        if user.locked_until and user.locked_until <= now:
             user.locked_until = None
             user.failed_login_attempts = 0
             db.commit()
@@ -96,7 +99,7 @@ async def login(
             
             # Lock account after 5 failed attempts
             if user.failed_login_attempts >= 5:
-                user.locked_until = datetime.utcnow() + timedelta(minutes=30)
+                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=30)
                 logger.warning(f"Account locked for {form_data.username} after {user.failed_login_attempts} failed attempts")
             
             db.commit()
@@ -131,7 +134,7 @@ async def login(
         user = authenticated_user
         user.failed_login_attempts = 0
         user.locked_until = None
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         db.commit()
         
         # Track login history

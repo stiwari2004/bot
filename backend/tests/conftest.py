@@ -242,7 +242,11 @@ def authenticated_client(client, db):
     """Create an authenticated test client"""
     from app.models.user import User
     from app.models.tenant import Tenant
+    from app.models.user_session import UserSession
     from app.services.auth import get_password_hash, create_access_token
+    from app.core.config import settings
+    from datetime import datetime, timedelta, timezone
+    import hashlib
     
     # Create test tenant
     tenant = Tenant(
@@ -269,6 +273,20 @@ def authenticated_client(client, db):
     
     # Create access token
     token = create_access_token(data={"sub": user.email})
+
+    # Create corresponding session so session tracking behaves like real login
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    session = UserSession(
+        user_id=user.id,
+        token_hash=token_hash,
+        ip_address=None,
+        user_agent=None,
+        expires_at=datetime.now(timezone.utc) + access_token_expires,
+        revoked=False,
+    )
+    db.add(session)
+    db.commit()
     
     # Set authorization header
     client.headers = {"Authorization": f"Bearer {token}"}
