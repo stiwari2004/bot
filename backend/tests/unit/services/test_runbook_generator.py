@@ -93,13 +93,13 @@ class TestGenerateRunbook:
             ) as mock_generate:
                 mock_generate.return_value = "# Generated Runbook\nTest content"
                 
-                    with patch.object(
-                        generator_service.content_builder,
-                        'calculate_confidence',
-                        return_value=0.85
-                    ):
-                        with patch('app.core.config.get_settings', return_value=mock_settings):
-                            with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
+                with patch.object(
+                    generator_service.content_builder,
+                    'calculate_confidence',
+                    return_value=0.85
+                ):
+                    with patch('app.core.config.get_settings', return_value=mock_settings):
+                        with patch('app.services.runbook.generation.runbook_generator_core.Runbook', return_value=mock_runbook):
                             result = await generator_service.generate_runbook(
                                 issue_description=sample_issue_description,
                                 tenant_id=1,
