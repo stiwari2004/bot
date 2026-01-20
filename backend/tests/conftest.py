@@ -57,7 +57,7 @@ test_engine = create_engine(
 )
 
 # Create test session factory
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine) sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
 @pytest.fixture(scope="function")
