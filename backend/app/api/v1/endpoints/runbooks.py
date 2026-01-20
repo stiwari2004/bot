@@ -86,27 +86,18 @@ async def generate_agent_runbook(
     For servers, OS type (Windows/Linux) is auto-detected from issue description.
     For backward compatibility, 'Windows' or 'Linux' are accepted and treated as 'server' CI type.
     """
-    try:
-        # Normalize service for backward compatibility
-        service_value = request.service.value
-        if service_value in ["Windows", "Linux"]:
-            service_value = "server"
-        
-        controller = RunbookController(db, current_user.tenant_id)
-        return await controller.generate_agent_runbook(
-            request.issue_description,
-            service_value,
-            request.env.value,
-            request.risk.value
-        )
-    except HTTPException:
-        # Re-raise HTTP exceptions (e.g., 409 for duplicates)
-        raise
-    except Exception as e:
-        from app.core.logging import get_logger
-        logger = get_logger(__name__)
-        logger.exception(f"Error generating runbook: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate runbook: {str(e)}")
+    # Normalize service for backward compatibility
+    service_value = request.service.value
+    if service_value in ["Windows", "Linux"]:
+        service_value = "server"
+    
+    controller = RunbookController(db, current_user.tenant_id)
+    return await controller.generate_agent_runbook(
+        request.issue_description,
+        service_value,
+        request.env.value,
+        request.risk.value
+    )
 
 
 @router.get("/demo/detect-os")
@@ -518,37 +509,26 @@ async def list_runbooks(
     current_user: User = Depends(get_current_user)
 ):
     """List runbooks for the current tenant (cached)"""
-    try:
-        from app.core.cache import cache_service, cache_key
-        
-        # Generate cache key
-        cache_key_str = cache_key("runbooks:list", current_user.tenant_id, skip, limit)
-        
-        # Try to get from cache
-        cached_result = await cache_service.get(cache_key_str)
-        if cached_result is not None:
-            # Convert dict back to RunbookResponse objects
-            return [RunbookResponse(**item) if isinstance(item, dict) else item for item in cached_result]
-        
-        # Get from database
-        controller = RunbookController(db, current_user.tenant_id)
-        result = controller.list_runbooks(skip, limit)
-        
-        # Cache for 1 hour (convert to dict for storage)
-        cache_data = [item.dict() if hasattr(item, 'dict') else item for item in result]
-        await cache_service.set(cache_key_str, cache_data, ttl=3600)
-        
-        return result
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        from app.core.logging import get_logger
-        logger = get_logger(__name__)
-        logger.exception(f"Error listing runbooks: {e}", exc_info=True)
-        # Return 500 or 503 for database connection failures
-        status_code = 503 if "connection" in str(e).lower() or "database" in str(e).lower() else 500
-        raise HTTPException(status_code=status_code, detail=f"Failed to list runbooks: {str(e)}")
+    from app.core.cache import cache_service, cache_key
+    
+    # Generate cache key
+    cache_key_str = cache_key("runbooks:list", current_user.tenant_id, skip, limit)
+    
+    # Try to get from cache
+    cached_result = await cache_service.get(cache_key_str)
+    if cached_result is not None:
+        # Convert dict back to RunbookResponse objects
+        return [RunbookResponse(**item) if isinstance(item, dict) else item for item in cached_result]
+    
+    # Get from database
+    controller = RunbookController(db, current_user.tenant_id)
+    result = controller.list_runbooks(skip, limit)
+    
+    # Cache for 1 hour (convert to dict for storage)
+    cache_data = [item.dict() if hasattr(item, 'dict') else item for item in result]
+    await cache_service.set(cache_key_str, cache_data, ttl=3600)
+    
+    return result
 
 
 @router.get("/{runbook_id}", response_model=RunbookResponse)
