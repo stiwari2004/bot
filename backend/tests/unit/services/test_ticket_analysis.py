@@ -54,19 +54,29 @@ class TestAnalyzeTicket:
             "suggested_action": "proceed"
         })
         
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.return_value = mock_response
-            
-            result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
-            
-            assert result["classification"] == "true_positive"
-            assert result["confidence"] == 0.9
-            assert result["suggested_action"] == "proceed"
-            assert "reasoning" in result
+            new_callable=AsyncMock,
+            create=True  # Create if it doesn't exist
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                # Set return value on whichever method exists
+                mock_chat_once.return_value = mock_response
+                mock_chat_system.return_value = mock_response
+                
+                result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
+                
+                assert result["classification"] == "true_positive"
+                assert result["confidence"] == 0.9
+                assert result["suggested_action"] == "proceed"
+                assert "reasoning" in result
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_with_false_positive(
@@ -80,18 +90,27 @@ class TestAnalyzeTicket:
             "suggested_action": "close"
         })
         
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.return_value = mock_response
-            
-            result = await ticket_analysis_service.analyze_ticket(false_positive_ticket_data)
-            
-            assert result["classification"] == "false_positive"
-            assert result["confidence"] == 0.85
-            assert result["suggested_action"] == "close"
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.return_value = mock_response
+                mock_chat_system.return_value = mock_response
+                
+                result = await ticket_analysis_service.analyze_ticket(false_positive_ticket_data)
+                
+                assert result["classification"] == "false_positive"
+                assert result["confidence"] == 0.85
+                assert result["suggested_action"] == "close"
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_with_uncertain_classification(
@@ -105,73 +124,109 @@ class TestAnalyzeTicket:
             "suggested_action": "review"
         })
         
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.return_value = mock_response
-            
-            result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
-            
-            assert result["classification"] == "uncertain"
-            assert result["confidence"] == 0.5
-            assert result["suggested_action"] == "review"
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.return_value = mock_response
+                mock_chat_system.return_value = mock_response
+                
+                result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
+                
+                assert result["classification"] == "uncertain"
+                assert result["confidence"] == 0.5
+                assert result["suggested_action"] == "review"
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_handles_rate_limit_exception(
         self, ticket_analysis_service, sample_ticket_data
     ):
         """Test that rate limit exception is handled gracefully"""
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.side_effect = LLMRateLimitExceeded("Rate limit exceeded")
-            
-            result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
-            
-            assert result["classification"] == "uncertain"
-            assert result["confidence"] == 0.0
-            assert result["suggested_action"] == "review"
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.side_effect = LLMRateLimitExceeded("Rate limit exceeded")
+                mock_chat_system.side_effect = LLMRateLimitExceeded("Rate limit exceeded")
+                
+                result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
+                
+                assert result["classification"] == "uncertain"
+                assert result["confidence"] == 0.0
+                assert result["suggested_action"] == "review"
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_handles_budget_exceeded_exception(
         self, ticket_analysis_service, sample_ticket_data
     ):
         """Test that budget exceeded exception is handled gracefully"""
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.side_effect = LLMBudgetExceeded("Budget exceeded")
-            
-            result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
-            
-            assert result["classification"] == "uncertain"
-            assert result["confidence"] == 0.0
-            assert result["suggested_action"] == "review"
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.side_effect = LLMBudgetExceeded("Budget exceeded")
+                mock_chat_system.side_effect = LLMBudgetExceeded("Budget exceeded")
+                
+                result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
+                
+                assert result["classification"] == "uncertain"
+                assert result["confidence"] == 0.0
+                assert result["suggested_action"] == "review"
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_handles_generic_exception(
         self, ticket_analysis_service, sample_ticket_data
     ):
         """Test that generic exceptions are handled gracefully"""
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.side_effect = Exception("Unexpected error")
-            
-            result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
-            
-            assert result["classification"] == "uncertain"
-            assert result["confidence"] == 0.0
-            assert result["suggested_action"] == "review"
-            assert "Analysis failed" in result["reasoning"]
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.side_effect = Exception("Unexpected error")
+                mock_chat_system.side_effect = Exception("Unexpected error")
+                
+                result = await ticket_analysis_service.analyze_ticket(sample_ticket_data)
+                
+                assert result["classification"] == "uncertain"
+                assert result["confidence"] == 0.0
+                assert result["suggested_action"] == "review"
+                assert "Analysis failed" in result["reasoning"]
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_uses_tenant_id_from_parameter(
@@ -185,25 +240,38 @@ class TestAnalyzeTicket:
             "suggested_action": "proceed"
         })
         
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.return_value = mock_response
-            
-            await ticket_analysis_service.analyze_ticket(
-                sample_ticket_data,
-                tenant_id=999
-            )
-            
-            # Verify tenant_id was passed to LLM service
-            mock_chat.assert_called_once()
-            call_args = mock_chat.call_args
-            # The call should be: _chat_once(prompt, tenant_id=999)
-            # So tenant_id should be in kwargs
-            assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
-            assert call_args.kwargs["tenant_id"] == 999
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.return_value = mock_response
+                mock_chat_system.return_value = mock_response
+                
+                await ticket_analysis_service.analyze_ticket(
+                    sample_ticket_data,
+                    tenant_id=999
+                )
+                
+                # Verify tenant_id was passed to LLM service (check whichever method was called)
+                if mock_chat_once.called:
+                    call_args = mock_chat_once.call_args
+                    assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
+                    assert call_args.kwargs["tenant_id"] == 999
+                elif mock_chat_system.called:
+                    call_args = mock_chat_system.call_args
+                    assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
+                    assert call_args.kwargs["tenant_id"] == 999
+                else:
+                    pytest.fail("Neither _chat_once nor _chat_once_with_system was called")
     
     @pytest.mark.asyncio
     async def test_analyze_ticket_uses_tenant_id_from_ticket_data(
@@ -217,22 +285,35 @@ class TestAnalyzeTicket:
             "suggested_action": "proceed"
         })
         
+        # Mock both methods since different LLM services have different methods
         with patch.object(
             ticket_analysis_service.llm_service,
             '_chat_once',
-            new_callable=AsyncMock
-        ) as mock_chat:
-            mock_chat.return_value = mock_response
-            
-            await ticket_analysis_service.analyze_ticket(sample_ticket_data)
-            
-            # Verify tenant_id from ticket_data was used
-            mock_chat.assert_called_once()
-            call_args = mock_chat.call_args
-            # The call should be: _chat_once(prompt, tenant_id=1)
-            # So tenant_id should be in kwargs
-            assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
-            assert call_args.kwargs["tenant_id"] == 1
+            new_callable=AsyncMock,
+            create=True
+        ) as mock_chat_once:
+            with patch.object(
+                ticket_analysis_service.llm_service,
+                '_chat_once_with_system',
+                new_callable=AsyncMock,
+                create=True
+            ) as mock_chat_system:
+                mock_chat_once.return_value = mock_response
+                mock_chat_system.return_value = mock_response
+                
+                await ticket_analysis_service.analyze_ticket(sample_ticket_data)
+                
+                # Verify tenant_id from ticket_data was used (check whichever method was called)
+                if mock_chat_once.called:
+                    call_args = mock_chat_once.call_args
+                    assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
+                    assert call_args.kwargs["tenant_id"] == 1
+                elif mock_chat_system.called:
+                    call_args = mock_chat_system.call_args
+                    assert "tenant_id" in call_args.kwargs, f"tenant_id not in kwargs. Call args: {call_args}"
+                    assert call_args.kwargs["tenant_id"] == 1
+                else:
+                    pytest.fail("Neither _chat_once nor _chat_once_with_system was called")
 
 
 class TestParseResponse:
