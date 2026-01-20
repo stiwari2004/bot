@@ -60,7 +60,7 @@ class TestReceiveWebhook:
         mock_ticket = Mock(spec=Ticket)
         mock_ticket.id = 1
         mock_ticket.status = "open"
-        mock_ticket.classification = None
+        mock_ticket.classification = "true_positive"
         
         with patch.object(
             ticket_controller.ticket_repo,
@@ -79,16 +79,20 @@ class TestReceiveWebhook:
                     new_callable=AsyncMock,
                     return_value=Mock(to_dict=lambda: {"runbook_id": 1})
                 ):
-                    with patch('app.controllers.ticket_controller.get_change_window_service') as mock_change:
-                        mock_change.return_value.check_and_suppress_ticket.return_value = False
-                        
-                        result = await ticket_controller.receive_webhook(
-                            source="prometheus",
-                            payload=sample_webhook_payload
-                        )
-                        
-                        assert result["ticket_id"] == 1
-                        assert result["status"] == "open"
+                    with patch.object(
+                        ticket_controller.ticket_repo,
+                        'update_ticket_metadata'
+                    ):
+                        with patch('app.controllers.ticket_controller.get_change_window_service') as mock_change:
+                            mock_change.return_value.check_and_suppress_ticket.return_value = False
+                            
+                            result = await ticket_controller.receive_webhook(
+                                source="prometheus",
+                                payload=sample_webhook_payload
+                            )
+                            
+                            assert result["ticket_id"] == 1
+                            assert result["status"] == "open"
     
     @pytest.mark.asyncio
     async def test_receive_webhook_suppresses_ticket_during_change_window(
@@ -122,7 +126,7 @@ class TestReceiveWebhook:
         mock_ticket = Mock(spec=Ticket)
         mock_ticket.id = 1
         mock_ticket.status = "open"
-        mock_ticket.classification = None
+        mock_ticket.classification = None  # Initially None, will be set by _analyze_ticket
         
         with patch.object(
             ticket_controller.ticket_repo,
@@ -134,10 +138,15 @@ class TestReceiveWebhook:
                 '_analyze_ticket',
                 new_callable=AsyncMock
             ) as mock_analyze:
-                mock_analyze.return_value = {
-                    "classification": "false_positive",
-                    "confidence": 0.85
-                }
+                # Update ticket classification when _analyze_ticket is called
+                def analyze_side_effect(ticket):
+                    ticket.classification = "false_positive"
+                    return {
+                        "classification": "false_positive",
+                        "confidence": 0.85
+                    }
+                
+                mock_analyze.side_effect = analyze_side_effect
                 
                 with patch.object(
                     ticket_controller.recommendation_engine,
@@ -145,17 +154,21 @@ class TestReceiveWebhook:
                     new_callable=AsyncMock,
                     return_value=Mock(to_dict=lambda: {})
                 ):
-                    with patch('app.controllers.ticket_controller.get_change_window_service') as mock_change:
-                        mock_change.return_value.check_and_suppress_ticket.return_value = False
-                        
-                        result = await ticket_controller.receive_webhook(
-                            source="prometheus",
-                            payload=sample_webhook_payload
-                        )
-                        
-                        mock_analyze.assert_called_once()
-                        assert result["classification"] == "false_positive"
-                        assert result["confidence"] == 0.85
+                    with patch.object(
+                        ticket_controller.ticket_repo,
+                        'update_ticket_metadata'
+                    ):
+                        with patch('app.controllers.ticket_controller.get_change_window_service') as mock_change:
+                            mock_change.return_value.check_and_suppress_ticket.return_value = False
+                            
+                            result = await ticket_controller.receive_webhook(
+                                source="prometheus",
+                                payload=sample_webhook_payload
+                            )
+                            
+                            mock_analyze.assert_called_once()
+                            assert result["classification"] == "false_positive"
+                            assert result["confidence"] == 0.85
 
 
 class TestCreateDemoTicket:
@@ -175,7 +188,7 @@ class TestCreateDemoTicket:
         mock_ticket = Mock(spec=Ticket)
         mock_ticket.id = 1
         mock_ticket.status = "open"
-        mock_ticket.classification = None
+        mock_ticket.classification = "true_positive"
         
         with patch.object(
             ticket_controller.ticket_repo,
@@ -186,7 +199,7 @@ class TestCreateDemoTicket:
                 ticket_controller,
                 '_analyze_ticket',
                 new_callable=AsyncMock,
-                return_value={"classification": "true_positive", "confidence": 0.9}
+                return_value={"classification": "true_positive", "confidence": 0.9, "reasoning": "Test"}
             ):
                 with patch.object(
                     ticket_controller.recommendation_engine,
@@ -194,13 +207,25 @@ class TestCreateDemoTicket:
                     new_callable=AsyncMock,
                     return_value=Mock(to_dict=lambda: {})
                 ):
-                    with patch('app.controllers.ticket_controller.get_change_window_service') as mock_change:
-                        mock_change.return_value.check_and_suppress_ticket.return_value = False
-                        
-                        result = await ticket_controller.create_demo_ticket(ticket_data)
-                        
-                        assert result["ticket_id"] == 1
-                        assert "message" in result
+                    with patch.object(
+                        ticket_controller,
+                        '_find_and_store_matched_runbooks',
+                        new_callable=AsyncMock
+                    ):
+                        with patch.object(
+                            ticket_controller,
+                            '_auto_execute_if_eligible',
+                            new_callable=AsyncMock
+                        ):
+                            with patch('app.controllers.ticket_controller.get_change_window_service') as mock_change:
+                                mock_change.return_value.check_and_suppress_ticket.return_value = False
+                                
+                                result = await ticket_controller.create_demo_ticket(ticket_data)
+                                
+                                assert result["ticket_id"] == 1
+                                assert result["classification"] == "true_positive"
+                                assert result["confidence"] == 0.9
+                                assert "reasoning" in result  # create_demo_ticket returns reasoning, not message
 
 
 class TestAnalyzeTicket:
@@ -234,6 +259,12 @@ class TestAnalyzeTicket:
         self, ticket_controller, sample_ticket, mock_db
     ):
         """Test that ticket classification is updated"""
+        # Create updated ticket mock
+        updated_ticket = Mock(spec=Ticket)
+        updated_ticket.id = 1
+        updated_ticket.classification = "false_positive"
+        updated_ticket.classification_confidence = "high"
+        
         with patch.object(
             ticket_controller.analysis_service,
             'analyze_ticket',
@@ -246,11 +277,23 @@ class TestAnalyzeTicket:
             
             with patch.object(
                 ticket_controller.ticket_repo,
-                'update_ticket_metadata'
+                'update_ticket'  # The actual method is update_ticket, not update_ticket_metadata
             ) as mock_update:
-                await ticket_controller._analyze_ticket(sample_ticket)
-                
-                # Verify ticket classification was set
-                assert sample_ticket.classification == "false_positive"
-                mock_update.assert_called_once()
+                with patch.object(
+                    ticket_controller.ticket_repo,
+                    'get_by_id_and_tenant',
+                    return_value=updated_ticket
+                ):
+                    with patch.object(
+                        ticket_controller.ticket_status_service,
+                        'update_ticket_on_false_positive'
+                    ) as mock_status:
+                        result = await ticket_controller._analyze_ticket(sample_ticket)
+                        
+                        # Verify update_ticket was called
+                        mock_update.assert_called_once()
+                        # Verify result contains classification
+                        assert result["classification"] == "false_positive"
+                        # Verify ticket status service was called (confidence >= 0.8)
+                        mock_status.assert_called_once()
 
