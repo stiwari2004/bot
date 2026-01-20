@@ -26,11 +26,13 @@ from app.main import app
 # When running in Docker, use 'postgres' as hostname (Docker service name)
 # When running locally, use 'localhost'
 import os
+from sqlalchemy.exc import OperationalError
 
 # Get database password from environment or use default
 # Try to extract from DATABASE_URL first, then fallback to POSTGRES_PASSWORD env var
 _db_password = "dev_password_change_me"  # Default
 _db_host = "postgres"  # Docker service name
+_db_name = "test_troubleshooting_ai"
 
 # Try to get password from DATABASE_URL if available
 _db_url = os.getenv("DATABASE_URL", "")
@@ -46,8 +48,54 @@ if _db_url and "@" in _db_url:
 # Allow override via environment variable
 _db_password = os.getenv("POSTGRES_PASSWORD", _db_password)
 _db_host = os.getenv("TEST_DB_HOST", _db_host)
+_db_name = os.getenv("TEST_DB_NAME", _db_name)
 
-TEST_DATABASE_URL = f"postgresql://postgres:{_db_password}@{_db_host}:5432/test_troubleshooting_ai"
+TEST_DATABASE_URL = f"postgresql://postgres:{_db_password}@{_db_host}:5432/{_db_name}"
+
+def _create_test_database_if_missing() -> None:
+    """
+    Ensure the test database exists.
+
+    If connecting to TEST_DATABASE_URL fails with 'database does not exist',
+    connect to the default 'postgres' database and create it.
+    """
+    try:
+        # Try a simple connection first
+        engine = create_engine(
+            TEST_DATABASE_URL,
+            pool_pre_ping=True,
+            echo=False,
+        )
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        engine.dispose()
+        return
+    except OperationalError as e:
+        msg = str(e)
+        if "does not exist" not in msg and "database \"{}\" does not exist".format(_db_name) not in msg:
+            # Different connection issue; re-raise
+            raise
+
+    # Connect to default 'postgres' database and create the test DB
+    admin_url = f"postgresql://postgres:{_db_password}@{_db_host}:5432/postgres"
+    admin_engine = create_engine(admin_url, pool_pre_ping=True, echo=False)
+    try:
+        with admin_engine.connect() as conn:
+            conn.execution_options(isolation_level="AUTOCOMMIT")
+            # Create database if not exists (Postgres has no IF NOT EXISTS for CREATE DATABASE in older versions,
+            # so catch error instead)
+            try:
+                conn.execute(text(f'CREATE DATABASE "{_db_name}"'))
+            except Exception as exc:
+                # If database already exists, ignore, otherwise re-raise
+                if "already exists" not in str(exc):
+                    raise
+    finally:
+        admin_engine.dispose()
+
+
+# Ensure test DB exists before creating engine
+_create_test_database_if_missing()
 
 # Create test engine
 test_engine = create_engine(
