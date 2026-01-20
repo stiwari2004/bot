@@ -305,6 +305,27 @@ echo -e "${YELLOW}To view fixed unit test details:${NC}"
 echo "  cat $FIXED_TESTS_OUTPUT"
 echo ""
 
+# Extract failed test names for detailed report
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Failed Test Details${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+
+# Extract failed tests from coverage output
+FAILED_TEST_PATHS=$(grep -E "FAILED.*\[.*\]" "$COVERAGE_OUTPUT" | grep -v "ERROR" | grep -oP 'tests/[^:]+::[^:]+::[^:]+' | sort -u | head -10)
+
+if [ -n "$FAILED_TEST_PATHS" ]; then
+    echo -e "${RED}Failed Tests (not errors):${NC}"
+    echo "$FAILED_TEST_PATHS" | while IFS= read -r test_path; do
+        echo "  - $test_path"
+    done
+    echo ""
+    echo -e "${YELLOW}To diagnose failures, run:${NC}"
+    echo "  bash diagnose_5_failures.sh"
+    echo ""
+fi
+
 # Exit with appropriate code
 if [ $COVERAGE_EXIT -eq 0 ] && [ "$FINAL_FAILED" = "0" ] && [ "$FINAL_ERRORS" = "0" ]; then
     echo -e "${GREEN}✓ All tests passed! Coverage target met.${NC}"
@@ -312,5 +333,9 @@ if [ $COVERAGE_EXIT -eq 0 ] && [ "$FINAL_FAILED" = "0" ] && [ "$FINAL_ERRORS" = 
 else
     echo -e "${YELLOW}⚠ Some tests failed or coverage below threshold.${NC}"
     echo -e "${YELLOW}Check the output files for details.${NC}"
+    echo ""
+    echo -e "${YELLOW}To diagnose failures:${NC}"
+    echo "  bash diagnose_5_failures.sh"
+    echo ""
     exit 1
 fi
