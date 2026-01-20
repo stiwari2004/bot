@@ -2,7 +2,7 @@
 Approval service for execution step approvals
 """
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.core.logging import get_logger
@@ -45,16 +45,16 @@ class ApprovalService:
         if step.approved is not None:
             raise ValueError(f"Step {step_number} already approved/rejected")
         
-        # Record approval
+        # Record approval with timezone-aware timestamps
         step.approved = approve
         step.approved_by = user_id
-        step.approved_at = datetime.utcnow()
+        step.approved_at = datetime.now(timezone.utc)
         
         if not approve:
             # Rejected - mark session as failed
             session.status = "failed"
             session.waiting_for_approval = False
-            session.completed_at = datetime.utcnow()
+            session.completed_at = datetime.now(timezone.utc)
             
             # Update ticket status
             if session.ticket_id:
@@ -107,8 +107,9 @@ class ApprovalService:
         else:
             # All steps completed
             session.status = "completed"
-            session.completed_at = datetime.utcnow()
+            session.completed_at = datetime.now(timezone.utc)
             if session.started_at:
+                # Both started_at and completed_at are timezone-aware, safe to subtract
                 duration = (session.completed_at - session.started_at).total_seconds() / 60
                 session.total_duration_minutes = int(duration)
             
