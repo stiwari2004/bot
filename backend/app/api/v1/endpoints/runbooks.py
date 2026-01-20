@@ -379,6 +379,35 @@ async def get_runbook_demo(
     return controller.get_runbook(runbook_id)
 
 
+@router.put("/demo/{runbook_id}", response_model=RunbookResponse)
+async def update_runbook_demo(
+    runbook_id: int,
+    runbook_update: RunbookUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a demo runbook for the authenticated user's tenant.
+
+    This mirrors the authenticated update endpoint but is scoped to the
+    /demo prefix used by our integration tests.
+    """
+    from app.core.cache import cache_service, cache_key
+
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
+    result = controller.update_runbook(runbook_id, runbook_update)
+
+    # Invalidate cache for this runbook
+    cache_key_str = cache_key("runbook:get", runbook_id, current_user.tenant_id)
+    await cache_service.delete(cache_key_str)
+
+    # Invalidate list cache for this tenant
+    list_cache_pattern = f"runbooks:list:{current_user.tenant_id}:*"
+    await cache_service.delete_pattern(list_cache_pattern)
+
+    return result
+
+
 @router.delete("/demo/{runbook_id}")
 async def delete_runbook_demo(
     runbook_id: int,
