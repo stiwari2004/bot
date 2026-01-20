@@ -46,7 +46,10 @@ class CommandValidator:
     
     # Dangerous PowerShell patterns (MF-4)
     DANGEROUS_PS_PATTERNS = [
-        r'Remove-Item\s+-Recurse\s+-Force\s+[A-Z]:\\',  # Dangerous Remove-Item
+        r'Remove-Item\s+.*-Recurse\s+.*-Force\s+.*[A-Z]:\\',  # Dangerous Remove-Item with drive root (any param order)
+        r'Remove-Item\s+.*-Path\s+[A-Z]:\\\s+.*-Recurse',  # Dangerous Remove-Item with -Path and drive root
+        r'Remove-Item\s+.*-Recurse\s+.*-Path\s+[A-Z]:\\',  # Dangerous Remove-Item with -Recurse before -Path
+        r'Remove-Item\s+.*-Force\s+.*-Path\s+[A-Z]:\\\s+.*-Recurse',  # Dangerous Remove-Item with -Force before -Path
         r'Format-Volume\s+',  # Format volume
         r'Invoke-Expression\s+',  # Invoke-Expression
         r'Invoke-Command\s+',  # Invoke-Command
@@ -61,7 +64,19 @@ class CommandValidator:
         Validate SQL command for dangerous patterns (MF-4)
         Returns: (is_safe, error_message)
         """
+        # Check for empty command
+        if not command or not command.strip():
+            return False, "Command is empty"
+        
         command_upper = command.upper().strip()
+        
+        # Check for command chaining (any semicolon followed by any command)
+        if ';' in command_upper:
+            # Split by semicolon and check if there are multiple commands
+            parts = [p.strip() for p in command_upper.split(';') if p.strip()]
+            if len(parts) > 1:
+                logger.warning("Rejected SQL command with chaining")
+                return False, "Command chaining detected (multiple commands separated by semicolon)"
         
         # Check for dangerous patterns
         for pattern in cls.DANGEROUS_SQL_PATTERNS:
@@ -94,6 +109,10 @@ class CommandValidator:
         Validate shell command for dangerous patterns (MF-4)
         Returns: (is_safe, error_message)
         """
+        # Check for empty command
+        if not command or not command.strip():
+            return False, "Command is empty"
+        
         # Check for dangerous patterns
         for pattern in cls.DANGEROUS_SHELL_PATTERNS:
             if re.search(pattern, command, re.IGNORECASE):
@@ -108,6 +127,22 @@ class CommandValidator:
         Validate PowerShell command for dangerous patterns (MF-4)
         Returns: (is_safe, error_message)
         """
+        # Check for empty command
+        if not command or not command.strip():
+            return False, "Command is empty"
+        
+        command_upper = command.upper()
+        
+        # Special check for Remove-Item with dangerous combination: -Recurse -Force and drive root
+        if 'REMOVE-ITEM' in command_upper:
+            has_recurse = '-RECURSE' in command_upper
+            has_force = '-FORCE' in command_upper
+            has_drive_root = re.search(r'[A-Z]:\\', command_upper) is not None
+            
+            if has_recurse and has_force and has_drive_root:
+                logger.warning("Rejected dangerous Remove-Item command with -Recurse -Force on drive root")
+                return False, "Remove-Item with -Recurse -Force on drive root is dangerous"
+        
         # Check for dangerous patterns
         for pattern in cls.DANGEROUS_PS_PATTERNS:
             if re.search(pattern, command, re.IGNORECASE):
