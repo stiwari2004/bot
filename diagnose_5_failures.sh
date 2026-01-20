@@ -69,20 +69,31 @@ else
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
-    # Get full test paths
-    FULL_FAILED_PATHS=$(grep -E "FAILED.*\[.*\]" "$TEMP_OUTPUT" | grep -v "ERROR" | grep -oP 'tests/[^:]+::[^:]+::[^:]+' | sort -u | head -10)
+    # Get full test paths - extract from lines like "FAILED tests/path/to/test.py::TestClass::test_method"
+    # Pattern: FAILED tests/unit/services/test_validation_services.py::TestRunbookQualityValidator::test_validate_with_valid_spec
+    FULL_FAILED_PATHS=$(grep "^FAILED" "$TEMP_OUTPUT" | grep -v "ERROR" | awk '{print $2}' | grep "^tests/" | sort -u | head -10)
     
-    for test_path in $FULL_FAILED_PATHS; do
-        echo -e "${YELLOW}Testing: $test_path${NC}"
-        docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
-            "$test_path" \
-            -v \
-            --tb=long \
-            --no-cov \
-            -o cache_dir=/tmp/.pytest_cache \
-            2>&1 | grep -A 30 "FAILED\|AssertionError\|Error:" || echo "  (Test output not found)"
-        echo ""
-    done
+    if [ -z "$FULL_FAILED_PATHS" ]; then
+        # Try alternative extraction method - look for test paths in FAILED lines
+        FULL_FAILED_PATHS=$(grep "FAILED" "$TEMP_OUTPUT" | grep -v "ERROR" | grep -oE 'tests/[^[:space:]]+::[^[:space:]]+::[^[:space:]]+' | sort -u | head -10)
+    fi
+    
+    if [ -n "$FULL_FAILED_PATHS" ]; then
+        for test_path in $FULL_FAILED_PATHS; do
+            echo -e "${YELLOW}Testing: $test_path${NC}"
+            docker exec -i -e COVERAGE_FILE=/tmp/coverage/.coverage -e PYTEST_CACHE_DIR=/tmp/.pytest_cache "$CONTAINER_NAME" pytest \
+                "$test_path" \
+                -v \
+                --tb=long \
+                --no-cov \
+                -o cache_dir=/tmp/.pytest_cache \
+                2>&1 | tail -50
+            echo ""
+        done
+    else
+        echo -e "${YELLOW}Could not extract test paths. Showing relevant lines from output:${NC}"
+        grep -B 2 -A 5 "FAILED" "$TEMP_OUTPUT" | grep -v "ERROR" | head -30
+    fi
 fi
 
 echo ""

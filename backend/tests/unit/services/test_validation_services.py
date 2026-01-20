@@ -34,7 +34,7 @@ def valid_runbook_spec():
     return {
         "runbook_id": "rb-test",
         "version": "1.0.0",
-        "title": "Test Runbook",
+        "title": "Fix CPU usage high on Windows server",
         "service": "server",
         "env": "prod",
         "risk": "low",
@@ -77,7 +77,13 @@ class TestRunbookQualityValidator:
             "CPU usage is high on Windows server"
         )
         
-        assert is_valid is True
+        # Debug: print errors if validation fails
+        if not is_valid:
+            print(f"\nValidation failed with {len(errors)} errors:")
+            for error in errors:
+                print(f"  - {error}")
+        
+        assert is_valid is True, f"Validation failed with errors: {errors}"
         assert len(errors) == 0
     
     def test_validate_detects_missing_prechecks(
