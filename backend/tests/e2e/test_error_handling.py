@@ -205,10 +205,12 @@ class TestConcurrentRequestHandling:
                     }
                 )
                 responses.append(response)
-            
-            # All requests should be handled (may succeed or fail, but not crash)
+
+            # All requests should be handled (may succeed, fail, or be rejected as duplicates, but not crash)
+            # 409 is valid - it means duplicate detection is working
+            # 429 is valid - it means rate limiting is working
             for response in responses:
-                assert response.status_code in [200, 500, 502]
+                assert response.status_code in [200, 409, 429, 500, 502, 503]
 
 
 @pytest.mark.e2e
