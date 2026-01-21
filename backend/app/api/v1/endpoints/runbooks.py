@@ -91,6 +91,12 @@ async def generate_agent_runbook(
     if service_value in ["Windows", "Linux"]:
         service_value = "server"
     
+    import asyncio
+    from app.core.logging import get_logger
+    from app.services.llm_budget_manager import LLMRateLimitExceeded, LLMBudgetExceeded
+    
+    logger = get_logger(__name__)
+    
     try:
         controller = RunbookController(db, current_user.tenant_id)
         return await controller.generate_agent_runbook(
@@ -100,13 +106,25 @@ async def generate_agent_runbook(
             request.risk.value
         )
     except HTTPException:
-        # Re-raise HTTP exceptions (e.g., 409 for duplicates)
+        # Re-raise HTTP exceptions (e.g., 409 for duplicates, 429 for rate limits)
         raise
+    except (asyncio.TimeoutError, TimeoutError) as e:
+        # Timeout errors from LLM service or async operations
+        logger.error(f"LLM timeout error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=504,
+            detail="Runbook generation timed out. The request took longer than expected. Please try again."
+        )
+    except (LLMRateLimitExceeded, LLMBudgetExceeded) as e:
+        # Budget/rate limit errors (should already be caught, but handle here as backup)
+        logger.error(f"LLM budget/rate limit error: {e}", exc_info=True)
+        if isinstance(e, LLMRateLimitExceeded):
+            raise HTTPException(status_code=429, detail=str(e))
+        else:
+            raise HTTPException(status_code=402, detail=str(e))
     except ValueError as e:
         # YAML parsing errors or validation errors from generator
         error_msg = str(e).lower()
-        from app.core.logging import get_logger
-        logger = get_logger(__name__)
         if "yaml" in error_msg or "parsing" in error_msg or "invalid" in error_msg:
             logger.error(f"YAML parsing/validation failed: {e}", exc_info=True)
             raise HTTPException(
@@ -117,8 +135,6 @@ async def generate_agent_runbook(
             logger.error(f"Validation error: {e}", exc_info=True)
             raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
     except Exception as e:
-        from app.core.logging import get_logger
-        logger = get_logger(__name__)
         logger.error(f"Error generating agent runbook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate agent runbook: {str(e)}")
 
