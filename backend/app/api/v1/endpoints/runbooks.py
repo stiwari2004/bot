@@ -102,6 +102,25 @@ async def generate_agent_runbook(
     except HTTPException:
         # Re-raise HTTP exceptions (e.g., 409 for duplicates)
         raise
+    except ValueError as e:
+        # YAML parsing errors or validation errors from generator
+        error_msg = str(e).lower()
+        from app.core.logging import get_logger
+        logger = get_logger(__name__)
+        if "yaml" in error_msg or "parsing" in error_msg or "invalid" in error_msg:
+            logger.error(f"YAML parsing/validation failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate valid runbook YAML. Please try again with a different issue description."
+            )
+        else:
+            logger.error(f"Validation error: {e}", exc_info=True)
+            raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+    except Exception as e:
+        from app.core.logging import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error generating agent runbook: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate agent runbook: {str(e)}")
 
 
 @router.get("/demo/detect-os")
