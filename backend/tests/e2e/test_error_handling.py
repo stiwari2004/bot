@@ -22,10 +22,13 @@ class TestNetworkFailureHandling:
         client, user = authenticated_client
         
         # Try to generate runbook when LLM service is down
-        with patch('app.services.llm_service.get_llm_service') as mock_llm:
-            mock_llm.return_value.generate_yaml_runbook = AsyncMock(
+        # Patch where it's actually used (yaml_generation_pipeline imports it directly)
+        with patch('app.services.runbook.generation.yaml_generation_pipeline.get_llm_service') as mock_llm:
+            mock_service = AsyncMock()
+            mock_service.generate_yaml_runbook = AsyncMock(
                 side_effect=Exception("LLM service unavailable")
             )
+            mock_llm.return_value = mock_service
             
             response = client.post(
                 "/api/v1/runbooks/generate-agent",
@@ -49,12 +52,13 @@ class TestNetworkFailureHandling:
         """Test that database connection failures are handled"""
         client, user = authenticated_client
         
-        # Simulate database failure by patching the repository method
+        # Simulate database failure by patching where it's actually called
         from sqlalchemy.exc import OperationalError
         
-        with patch('app.repositories.runbook_repository.RunbookRepository.get_by_tenant') as mock_repo:
-            # Simulate a database connection error
-            mock_repo.side_effect = OperationalError(
+        # Patch the controller method directly - it will re-raise OperationalError
+        # and the endpoint will catch it and return 503
+        with patch('app.controllers.runbook_controller.RunbookController.list_runbooks') as mock_list:
+            mock_list.side_effect = OperationalError(
                 "Database connection failed",
                 None,
                 None
