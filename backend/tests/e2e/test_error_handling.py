@@ -55,9 +55,14 @@ class TestNetworkFailureHandling:
         # Simulate database failure by patching where it's actually called
         from sqlalchemy.exc import OperationalError
         
-        # Patch the controller method directly - it will re-raise OperationalError
-        # and the endpoint will catch it and return 503
-        with patch('app.controllers.runbook_controller.RunbookController.list_runbooks') as mock_list:
+        # Patch both cache (to force database call) and controller method
+        # The endpoint checks cache first, so we need to ensure cache returns None
+        with patch('app.core.cache.cache_service.get') as mock_cache_get, \
+             patch('app.controllers.runbook_controller.RunbookController.list_runbooks') as mock_list:
+            # Force cache miss to trigger database call
+            mock_cache_get.return_value = None
+            
+            # Simulate database connection error
             mock_list.side_effect = OperationalError(
                 "Database connection failed",
                 None,
