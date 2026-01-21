@@ -2,6 +2,7 @@
 YAML generation pipeline for agent runbooks
 Handles LLM generation, extraction, and initial cleanup
 """
+import asyncio
 from typing import Optional, Dict, Any
 from app.core.logging import get_logger
 from app.services.llm_service import get_llm_service
@@ -60,6 +61,11 @@ class YamlGenerationPipeline:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except LLMBudgetExceeded as exc:
             raise HTTPException(status_code=402, detail=str(exc)) from exc
+        except (asyncio.TimeoutError, TimeoutError) as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="LLM request timed out. Please try again."
+            ) from exc
         
         # Check for empty response early
         if not ai_yaml or not ai_yaml.strip():

@@ -138,14 +138,16 @@ class TestTimeoutHandling:
     ):
         """Test that LLM timeouts are handled"""
         client, user = authenticated_client
-        
-        # Simulate timeout
-        with patch('app.services.llm_service.get_llm_service') as mock_llm:
-            import asyncio
-            mock_llm.return_value.generate_yaml_runbook = AsyncMock(
+
+        # Simulate timeout - patch where it's actually used
+        import asyncio
+        with patch('app.services.runbook.generation.yaml_generation_pipeline.get_llm_service') as mock_llm:
+            mock_service = AsyncMock()
+            mock_service.generate_yaml_runbook = AsyncMock(
                 side_effect=asyncio.TimeoutError("LLM request timed out")
             )
-            
+            mock_llm.return_value = mock_service
+
             response = client.post(
                 "/api/v1/runbooks/generate-agent",
                 json={
@@ -155,7 +157,7 @@ class TestTimeoutHandling:
                     "risk": "low"
                 }
             )
-            
+
             # Should handle timeout gracefully
             assert response.status_code in [500, 502, 504]
 
