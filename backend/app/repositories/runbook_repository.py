@@ -43,6 +43,13 @@ class RunbookRepository(BaseRepository[Runbook]):
             return query.offset(skip).limit(limit).all()
         except Exception as e:
             logger.error(f"Error getting runbooks by tenant: {e}", exc_info=True)
+            # Re-raise database connection errors so they can be handled by endpoint
+            from sqlalchemy.exc import OperationalError, DisconnectionError
+            error_str = str(e).lower()
+            if isinstance(e, (OperationalError, DisconnectionError)) or \
+               "connection" in error_str or "database" in error_str or "operational" in error_str:
+                raise  # Re-raise database errors
+            # Return empty list for other errors (e.g., query issues)
             return []
     
     def get_by_id_and_tenant(

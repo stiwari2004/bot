@@ -49,13 +49,21 @@ class TestNetworkFailureHandling:
         """Test that database connection failures are handled"""
         client, user = authenticated_client
         
-        # Simulate database failure
-        with patch('app.core.database.get_db') as mock_db:
-            mock_db.side_effect = Exception("Database connection failed")
+        # Simulate database failure by patching the repository method
+        from sqlalchemy.exc import OperationalError
+        
+        with patch('app.repositories.runbook_repository.RunbookRepository.get_by_tenant') as mock_repo:
+            # Simulate a database connection error
+            mock_repo.side_effect = OperationalError(
+                "Database connection failed",
+                None,
+                None
+            )
             
             response = client.get("/api/v1/runbooks/")
             
             # Should return error, not crash
+            # Endpoint should catch OperationalError and return 503
             assert response.status_code in [500, 503]
 
 

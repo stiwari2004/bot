@@ -205,7 +205,13 @@ class RunbookController(BaseController):
             return result
         except Exception as e:
             logger.error(f"Error listing runbooks: {e}", exc_info=True)
-            # Return empty list instead of raising error for list endpoints
+            # Re-raise database connection errors so endpoint can handle them
+            from sqlalchemy.exc import OperationalError, DisconnectionError
+            error_str = str(e).lower()
+            if isinstance(e, (OperationalError, DisconnectionError)) or \
+               "connection" in error_str or "database" in error_str or "operational" in error_str:
+                raise  # Re-raise database errors
+            # Return empty list for other errors (e.g., serialization issues)
             return []
     
     def get_runbook(self, runbook_id: int) -> RunbookResponse:
