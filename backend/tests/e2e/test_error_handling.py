@@ -216,10 +216,13 @@ class TestResourceExhaustionHandling:
         
         from app.services.llm_budget_manager import LLMRateLimitExceeded
         
-        with patch('app.services.llm_service.get_llm_service') as mock_llm:
-            mock_llm.return_value.generate_yaml_runbook = AsyncMock(
+        # Patch where it's actually used (yaml_generation_pipeline imports it directly)
+        with patch('app.services.runbook.generation.yaml_generation_pipeline.get_llm_service') as mock_llm:
+            mock_service = AsyncMock()
+            mock_service.generate_yaml_runbook = AsyncMock(
                 side_effect=LLMRateLimitExceeded("Rate limit exceeded")
             )
+            mock_llm.return_value = mock_service
             
             response = client.post(
                 "/api/v1/runbooks/generate-agent",
@@ -243,10 +246,13 @@ class TestResourceExhaustionHandling:
         
         from app.services.llm_budget_manager import LLMBudgetExceeded
         
-        with patch('app.services.llm_service.get_llm_service') as mock_llm:
-            mock_llm.return_value.generate_yaml_runbook = AsyncMock(
+        # Patch where it's actually used (yaml_generation_pipeline imports it directly)
+        with patch('app.services.runbook.generation.yaml_generation_pipeline.get_llm_service') as mock_llm:
+            mock_service = AsyncMock()
+            mock_service.generate_yaml_runbook = AsyncMock(
                 side_effect=LLMBudgetExceeded("Budget exceeded")
             )
+            mock_llm.return_value = mock_service
             
             response = client.post(
                 "/api/v1/runbooks/generate-agent",

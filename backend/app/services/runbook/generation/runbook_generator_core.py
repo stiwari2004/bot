@@ -356,7 +356,15 @@ class RunbookGeneratorService:
                 logger.info("YAML auto-fix succeeded")
             except Exception as e2:
                 logger.error(f"AI YAML invalid or empty – rejecting request (no fallback): {type(e).__name__}: {e}; autofix failed: {type(e2).__name__}: {e2}")
-                raise HTTPException(status_code=502, detail=f"LLM YAML generation failed: {type(e).__name__}: {str(e)[:200]}")
+                # Re-raise ValueError as-is so endpoint can convert to 500
+                # Re-raise HTTPException as-is (from pipeline)
+                # Convert other exceptions to ValueError for consistent handling
+                if isinstance(e, ValueError):
+                    raise ValueError(f"YAML parsing failed: {str(e)[:200]}") from e
+                elif isinstance(e, HTTPException):
+                    raise  # Re-raise HTTPException from pipeline
+                else:
+                    raise ValueError(f"LLM YAML generation failed: {type(e).__name__}: {str(e)[:200]}") from e
 
         # Persist as Markdown (code fence) for readability while storing JSON spec in meta_data
         body_md = f"""# Agent Runbook (YAML)
