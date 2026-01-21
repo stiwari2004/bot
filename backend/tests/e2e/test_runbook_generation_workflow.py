@@ -88,8 +88,13 @@ class TestRunbookGenerationWorkflow:
         
         issue_description = "CPU usage is high on Windows server"
         
-        with patch('app.services.runbook.duplicate_detection_service.DuplicateDetectionService') as mock_dup:
-            mock_dup.return_value.check_duplicate.return_value = (True, existing_runbook)
+        # Patch the duplicate detection service class so when controller creates instance, it gets our mock
+        from app.services.runbook.duplicate_detection_service import DuplicateDetectionService
+        with patch('app.controllers.runbook_controller.DuplicateDetectionService') as mock_dup_class:
+            # Create a mock service instance
+            mock_service = Mock()
+            mock_service.check_duplicate = Mock(return_value=(True, existing_runbook))
+            mock_dup_class.return_value = mock_service
             
             response = client.post(
                 "/api/v1/runbooks/generate-agent",

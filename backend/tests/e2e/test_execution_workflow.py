@@ -92,37 +92,54 @@ class TestCompleteExecutionWorkflow:
             status="open"
         )
         
-        with patch('app.services.execution.execution_engine.StepExecutionService') as mock_step:
-            mock_step.return_value.execute_next_step = AsyncMock()
-            
-            # Start execution
-            response = client.post(
-                "/api/v1/agent/execute",
-                json={
-                    "runbook_id": runbook.id,
-                    "issue_description": "Test issue",
-                    "ticket_id": ticket.id
-                }
-            )
-            
-            assert response.status_code == 200
-            session_id = response.json()["id"]
-            
-            # Reject step
-            reject_response = client.post(
-                f"/api/v1/agent/{session_id}/approve-step",
-                json={
-                    "approve": False,
-                    "step_number": 1
-                }
-            )
-            
-            assert reject_response.status_code in [200, 202]
-            
-            # Verify session is abandoned
-            status_response = client.get(f"/api/v1/agent/{session_id}")
-            status_data = status_response.json()
-            assert status_data["status"] == "abandoned"
+        # Start execution
+        response = client.post(
+            "/api/v1/agent/execute",
+            json={
+                "runbook_id": runbook.id,
+                "issue_description": "Test issue",
+                "ticket_id": ticket.id
+            }
+        )
+        
+        assert response.status_code == 200
+        session_id = response.json()["id"]
+        
+        # Create an execution step that requires approval
+        from tests.utils.factories import ExecutionStepFactory
+        step = ExecutionStepFactory.create(
+            db,
+            session_id=session_id,
+            step_number=1,
+            requires_approval=True,
+            approved=None,
+            completed=False
+        )
+        
+        # Update session to be waiting for approval
+        from app.models.execution_session import ExecutionSession
+        session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+        if session:
+            session.status = "waiting_approval"
+            session.waiting_for_approval = True
+            session.approval_step_number = 1
+            db.commit()
+        
+        # Reject step
+        reject_response = client.post(
+            f"/api/v1/agent/{session_id}/approve-step",
+            json={
+                "approve": False,
+                "step_number": 1
+            }
+        )
+        
+        assert reject_response.status_code in [200, 202]
+        
+        # Verify session is abandoned
+        status_response = client.get(f"/api/v1/agent/{session_id}")
+        status_data = status_response.json()
+        assert status_data["status"] == "abandoned"
     
     @pytest.mark.asyncio
     async def test_execution_workflow_with_rollback(
