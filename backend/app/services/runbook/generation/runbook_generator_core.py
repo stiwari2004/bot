@@ -92,8 +92,7 @@ class RunbookGeneratorService:
         
         # Step 4: Create runbook record
         # Determine environment based on ENVIRONMENT config
-        from app.core.config import get_settings
-        settings = get_settings()
+        from app.core.config import settings
         runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
         
         runbook = Runbook(
@@ -368,8 +367,7 @@ class RunbookGeneratorService:
 """
 
         # Determine environment based on ENVIRONMENT config
-        from app.core.config import get_settings
-        settings = get_settings()
+        from app.core.config import settings
         runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
         
         runbook = Runbook(
