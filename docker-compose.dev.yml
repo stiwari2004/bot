@@ -3,8 +3,7 @@ version: '3.8'
 # CRITICAL: Always use project name to isolate from production
 # Usage: docker-compose -f docker-compose.dev.yml -p bot-dev <command>
 # This prevents affecting production containers
-
-name: bot-dev  # Project name (docker-compose v2+)
+# Example: docker-compose -f docker-compose.dev.yml -p bot-dev up -d
 
 services:
   # PostgreSQL with pgvector extension (dev instance)
