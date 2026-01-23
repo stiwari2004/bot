@@ -15,6 +15,7 @@ import {
   SparklesIcon,
   ExclamationTriangleIcon,
   ServerIcon,
+  BoltIcon,
 } from '@heroicons/react/24/outline';
 
 interface DashboardOverview {
@@ -62,6 +63,7 @@ export default function SuperAdminDashboard() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'analytics' | 'actions'>('analytics');
 
   const fetchOverview = async () => {
     if (!token) {
@@ -158,8 +160,49 @@ export default function SuperAdminDashboard() {
             </button>
           </div>
         )}
-        
-        {/* Overview Stats */}
+
+        {/* Tabs */}
+        <div className="mb-6 border-b border-neutral-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`
+                py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                ${
+                  activeTab === 'analytics'
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                }
+              `}
+            >
+              <div className="flex items-center space-x-2">
+                <ChartBarIcon className="h-5 w-5" />
+                <span>Analytics</span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('actions')}
+              className={`
+                py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                ${
+                  activeTab === 'actions'
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                }
+              `}
+            >
+              <div className="flex items-center space-x-2">
+                <BoltIcon className="h-5 w-5" />
+                <span>Actions</span>
+              </div>
+            </button>
+          </nav>
+        </div>
+
+        {/* Analytics Tab Content */}
+        {activeTab === 'analytics' && (
+          <>
+            {/* Overview Stats */}
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
@@ -353,9 +396,12 @@ export default function SuperAdminDashboard() {
             )}
           </>
         ) : null}
+          </>
+        )}
 
-        {/* Quick Actions */}
-        <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+        {/* Actions Tab Content */}
+        {activeTab === 'actions' && (
+          <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button
@@ -419,7 +465,8 @@ export default function SuperAdminDashboard() {
               </div>
             </button>
           </div>
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );
