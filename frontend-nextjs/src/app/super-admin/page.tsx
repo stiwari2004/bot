@@ -32,12 +32,13 @@ interface DashboardOverview {
     node_growth_percent: number;
   };
   revenue: {
-    current_month_total: number;
+    total_revenue: number;
     fixed_revenue: number;
     node_overage_revenue: number;
     llm_overage_revenue: number;
-    last_month_total: number;
-    growth_percent: number;
+    estimated_llm_costs?: number;
+    estimated_total_costs?: number;
+    estimated_margin_percent?: number;
   };
   usage: {
     total_executions: number;
@@ -174,16 +175,16 @@ export default function SuperAdminDashboard() {
                   <div className="p-3 bg-primary-100 rounded-lg">
                     <BuildingOfficeIcon className="h-6 w-6 text-primary-600" />
                   </div>
-                  {overview.summary.tenant_growth_percent !== 0 && (
+                  {overview.summary?.tenant_growth_percent !== undefined && overview.summary.tenant_growth_percent !== 0 && (
                     <span className={`text-sm font-medium ${overview.summary.tenant_growth_percent > 0 ? 'text-success-600' : 'text-warning-600'}`}>
                       {overview.summary.tenant_growth_percent > 0 ? '+' : ''}{overview.summary.tenant_growth_percent.toFixed(1)}%
                     </span>
                   )}
                 </div>
                 <h3 className="text-sm font-medium text-neutral-600 mb-1">Total Tenants</h3>
-                <p className="text-3xl font-bold text-neutral-900">{overview.summary.total_tenants}</p>
+                <p className="text-3xl font-bold text-neutral-900">{overview.summary?.total_tenants || 0}</p>
                 <p className="text-xs text-neutral-500 mt-2">
-                  {overview.summary.active_tenants} active, {overview.summary.inactive_tenants} inactive
+                  {overview.summary?.active_tenants || 0} active, {overview.summary?.inactive_tenants || 0} inactive
                 </p>
               </div>
 
@@ -195,9 +196,9 @@ export default function SuperAdminDashboard() {
                   </div>
                 </div>
                 <h3 className="text-sm font-medium text-neutral-600 mb-1">Trial Tenants</h3>
-                <p className="text-3xl font-bold text-neutral-900">{overview.summary.trial_tenants}</p>
+                <p className="text-3xl font-bold text-neutral-900">{overview.summary?.trial_tenants || 0}</p>
                 <p className="text-xs text-neutral-500 mt-2">
-                  {overview.summary.paid_tenants} paid tenants
+                  {overview.summary?.paid_tenants || 0} paid tenants
                 </p>
               </div>
 
@@ -207,16 +208,16 @@ export default function SuperAdminDashboard() {
                   <div className="p-3 bg-secondary-100 rounded-lg">
                     <UserGroupIcon className="h-6 w-6 text-secondary-600" />
                   </div>
-                  {overview.summary.user_growth_percent !== 0 && (
+                  {overview.summary?.user_growth_percent !== undefined && overview.summary.user_growth_percent !== 0 && (
                     <span className={`text-sm font-medium ${overview.summary.user_growth_percent > 0 ? 'text-success-600' : 'text-warning-600'}`}>
                       {overview.summary.user_growth_percent > 0 ? '+' : ''}{overview.summary.user_growth_percent.toFixed(1)}%
                     </span>
                   )}
                 </div>
                 <h3 className="text-sm font-medium text-neutral-600 mb-1">Total Users</h3>
-                <p className="text-3xl font-bold text-neutral-900">{overview.summary.total_users}</p>
+                <p className="text-3xl font-bold text-neutral-900">{overview.summary?.total_users || 0}</p>
                 <p className="text-xs text-neutral-500 mt-2">
-                  {overview.summary.active_users} active users
+                  {overview.summary?.active_users || 0} active users
                 </p>
               </div>
 
@@ -226,14 +227,14 @@ export default function SuperAdminDashboard() {
                   <div className="p-3 bg-warning-100 rounded-lg">
                     <ServerIcon className="h-6 w-6 text-warning-600" />
                   </div>
-                  {overview.summary.node_growth_percent !== 0 && (
+                  {overview.summary?.node_growth_percent !== undefined && overview.summary.node_growth_percent !== 0 && (
                     <span className={`text-sm font-medium ${overview.summary.node_growth_percent > 0 ? 'text-success-600' : 'text-warning-600'}`}>
                       {overview.summary.node_growth_percent > 0 ? '+' : ''}{overview.summary.node_growth_percent.toFixed(1)}%
                     </span>
                   )}
                 </div>
                 <h3 className="text-sm font-medium text-neutral-600 mb-1">Total Nodes</h3>
-                <p className="text-3xl font-bold text-neutral-900">{overview.summary.total_nodes}</p>
+                <p className="text-3xl font-bold text-neutral-900">{overview.summary?.total_nodes || 0}</p>
                 <p className="text-xs text-neutral-500 mt-2">Managed infrastructure</p>
               </div>
             </div>
@@ -249,11 +250,11 @@ export default function SuperAdminDashboard() {
                   <div>
                     <p className="text-sm text-neutral-600">Current Month Total</p>
                     <p className="text-2xl font-bold text-neutral-900">
-                      ${overview.revenue.current_month_total.toFixed(2)}
+                      ${(overview.revenue?.total_revenue || 0).toFixed(2)}
                     </p>
-                    {overview.revenue.growth_percent !== 0 && (
-                      <p className={`text-sm mt-1 ${overview.revenue.growth_percent > 0 ? 'text-success-600' : 'text-warning-600'}`}>
-                        {overview.revenue.growth_percent > 0 ? '+' : ''}{overview.revenue.growth_percent.toFixed(1)}% vs last month
+                    {overview.revenue?.estimated_margin_percent !== undefined && (
+                      <p className={`text-sm mt-1 ${overview.revenue.estimated_margin_percent > 0 ? 'text-success-600' : 'text-warning-600'}`}>
+                        Margin: {overview.revenue.estimated_margin_percent.toFixed(1)}%
                       </p>
                     )}
                   </div>
@@ -261,19 +262,19 @@ export default function SuperAdminDashboard() {
                     <div>
                       <p className="text-xs text-neutral-600">Fixed Revenue</p>
                       <p className="text-lg font-semibold text-neutral-900">
-                        ${overview.revenue.fixed_revenue.toFixed(2)}
+                        ${(overview.revenue?.fixed_revenue || 0).toFixed(2)}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs text-neutral-600">Node Overage</p>
                       <p className="text-lg font-semibold text-neutral-900">
-                        ${overview.revenue.node_overage_revenue.toFixed(2)}
+                        ${(overview.revenue?.node_overage_revenue || 0).toFixed(2)}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs text-neutral-600">LLM Overage</p>
                       <p className="text-lg font-semibold text-neutral-900">
-                        ${overview.revenue.llm_overage_revenue.toFixed(2)}
+                        ${(overview.revenue?.llm_overage_revenue || 0).toFixed(2)}
                       </p>
                     </div>
                   </div>
@@ -289,26 +290,26 @@ export default function SuperAdminDashboard() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-neutral-600">Executions</p>
-                    <p className="text-2xl font-bold text-neutral-900">{overview.usage.total_executions.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-neutral-900">{(overview.usage?.total_executions || 0).toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-sm text-neutral-600">Tickets</p>
-                    <p className="text-2xl font-bold text-neutral-900">{overview.usage.total_tickets.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-neutral-900">{(overview.usage?.total_tickets || 0).toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-sm text-neutral-600">LLM Tokens</p>
-                    <p className="text-2xl font-bold text-neutral-900">{overview.usage.total_llm_tokens.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-neutral-900">{(overview.usage?.total_llm_tokens || 0).toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-sm text-neutral-600">API Calls</p>
-                    <p className="text-2xl font-bold text-neutral-900">{overview.usage.total_api_calls.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-neutral-900">{(overview.usage?.total_api_calls || 0).toLocaleString()}</p>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Alerts Section */}
-            {overview.alerts && overview.alerts.length > 0 && (
+            {overview.alerts && Array.isArray(overview.alerts) && overview.alerts.length > 0 && (
               <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm mb-8">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-neutral-900">Critical Alerts</h2>
@@ -337,7 +338,7 @@ export default function SuperAdminDashboard() {
             )}
 
             {/* Plan Distribution */}
-            {Object.keys(overview.plan_distribution).length > 0 && (
+            {overview.plan_distribution && Object.keys(overview.plan_distribution).length > 0 && (
               <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm mb-8">
                 <h2 className="text-lg font-semibold text-neutral-900 mb-4">Plan Distribution</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
