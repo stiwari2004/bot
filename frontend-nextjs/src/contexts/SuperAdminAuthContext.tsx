@@ -115,16 +115,28 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
 
       if (!response.ok) {
         let errorMessage = 'Login failed';
-        let errorBody = null;
+        let errorBody: any = null;
         try {
-          errorBody = await response.json();
-          errorMessage = errorBody.detail || errorBody.message || `Login failed (${response.status})`;
+          const text = await response.text();
+          if (text) {
+            try {
+              errorBody = JSON.parse(text);
+              errorMessage = errorBody?.detail || errorBody?.message || `Login failed (${response.status})`;
+            } catch (parseError) {
+              // Not JSON, use text as error message
+              errorMessage = text || `Login failed: ${response.status} ${response.statusText}`;
+              errorBody = { raw: text };
+            }
+          } else {
+            errorMessage = `Login failed: ${response.status} ${response.statusText}`;
+          }
         } catch (e) {
           errorMessage = `Login failed: ${response.status} ${response.statusText}`;
+          errorBody = { error: String(e) };
         }
         // #region agent log
-        console.error('[DEBUG] Login failed - error response', { status: response.status, errorMessage, errorBody });
-        fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:107',message:'Login failed - error response',data:{status:response.status,errorMessage,errorBody},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'C'})}).catch(()=>{});
+        console.error('[DEBUG] Login failed - error response', { status: response.status, statusText: response.statusText, errorMessage, errorBody });
+        fetch('http://127.0.0.1:7242/ingest/066c9cec-c573-4288-a2b8-64e315bfdeda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SuperAdminAuthContext.tsx:107',message:'Login failed - error response',data:{status:response.status,statusText:response.statusText,errorMessage,errorBody},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
         throw new Error(errorMessage);
       }

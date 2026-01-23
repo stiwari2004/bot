@@ -157,6 +157,16 @@ except Exception as e:
     logger.error(f"Error loading super admin endpoints: {e}", exc_info=True)
     # Don't fail the entire app if super admin endpoints fail to load
 
+# Super Admin Dashboard endpoints
+try:
+    from app.api.v1.endpoints import super_admin_dashboard
+    api_router.include_router(super_admin_dashboard.router, prefix="/super-admin", tags=["super-admin-dashboard"])
+    logger.info("Super admin dashboard endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Super admin dashboard endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading super admin dashboard endpoints: {e}", exc_info=True)
+
 # RBAC endpoints (Super Admin only)
 try:
     from app.api.v1.endpoints import permissions, roles

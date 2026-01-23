@@ -78,6 +78,38 @@ async def get_me(
     }
 
 
+@router.get("/check-account")
+async def check_super_admin_account(
+    email: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Check if a super admin account exists (for debugging)
+    Returns account status without revealing sensitive information
+    """
+    from sqlalchemy import func
+    
+    super_admin = db.query(SuperAdmin).filter(func.lower(SuperAdmin.email) == func.lower(email)).first()
+    
+    if not super_admin:
+        return {
+            "exists": False,
+            "message": f"No super admin account found with email: {email}",
+            "suggestion": "Create a super admin account using the create_super_admin.py script"
+        }
+    
+    return {
+        "exists": True,
+        "email": super_admin.email,
+        "is_active": super_admin.is_active,
+        "has_password": bool(super_admin.password_hash),
+        "full_name": super_admin.full_name,
+        "created_at": super_admin.created_at.isoformat() if super_admin.created_at else None,
+        "last_login": super_admin.last_login.isoformat() if super_admin.last_login else None,
+        "message": "Account exists" + (" but is inactive" if not super_admin.is_active else "")
+    }
+
+
 
 
 
