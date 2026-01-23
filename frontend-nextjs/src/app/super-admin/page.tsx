@@ -3,6 +3,7 @@
 import { useSuperAdminAuth } from '@/contexts/SuperAdminAuthContext';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiConfig } from '@/lib/api-config';
 import { 
   ShieldCheckIcon, 
   BuildingOfficeIcon, 
@@ -16,25 +17,43 @@ import {
 
 export default function SuperAdminDashboard() {
   const router = useRouter();
-  const { admin, logout } = useSuperAdminAuth();
+  const { admin, logout, token } = useSuperAdminAuth();
   const [overview, setOverview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchOverview = async () => {
+    if (!token) {
+      setError('Not authenticated');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
+    setError(null);
     try {
-      const token = localStorage.getItem('super_admin_token');
-      const response = await fetch('/api/v1/super-admin/overview', {
+      const response = await fetch(apiConfig.endpoints.superAdmin.overview(), {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
-      if (response.ok) {
-        const data = await response.json();
-        setOverview(data);
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          logout();
+          router.push('/super-admin/login');
+          return;
+        }
+        const errorText = await response.text();
+        setError(`Failed to load dashboard: ${response.status} ${errorText}`);
+        return;
       }
+      
+      const data = await response.json();
+      setOverview(data);
     } catch (error) {
-      console.error('Failed to fetch overview:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch overview');
     } finally {
       setLoading(false);
     }
@@ -80,6 +99,19 @@ export default function SuperAdminDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800">{error}</p>
+            <button
+              onClick={fetchOverview}
+              className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        
         {/* Overview Stats */}
         {loading ? (
           <div className="text-center py-12">
@@ -102,28 +134,30 @@ export default function SuperAdminDashboard() {
               </p>
             </div>
 
-            {/* SaaS Tenants */}
+            {/* Active Tenants */}
             <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="p-3 bg-success-100 rounded-lg">
                   <BuildingOfficeIcon className="h-6 w-6 text-success-600" />
                 </div>
               </div>
-              <h3 className="text-sm font-medium text-neutral-600 mb-1">SaaS Tenants</h3>
-              <p className="text-3xl font-bold text-neutral-900">{overview.tenants?.saas || 0}</p>
-              <p className="text-xs text-neutral-500 mt-2">Platform managed</p>
+              <h3 className="text-sm font-medium text-neutral-600 mb-1">Active Tenants</h3>
+              <p className="text-3xl font-bold text-neutral-900">{overview.tenants?.active || 0}</p>
+              <p className="text-xs text-neutral-500 mt-2">
+                {overview.tenants?.inactive || 0} inactive
+              </p>
             </div>
 
-            {/* PaaS Tenants */}
+            {/* Inactive Tenants */}
             <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="p-3 bg-warning-100 rounded-lg">
                   <BuildingOfficeIcon className="h-6 w-6 text-warning-600" />
                 </div>
               </div>
-              <h3 className="text-sm font-medium text-neutral-600 mb-1">PaaS Tenants</h3>
-              <p className="text-3xl font-bold text-neutral-900">{overview.tenants?.paas || 0}</p>
-              <p className="text-xs text-neutral-500 mt-2">Self-hosted</p>
+              <h3 className="text-sm font-medium text-neutral-600 mb-1">Inactive Tenants</h3>
+              <p className="text-3xl font-bold text-neutral-900">{overview.tenants?.inactive || 0}</p>
+              <p className="text-xs text-neutral-500 mt-2">Requires attention</p>
             </div>
 
             {/* Total Users */}
