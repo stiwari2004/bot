@@ -53,9 +53,6 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
         setAdmin(null);
       }
     } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') {
-        console.error('Failed to fetch super admin info:', error);
-      }
       localStorage.removeItem('super_admin_token');
       setToken(null);
       setAdmin(null);
@@ -98,26 +95,21 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
 
       if (!response.ok) {
         let errorMessage = 'Login failed';
-        let errorBody: any = null;
         try {
           const text = await response.text();
           if (text) {
             try {
-              errorBody = JSON.parse(text);
+              const errorBody = JSON.parse(text);
               errorMessage = errorBody?.detail || errorBody?.message || `Login failed (${response.status})`;
             } catch (parseError) {
-              // Not JSON, use text as error message
               errorMessage = text || `Login failed: ${response.status} ${response.statusText}`;
-              errorBody = { raw: text };
             }
           } else {
             errorMessage = `Login failed: ${response.status} ${response.statusText}`;
           }
         } catch (e) {
           errorMessage = `Login failed: ${response.status} ${response.statusText}`;
-          errorBody = { error: String(e) };
         }
-        console.error('[DEBUG] Login failed - error response', { status: response.status, statusText: response.statusText, errorMessage, errorBody });
         throw new Error(errorMessage);
       }
 
@@ -132,9 +124,8 @@ export function SuperAdminAuthProvider({ children }: { children: ReactNode }) {
       setToken(authToken);
       await fetchAdminInfo(authToken);
     } catch (error) {
-      console.error('[DEBUG] Login exception caught', { errorType: error?.constructor?.name, errorMessage: error instanceof Error ? error.message : String(error), isFetchError: error instanceof TypeError && error.message.includes('fetch') });
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error(`Cannot connect to backend at ${loginUrl}. Make sure the backend is running on port 8000.`);
+        throw new Error(`Cannot connect to backend at ${loginUrl}. Make sure the backend is running.`);
       }
       throw error;
     }
