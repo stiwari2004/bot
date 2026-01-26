@@ -178,6 +178,36 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"Error loading reporting endpoints: {e}", exc_info=True)
 
+# Connector Health endpoints
+try:
+    from app.api.v1.endpoints import connector_health
+    api_router.include_router(connector_health.router, prefix="/super-admin", tags=["connector-health"])
+    logger.info("Connector health endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Connector health endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading connector health endpoints: {e}", exc_info=True)
+
+# Activity Feed endpoints
+try:
+    from app.api.v1.endpoints import activity_feed
+    api_router.include_router(activity_feed.router, prefix="/super-admin", tags=["activity-feed"])
+    logger.info("Activity feed endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Activity feed endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading activity feed endpoints: {e}", exc_info=True)
+
+# Safety Policy endpoints
+try:
+    from app.api.v1.endpoints import safety_policy
+    api_router.include_router(safety_policy.router, prefix="/super-admin", tags=["safety-policy"])
+    logger.info("Safety policy endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Safety policy endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading safety policy endpoints: {e}", exc_info=True)
+
 # RBAC endpoints (Super Admin only)
 try:
     from app.api.v1.endpoints import permissions, roles
