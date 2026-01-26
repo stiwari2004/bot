@@ -172,3 +172,24 @@ except ImportError:  # pragma: no cover - optional dependency
 if LogEntry:
     __all__.extend(["LogEntry", "LogPattern", "Prediction", "PredictionPattern", "PredictionModel"])
 
+# Reporting models
+try:
+    from app.models.scheduled_report import ScheduledReport, ReportFrequency, ReportFormat, ReportType
+except ImportError:  # pragma: no cover - optional dependency
+    ScheduledReport = None
+    ReportFrequency = None
+    ReportFormat = None
+    ReportType = None
+
+if ScheduledReport:
+    __all__.extend(["ScheduledReport", "ReportFrequency", "ReportFormat", "ReportType"])
+
+# Super Admin model
+try:
+    from app.models.super_admin import SuperAdmin
+except ImportError:
+    SuperAdmin = None
+
+if SuperAdmin:
+    __all__.append("SuperAdmin")
+

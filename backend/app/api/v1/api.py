@@ -168,6 +168,16 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"Error loading super admin dashboard endpoints: {e}", exc_info=True)
 
+# Reporting endpoints
+try:
+    from app.api.v1.endpoints import reporting
+    api_router.include_router(reporting.router, prefix="/super-admin", tags=["reporting"])
+    logger.info("Reporting endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Reporting endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading reporting endpoints: {e}", exc_info=True)
+
 # RBAC endpoints (Super Admin only)
 try:
     from app.api.v1.endpoints import permissions, roles

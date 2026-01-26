@@ -178,6 +178,15 @@ const createEndpoints = (baseUrl: string) => ({
         return '/api/v1/super-admin/dashboard/ws';
       },
     },
+    reporting: {
+      generateCustom: () => `${baseUrl}/api/v1/super-admin/reports/generate`,
+      scheduledReports: () => `${baseUrl}/api/v1/super-admin/reports/scheduled`,
+      scheduledReport: (reportId: number) => `${baseUrl}/api/v1/super-admin/reports/scheduled/${reportId}`,
+      createScheduled: () => `${baseUrl}/api/v1/super-admin/reports/scheduled`,
+      updateScheduled: (reportId: number) => `${baseUrl}/api/v1/super-admin/reports/scheduled/${reportId}`,
+      deleteScheduled: (reportId: number) => `${baseUrl}/api/v1/super-admin/reports/scheduled/${reportId}`,
+      executeScheduled: (reportId: number) => `${baseUrl}/api/v1/super-admin/reports/scheduled/${reportId}/execute`,
+    },
     tenants: () => `${baseUrl}/api/v1/super-admin/tenants`,
     tenant: (tenantId: number) => `${baseUrl}/api/v1/super-admin/tenants/${tenantId}`,
     createTenant: () => `${baseUrl}/api/v1/super-admin/tenants`,

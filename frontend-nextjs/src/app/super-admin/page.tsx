@@ -23,6 +23,12 @@ import {
   SignalSlashIcon,
   Cog6ToothIcon,
   DocumentTextIcon,
+  PlusIcon,
+  PencilIcon,
+  TrashIcon,
+  PlayIcon,
+  CalendarIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 
 interface DashboardOverview {
@@ -73,6 +79,19 @@ export default function SuperAdminDashboard() {
   const [activeTab, setActiveTab] = useState<'analytics' | 'actions' | 'reports'>('analytics');
   const [exporting, setExporting] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
+  
+  // Reporting state
+  const [scheduledReports, setScheduledReports] = useState<any[]>([]);
+  const [showCreateReportModal, setShowCreateReportModal] = useState(false);
+  const [editingReport, setEditingReport] = useState<any | null>(null);
+  const [customReportFilters, setCustomReportFilters] = useState({
+    reportType: 'overview',
+    format: 'pdf',
+    dateRange: { start: '', end: '' },
+    tenantIds: [] as number[],
+    plan: '',
+    status: '',
+  });
   
   const { preferences, savePreferences } = useDashboardPreferences(token);
   
@@ -175,6 +194,66 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  // Fetch scheduled reports
+  const fetchScheduledReports = useCallback(async () => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(apiConfig.endpoints.superAdmin.reporting.scheduledReports(), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setScheduledReports(data);
+      }
+    } catch (error) {
+      console.error('Error fetching scheduled reports:', error);
+    }
+  }, [token]);
+
+  // Generate custom report
+  const handleGenerateCustomReport = async () => {
+    if (!token) return;
+    
+    setExporting('custom');
+    try {
+      const filters: any = {};
+      if (customReportFilters.dateRange.start) filters.date_range = customReportFilters.dateRange;
+      if (customReportFilters.tenantIds.length > 0) filters.tenant_ids = customReportFilters.tenantIds;
+      if (customReportFilters.plan) filters.plan = customReportFilters.plan;
+      if (customReportFilters.status) filters.status = customReportFilters.status;
+      
+      const response = await fetch(apiConfig.endpoints.superAdmin.reporting.generateCustom(), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          report_type: customReportFilters.reportType,
+          format: customReportFilters.format,
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Report generation failed: ${response.status}`);
+      }
+      
+      // For now, trigger the export endpoint
+      await handleExport(customReportFilters.reportType as any, customReportFilters.format as 'csv' | 'pdf');
+    } catch (error) {
+      console.error('Custom report error:', error);
+      setError(error instanceof Error ? error.message : 'Custom report generation failed');
+    } finally {
+      setExporting(null);
+    }
+  };
+
   // Polling fallback when WebSocket is not connected
   useEffect(() => {
     if (!isAuthenticated || !token || !preferences?.auto_refresh) {
@@ -191,6 +270,13 @@ export default function SuperAdminDashboard() {
       return () => clearInterval(intervalId);
     }
   }, [isAuthenticated, token, preferences?.auto_refresh, preferences?.refresh_interval, isConnected, fetchOverview]);
+
+  // Fetch scheduled reports when reports tab is active
+  useEffect(() => {
+    if (activeTab === 'reports' && token) {
+      fetchScheduledReports();
+    }
+  }, [activeTab, token, fetchScheduledReports]);
 
   // Initial fetch
   useEffect(() => {
@@ -741,10 +827,11 @@ export default function SuperAdminDashboard() {
         {/* Reports Tab Content */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
+            {/* Quick Export Section */}
             <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-neutral-900 mb-4">Generate Reports</h2>
+              <h2 className="text-lg font-semibold text-neutral-900 mb-4">Quick Export</h2>
               <p className="text-sm text-neutral-600 mb-6">
-                Create comprehensive reports for platform analytics, revenue, and tenant data.
+                Generate standard reports instantly with default settings.
               </p>
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -812,18 +899,365 @@ export default function SuperAdminDashboard() {
                 </div>
               </div>
             </div>
-            
+
+            {/* Custom Report Builder */}
             <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-neutral-900 mb-4">Scheduled Reports</h2>
-              <p className="text-sm text-neutral-600 mb-4">
-                Configure automated reports to be generated and emailed on a schedule.
+              <h2 className="text-lg font-semibold text-neutral-900 mb-4">Custom Report Builder</h2>
+              <p className="text-sm text-neutral-600 mb-6">
+                Create custom reports with advanced filters and options.
               </p>
-              <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4">
-                <p className="text-sm text-neutral-600">
-                  <span className="font-medium">Coming Soon:</span> Schedule automated reports (daily, weekly, monthly) to be generated and emailed automatically.
-                </p>
+              
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-2">Report Type</label>
+                    <select
+                      value={customReportFilters.reportType}
+                      onChange={(e) => setCustomReportFilters({ ...customReportFilters, reportType: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="overview">Platform Overview</option>
+                      <option value="tenants">Tenants</option>
+                      <option value="revenue">Revenue</option>
+                      <option value="usage">Usage Metrics</option>
+                      <option value="custom">Custom (Multiple)</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-2">Format</label>
+                    <select
+                      value={customReportFilters.format}
+                      onChange={(e) => setCustomReportFilters({ ...customReportFilters, format: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="pdf">PDF</option>
+                      <option value="csv">CSV</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-2">Start Date</label>
+                    <input
+                      type="date"
+                      value={customReportFilters.dateRange.start}
+                      onChange={(e) => setCustomReportFilters({
+                        ...customReportFilters,
+                        dateRange: { ...customReportFilters.dateRange, start: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-2">End Date</label>
+                    <input
+                      type="date"
+                      value={customReportFilters.dateRange.end}
+                      onChange={(e) => setCustomReportFilters({
+                        ...customReportFilters,
+                        dateRange: { ...customReportFilters.dateRange, end: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={handleGenerateCustomReport}
+                    disabled={!!exporting}
+                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                  >
+                    {exporting === 'custom' ? 'Generating...' : 'Generate Report'}
+                  </button>
+                </div>
               </div>
             </div>
+            
+            {/* Scheduled Reports */}
+            <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-neutral-900">Scheduled Reports</h2>
+                  <p className="text-sm text-neutral-600 mt-1">
+                    Automated reports sent via email on a schedule.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingReport(null);
+                    setShowCreateReportModal(true);
+                  }}
+                  className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                  <span>Create Schedule</span>
+                </button>
+              </div>
+              
+              {scheduledReports.length === 0 ? (
+                <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-8 text-center">
+                  <CalendarIcon className="h-12 w-12 text-neutral-400 mx-auto mb-4" />
+                  <p className="text-sm text-neutral-600 mb-2">No scheduled reports yet</p>
+                  <p className="text-xs text-neutral-500">Create your first scheduled report to automate report generation and delivery.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {scheduledReports.map((report) => (
+                    <div key={report.id} className="border border-neutral-200 rounded-lg p-4 hover:border-primary-300 transition">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <h3 className="font-medium text-neutral-900">{report.name}</h3>
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              report.is_active 
+                                ? 'bg-success-100 text-success-700' 
+                                : 'bg-neutral-100 text-neutral-600'
+                            }`}>
+                              {report.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          {report.description && (
+                            <p className="text-sm text-neutral-600 mb-2">{report.description}</p>
+                          )}
+                          <div className="flex flex-wrap gap-4 text-xs text-neutral-500">
+                            <span className="flex items-center space-x-1">
+                              <DocumentTextIcon className="h-4 w-4" />
+                              <span>{report.report_type}</span>
+                            </span>
+                            <span className="flex items-center space-x-1">
+                              <ClockIcon className="h-4 w-4" />
+                              <span>{report.frequency}</span>
+                            </span>
+                            {report.next_run_at && (
+                              <span className="flex items-center space-x-1">
+                                <CalendarIcon className="h-4 w-4" />
+                                <span>Next: {new Date(report.next_run_at).toLocaleDateString()}</span>
+                              </span>
+                            )}
+                            <span>{report.recipients.length} recipient{report.recipients.length !== 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => {
+                              // Execute report manually
+                              if (token) {
+                                fetch(apiConfig.endpoints.superAdmin.reporting.executeScheduled(report.id), {
+                                  method: 'POST',
+                                  headers: { 'Authorization': `Bearer ${token}` },
+                                }).then(() => fetchScheduledReports());
+                              }
+                            }}
+                            className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg transition"
+                            title="Execute Now"
+                          >
+                            <PlayIcon className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingReport(report);
+                              setShowCreateReportModal(true);
+                            }}
+                            className="p-2 text-neutral-600 hover:bg-neutral-50 rounded-lg transition"
+                            title="Edit"
+                          >
+                            <PencilIcon className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete this scheduled report?')) {
+                                if (token) {
+                                  fetch(apiConfig.endpoints.superAdmin.reporting.deleteScheduled(report.id), {
+                                    method: 'DELETE',
+                                    headers: { 'Authorization': `Bearer ${token}` },
+                                  }).then(() => fetchScheduledReports());
+                                }
+                              }
+                            }}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                            title="Delete"
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Create/Edit Scheduled Report Modal */}
+            {showCreateReportModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                  <div className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-neutral-900">
+                        {editingReport ? 'Edit Scheduled Report' : 'Create Scheduled Report'}
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setShowCreateReportModal(false);
+                          setEditingReport(null);
+                        }}
+                        className="text-neutral-500 hover:text-neutral-700"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-2">Report Name</label>
+                        <input
+                          type="text"
+                          defaultValue={editingReport?.name || ''}
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          placeholder="e.g., Weekly Revenue Report"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-2">Description</label>
+                        <textarea
+                          defaultValue={editingReport?.description || ''}
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          rows={2}
+                          placeholder="Optional description"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-neutral-700 mb-2">Report Type</label>
+                          <select
+                            defaultValue={editingReport?.report_type || 'overview'}
+                            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          >
+                            <option value="overview">Overview</option>
+                            <option value="tenants">Tenants</option>
+                            <option value="revenue">Revenue</option>
+                            <option value="usage">Usage</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-neutral-700 mb-2">Format</label>
+                          <select
+                            defaultValue={editingReport?.format || 'pdf'}
+                            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          >
+                            <option value="pdf">PDF</option>
+                            <option value="csv">CSV</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-neutral-700 mb-2">Frequency</label>
+                          <select
+                            defaultValue={editingReport?.frequency || 'weekly'}
+                            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          >
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-neutral-700 mb-2">Time</label>
+                          <input
+                            type="time"
+                            defaultValue={editingReport?.schedule_config?.time || '09:00'}
+                            className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-2">Recipients (Email addresses, one per line)</label>
+                        <textarea
+                          defaultValue={editingReport?.recipients?.join('\n') || ''}
+                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          rows={3}
+                          placeholder="admin@example.com&#10;manager@example.com"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2 pt-4 border-t">
+                        <button
+                          onClick={() => {
+                            setShowCreateReportModal(false);
+                            setEditingReport(null);
+                          }}
+                          className="px-4 py-2 border border-neutral-300 rounded-lg hover:bg-neutral-50 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={async () => {
+                            // Get form values and create/update scheduled report
+                            const form = document.querySelector('.bg-white.rounded-xl.max-w-2xl') as HTMLElement;
+                            const name = (form.querySelector('input[type="text"]') as HTMLInputElement)?.value || '';
+                            const description = (form.querySelector('textarea') as HTMLTextAreaElement)?.value || '';
+                            const reportType = (form.querySelectorAll('select')[0] as HTMLSelectElement)?.value || 'overview';
+                            const format = (form.querySelectorAll('select')[1] as HTMLSelectElement)?.value || 'pdf';
+                            const frequency = (form.querySelectorAll('select')[2] as HTMLSelectElement)?.value || 'weekly';
+                            const time = (form.querySelector('input[type="time"]') as HTMLInputElement)?.value || '09:00';
+                            const recipientsText = (form.querySelectorAll('textarea')[1] as HTMLTextAreaElement)?.value || '';
+                            const recipients = recipientsText.split('\n').filter(email => email.trim());
+                            
+                            if (!name || recipients.length === 0) {
+                              alert('Please provide a name and at least one recipient email');
+                              return;
+                            }
+                            
+                            try {
+                              const url = editingReport
+                                ? apiConfig.endpoints.superAdmin.reporting.updateScheduled(editingReport.id)
+                                : apiConfig.endpoints.superAdmin.reporting.createScheduled();
+                              
+                              const method = editingReport ? 'PUT' : 'POST';
+                              
+                              const response = await fetch(url, {
+                                method,
+                                headers: {
+                                  'Authorization': `Bearer ${token}`,
+                                  'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                  name,
+                                  description: description || undefined,
+                                  report_type: reportType,
+                                  format,
+                                  frequency,
+                                  schedule_config: { time, timezone: 'UTC' },
+                                  recipients,
+                                }),
+                              });
+                              
+                              if (response.ok) {
+                                setShowCreateReportModal(false);
+                                setEditingReport(null);
+                                fetchScheduledReports();
+                              } else {
+                                const error = await response.json();
+                                alert(`Failed to ${editingReport ? 'update' : 'create'} scheduled report: ${error.detail || 'Unknown error'}`);
+                              }
+                            } catch (error) {
+                              console.error('Error saving scheduled report:', error);
+                              alert('Failed to save scheduled report');
+                            }
+                          }}
+                          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+                        >
+                          {editingReport ? 'Update' : 'Create'} Schedule
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
