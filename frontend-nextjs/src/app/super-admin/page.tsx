@@ -83,7 +83,8 @@ export default function SuperAdminDashboard() {
       setLoading(false);
     },
     onError: (err) => {
-      console.error('WebSocket error:', err);
+      // WebSocket errors are non-critical - dashboard still works with polling
+      console.warn('WebSocket connection unavailable, using polling instead:', err.message);
     },
   });
 
@@ -176,8 +177,18 @@ export default function SuperAdminDashboard() {
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchOverview();
+      
+      // Set up polling fallback if WebSocket is not connected and auto-refresh is enabled
+      if (preferences?.auto_refresh && !isConnected) {
+        const pollInterval = preferences.refresh_interval || 30000;
+        const intervalId = setInterval(() => {
+          fetchOverview();
+        }, pollInterval);
+        
+        return () => clearInterval(intervalId);
+      }
     }
-  }, [isAuthenticated, token, fetchOverview]);
+  }, [isAuthenticated, token, fetchOverview, preferences?.auto_refresh, preferences?.refresh_interval, isConnected]);
 
   if (!isAuthenticated) {
     return null; // Layout will handle redirect
@@ -201,20 +212,22 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              {/* Connection Status */}
-              <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-neutral-50">
-                {isConnected ? (
-                  <>
-                    <WifiIcon className="h-4 w-4 text-success-600" />
-                    <span className="text-xs text-neutral-600">Live</span>
-                  </>
-                ) : (
-                  <>
-                    <SignalSlashIcon className="h-4 w-4 text-neutral-400" />
-                    <span className="text-xs text-neutral-500">Offline</span>
-                  </>
-                )}
-              </div>
+              {/* Connection Status - Only show if WebSocket is enabled */}
+              {preferences?.auto_refresh && (
+                <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-neutral-50" title={isConnected ? 'Real-time updates active' : 'Real-time updates unavailable, using polling'}>
+                  {isConnected ? (
+                    <>
+                      <WifiIcon className="h-4 w-4 text-success-600" />
+                      <span className="text-xs text-neutral-600">Live</span>
+                    </>
+                  ) : (
+                    <>
+                      <SignalSlashIcon className="h-4 w-4 text-neutral-400" />
+                      <span className="text-xs text-neutral-500">Polling</span>
+                    </>
+                  )}
+                </div>
+              )}
               
               {/* Export Menu */}
               <div className="relative group">
