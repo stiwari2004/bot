@@ -173,9 +173,14 @@ class RecommendationEngine:
             success_rate_normalized = pattern.success_rate / 100.0
             confidence += success_rate_normalized * 0.3
         
-        # 3. Pattern usage count (10% weight)
+        # 3. Pattern usage count (10% weight) - log normalization for better scaling
         if pattern.usage_count:
-            usage_score = min(1.0, pattern.usage_count / 10.0)
+            import math
+            # Log normalization: log(1 + usage_count) / log(1 + max_expected_usage)
+            # Using max_expected_usage = 100 for reasonable scaling
+            # This gives: 1 use = 0.15, 10 uses = 0.50, 50 uses = 0.85, 100+ uses = 1.0
+            max_expected_usage = 100
+            usage_score = min(1.0, math.log(1 + pattern.usage_count) / math.log(1 + max_expected_usage))
             confidence += usage_score * 0.1
         
         # 4. Context match (10% weight)
