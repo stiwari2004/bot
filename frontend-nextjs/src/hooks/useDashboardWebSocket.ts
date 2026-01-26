@@ -25,10 +25,12 @@ export function useDashboardWebSocket({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 5;
+  const maxReconnectAttempts = 3; // Reduced from 5 to fail faster
+  const wsDisabledRef = useRef(false); // Circuit breaker - disable WS after repeated failures
 
   const connect = useCallback(() => {
-    if (!token || !enabled) {
+    if (!token || !enabled || wsDisabledRef.current) {
+      // WebSocket is disabled due to repeated failures
       return;
     }
 
@@ -113,20 +115,36 @@ export function useDashboardWebSocket({
       };
 
       ws.onclose = (event) => {
-        console.log('Dashboard WebSocket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('Dashboard WebSocket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+        }
         setIsConnected(false);
         
-        // Only attempt to reconnect if it wasn't a clean close and we haven't exceeded max attempts
+        // Codes 1005 (No Status) and 1006 (Abnormal Closure) usually mean connection failed
+        // Don't try to reconnect for these - they indicate the backend isn't accessible
+        const isConnectionFailure = event.code === 1005 || event.code === 1006 || event.code === 1000;
+        
+        if (isConnectionFailure || reconnectAttempts.current >= maxReconnectAttempts) {
+          // Disable WebSocket after max attempts or connection failures
+          wsDisabledRef.current = true;
+          reconnectAttempts.current = 0; // Reset for future attempts
+          if (process.env.NODE_ENV === 'development') {
+            console.debug('WebSocket disabled - using polling fallback');
+          }
+          // Don't call onError - this is expected behavior when backend isn't directly accessible
+          return;
+        }
+        
+        // Only attempt to reconnect for other error codes and if we haven't exceeded max attempts
         if (!event.wasClean && reconnectAttempts.current < maxReconnectAttempts && enabled) {
           reconnectAttempts.current += 1;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-          console.log(`Reconnecting WebSocket in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`);
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000); // Max 10s delay
+          if (process.env.NODE_ENV === 'development') {
+            console.debug(`Reconnecting WebSocket in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`);
+          }
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, delay);
-        } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-          console.warn('Max WebSocket reconnection attempts reached. WebSocket disabled.');
-          onError?.(new Error('WebSocket connection failed after multiple attempts'));
         }
       };
 
@@ -148,6 +166,7 @@ export function useDashboardWebSocket({
       wsRef.current = null;
     }
     setIsConnected(false);
+    // Don't reset wsDisabledRef here - let it persist so we don't keep trying
   }, []);
 
   const sendRefresh = useCallback(() => {
@@ -157,7 +176,10 @@ export function useDashboardWebSocket({
   }, []);
 
   useEffect(() => {
+    // Reset disabled flag when token or enabled changes (user might have fixed connection)
     if (enabled && token) {
+      wsDisabledRef.current = false;
+      reconnectAttempts.current = 0;
       connect();
     } else {
       disconnect();
