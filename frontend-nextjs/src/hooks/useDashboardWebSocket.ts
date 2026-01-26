@@ -71,11 +71,15 @@ export function useDashboardWebSocket({
       }
       
       wsUrl = `${wsUrl}?token=${encodeURIComponent(token)}`;
-      console.log('Connecting to WebSocket:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('Connecting to WebSocket:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+      }
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        console.log('Dashboard WebSocket connected');
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('Dashboard WebSocket connected');
+        }
         setIsConnected(true);
         reconnectAttempts.current = 0;
       };
@@ -98,7 +102,11 @@ export function useDashboardWebSocket({
       };
 
       ws.onerror = (error) => {
-        console.error('Dashboard WebSocket error:', error);
+        // WebSocket errors are expected if backend is not accessible
+        // Log at debug level since we have polling fallback
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('Dashboard WebSocket connection error (falling back to polling):', error);
+        }
         setIsConnected(false);
         // Don't call onError for connection errors - they're expected if backend is not accessible
         // Only call onError for actual application errors

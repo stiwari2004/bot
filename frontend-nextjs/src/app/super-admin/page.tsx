@@ -174,21 +174,29 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  // Polling fallback when WebSocket is not connected
+  useEffect(() => {
+    if (!isAuthenticated || !token || !preferences?.auto_refresh) {
+      return;
+    }
+
+    // Only set up polling if WebSocket is not connected
+    if (!isConnected) {
+      const pollInterval = preferences.refresh_interval || 30000;
+      const intervalId = setInterval(() => {
+        fetchOverview();
+      }, pollInterval);
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [isAuthenticated, token, preferences?.auto_refresh, preferences?.refresh_interval, isConnected, fetchOverview]);
+
+  // Initial fetch
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchOverview();
-      
-      // Set up polling fallback if WebSocket is not connected and auto-refresh is enabled
-      if (preferences?.auto_refresh && !isConnected) {
-        const pollInterval = preferences.refresh_interval || 30000;
-        const intervalId = setInterval(() => {
-          fetchOverview();
-        }, pollInterval);
-        
-        return () => clearInterval(intervalId);
-      }
     }
-  }, [isAuthenticated, token, fetchOverview, preferences?.auto_refresh, preferences?.refresh_interval, isConnected]);
+  }, [isAuthenticated, token, fetchOverview]);
 
   if (!isAuthenticated) {
     return null; // Layout will handle redirect
