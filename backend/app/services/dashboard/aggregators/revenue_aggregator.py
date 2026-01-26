@@ -5,8 +5,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from app.models.tenant_subscription import TenantSubscription
-from app.models.tenant_billing_config import TenantBillingConfig
-from app.models.tenant_billing_usage import TenantBillingUsage
+from app.models.tenant_billing_config import TenantBillingConfig, TenantBillingUsage
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

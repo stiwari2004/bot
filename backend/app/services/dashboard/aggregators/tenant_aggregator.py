@@ -8,7 +8,7 @@ from sqlalchemy import or_
 from app.models.tenant import Tenant
 from app.models.tenant_subscription import TenantSubscription
 from app.models.license_plan import LicensePlan
-from app.models.tenant_billing_usage import TenantBillingUsage
+from app.models.tenant_billing_config import TenantBillingUsage
 from app.services.subscription.subscription_tracker import SubscriptionTracker
 from app.core.logging import get_logger
 

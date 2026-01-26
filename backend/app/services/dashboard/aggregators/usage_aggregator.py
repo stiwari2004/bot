@@ -4,7 +4,7 @@ Usage Aggregator for dashboard usage metrics
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.credential import InfrastructureConnection
-from app.models.tenant_billing_usage import TenantBillingUsage
+from app.models.tenant_billing_config import TenantBillingUsage
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

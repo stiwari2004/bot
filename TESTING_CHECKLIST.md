@@ -2,25 +2,34 @@
 
 ## Pre-Testing Setup
 
-### 1. Database Migration
-- [ ] Run SQL migration: `backend/sql/create_scheduled_reports_table.sql`
-- [ ] Verify table `scheduled_reports` exists in database
+### 1. Database Connection & Verification (FIRST)
+- [ ] Find PostgreSQL container: `docker ps | grep postgres`
+- [ ] Test PostgreSQL connection: `docker exec -i CONTAINER_NAME psql -U postgres -d postgres -c "SELECT version();"`
+- [ ] Check if database exists: `docker exec -i CONTAINER_NAME psql -U postgres -d postgres -c "\l"`
+- [ ] Create database if it doesn't exist: `docker exec -i CONTAINER_NAME psql -U postgres -d postgres -c "CREATE DATABASE troubleshooting_ai;"`
+- [ ] Verify connection to specific database: `docker exec -i CONTAINER_NAME psql -U postgres -d troubleshooting_ai -c "SELECT current_database();"`
+
+### 2. Database Migration (AFTER Connection Verified)
+- [ ] Copy SQL file into container: `docker cp backend/sql/create_scheduled_reports_table.sql CONTAINER_NAME:/tmp/create_scheduled_reports_table.sql`
+- [ ] Run SQL migration: `docker exec -i CONTAINER_NAME psql -U postgres -d troubleshooting_ai -f /tmp/create_scheduled_reports_table.sql`
+- [ ] Verify table `scheduled_reports` exists: `docker exec -i CONTAINER_NAME psql -U postgres -d troubleshooting_ai -c "\d scheduled_reports"`
+- [ ] Verify enum types created: `reportfrequency`, `reportformat`, `reporttype`
 - [ ] Verify indexes are created:
   - `idx_scheduled_reports_created_by_id`
   - `idx_scheduled_reports_is_active`
   - `idx_scheduled_reports_next_run_at`
   - `idx_scheduled_reports_created_at`
 
-### 2. Environment Variables
+### 3. Environment Variables
 - [ ] Set `ENABLE_REPORT_SCHEDULER=true` (or leave default)
 - [ ] Optionally set `REPORT_SCHEDULER_INTERVAL=300` (5 minutes, default)
 
-### 3. Backend Startup
+### 4. Backend Startup
 - [ ] Start backend server
 - [ ] Verify scheduler starts: Look for log message "Report scheduler service started"
 - [ ] Check for any import errors or missing dependencies
 
-### 4. Frontend Build
+### 5. Frontend Build
 - [ ] Run `npm install` (if needed)
 - [ ] Verify no TypeScript errors: `npm run build` or check IDE
 - [ ] Verify all components are properly imported
