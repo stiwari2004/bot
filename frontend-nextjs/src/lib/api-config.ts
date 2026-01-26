@@ -169,8 +169,14 @@ const createEndpoints = (baseUrl: string) => ({
       tenants: () => `${baseUrl}/api/v1/super-admin/dashboard/tenants`,
       revenue: () => `${baseUrl}/api/v1/super-admin/dashboard/revenue`,
       trials: () => `${baseUrl}/api/v1/super-admin/dashboard/trials`,
-      exportTenants: () => `${baseUrl}/api/v1/super-admin/dashboard/export/tenants`,
-      exportRevenue: () => `${baseUrl}/api/v1/super-admin/dashboard/export/revenue`,
+      exportTenants: (format: 'csv' | 'pdf' = 'csv') => `${baseUrl}/api/v1/super-admin/dashboard/export/tenants?format=${format}`,
+      exportRevenue: (format: 'csv' | 'pdf' = 'csv') => `${baseUrl}/api/v1/super-admin/dashboard/export/revenue?format=${format}`,
+      exportOverview: (format: 'csv' | 'pdf' = 'csv') => `${baseUrl}/api/v1/super-admin/dashboard/export/overview?format=${format}`,
+      preferences: () => `${baseUrl}/api/v1/super-admin/dashboard/preferences`,
+      websocket: () => {
+        // Return relative path - will be converted to full URL in the hook
+        return '/api/v1/super-admin/dashboard/ws';
+      },
     },
     tenants: () => `${baseUrl}/api/v1/super-admin/tenants`,
     tenant: (tenantId: number) => `${baseUrl}/api/v1/super-admin/tenants/${tenantId}`,
@@ -227,7 +233,10 @@ const createEndpoints = (baseUrl: string) => ({
     recommendationConfidence: (recommendationId: number) => `${baseUrl}/api/v1/decision/demo/recommendations/${recommendationId}/confidence`,
   },
   tenantAdmin: {
-    dashboard: () => `${baseUrl}/api/v1/tenant-admin/dashboard`,
+    dashboard: {
+      overview: () => `${baseUrl}/api/v1/tenant-admin/dashboard/overview`,
+      exportOverview: (format: 'csv' | 'pdf' = 'csv') => `${baseUrl}/api/v1/tenant-admin/dashboard/export/overview?format=${format}`,
+    },
     customers: () => `${baseUrl}/api/v1/tenant-admin/customers`,
     customer: (customerId: number) => `${baseUrl}/api/v1/tenant-admin/customers/${customerId}`,
     customerUsers: (customerId: number) => `${baseUrl}/api/v1/tenant-admin/customers/${customerId}/users`,

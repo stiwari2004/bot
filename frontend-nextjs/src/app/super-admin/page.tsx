@@ -1,9 +1,11 @@
 'use client';
 
 import { useSuperAdminAuth } from '@/contexts/SuperAdminAuthContext';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiConfig } from '@/lib/api-config';
+import { useDashboardWebSocket } from '@/hooks/useDashboardWebSocket';
+import { useDashboardPreferences } from '@/hooks/useDashboardPreferences';
 import { 
   ShieldCheckIcon, 
   BuildingOfficeIcon, 
@@ -16,6 +18,10 @@ import {
   ExclamationTriangleIcon,
   ServerIcon,
   BoltIcon,
+  ArrowDownTrayIcon,
+  WifiIcon,
+  SignalSlashIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 
 interface DashboardOverview {
@@ -64,8 +70,24 @@ export default function SuperAdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'analytics' | 'actions'>('analytics');
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [showPreferences, setShowPreferences] = useState(false);
+  
+  const { preferences, savePreferences } = useDashboardPreferences(token);
+  
+  const { isConnected, lastUpdate, sendRefresh } = useDashboardWebSocket({
+    token,
+    enabled: preferences?.auto_refresh ?? true,
+    onUpdate: (data) => {
+      setOverview(data);
+      setLoading(false);
+    },
+    onError: (err) => {
+      console.error('WebSocket error:', err);
+    },
+  });
 
-  const fetchOverview = async () => {
+  const fetchOverview = useCallback(async () => {
     if (!token) {
       setError('Not authenticated');
       setLoading(false);
@@ -100,13 +122,62 @@ export default function SuperAdminDashboard() {
     } finally {
       setLoading(false);
     }
+  }, [token, logout, router]);
+
+  const handleExport = async (type: 'overview' | 'tenants' | 'revenue', format: 'csv' | 'pdf') => {
+    if (!token) return;
+
+    const exportKey = `${type}_${format}`;
+    setExporting(exportKey);
+    
+    try {
+      let url: string;
+      switch (type) {
+        case 'overview':
+          url = apiConfig.endpoints.superAdmin.dashboard.exportOverview(format);
+          break;
+        case 'tenants':
+          url = apiConfig.endpoints.superAdmin.dashboard.exportTenants(format);
+          break;
+        case 'revenue':
+          url = apiConfig.endpoints.superAdmin.dashboard.exportRevenue(format);
+          break;
+        default:
+          return;
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `${type}_export_${new Date().toISOString().split('T')[0]}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error('Export error:', error);
+      setError(error instanceof Error ? error.message : 'Export failed');
+    } finally {
+      setExporting(null);
+    }
   };
 
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchOverview();
     }
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated, token, fetchOverview]);
 
   if (!isAuthenticated) {
     return null; // Layout will handle redirect
@@ -130,6 +201,86 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {/* Connection Status */}
+              <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-neutral-50">
+                {isConnected ? (
+                  <>
+                    <WifiIcon className="h-4 w-4 text-success-600" />
+                    <span className="text-xs text-neutral-600">Live</span>
+                  </>
+                ) : (
+                  <>
+                    <SignalSlashIcon className="h-4 w-4 text-neutral-400" />
+                    <span className="text-xs text-neutral-500">Offline</span>
+                  </>
+                )}
+              </div>
+              
+              {/* Export Menu */}
+              <div className="relative group">
+                <button className="flex items-center space-x-2 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100 rounded-lg transition">
+                  <ArrowDownTrayIcon className="h-5 w-5" />
+                  <span>Export</span>
+                </button>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-neutral-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  <div className="py-1">
+                    <div className="px-3 py-2 text-xs font-semibold text-neutral-500 uppercase">Overview</div>
+                    <button
+                      onClick={() => handleExport('overview', 'csv')}
+                      disabled={!!exporting}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      Export as CSV
+                    </button>
+                    <button
+                      onClick={() => handleExport('overview', 'pdf')}
+                      disabled={!!exporting}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      Export as PDF
+                    </button>
+                    <div className="px-3 py-2 text-xs font-semibold text-neutral-500 uppercase mt-2">Tenants</div>
+                    <button
+                      onClick={() => handleExport('tenants', 'csv')}
+                      disabled={!!exporting}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      Export as CSV
+                    </button>
+                    <button
+                      onClick={() => handleExport('tenants', 'pdf')}
+                      disabled={!!exporting}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      Export as PDF
+                    </button>
+                    <div className="px-3 py-2 text-xs font-semibold text-neutral-500 uppercase mt-2">Revenue</div>
+                    <button
+                      onClick={() => handleExport('revenue', 'csv')}
+                      disabled={!!exporting}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      Export as CSV
+                    </button>
+                    <button
+                      onClick={() => handleExport('revenue', 'pdf')}
+                      disabled={!!exporting}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      Export as PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Preferences Button */}
+              <button
+                onClick={() => setShowPreferences(!showPreferences)}
+                className="flex items-center space-x-2 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100 rounded-lg transition"
+              >
+                <Cog6ToothIcon className="h-5 w-5" />
+              </button>
+              
               <div className="text-right">
                 <p className="text-sm font-medium text-neutral-900">{admin?.email}</p>
                 <p className="text-xs text-neutral-600">Super Administrator</p>
@@ -455,7 +606,10 @@ export default function SuperAdminDashboard() {
               </div>
             </button>
             <button
-              onClick={fetchOverview}
+              onClick={() => {
+                sendRefresh();
+                fetchOverview();
+              }}
               className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition text-left"
             >
               <ChartBarIcon className="h-6 w-6 text-primary-600" />

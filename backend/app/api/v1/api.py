@@ -159,8 +159,9 @@ except Exception as e:
 
 # Super Admin Dashboard endpoints
 try:
-    from app.api.v1.endpoints import super_admin_dashboard
+    from app.api.v1.endpoints import super_admin_dashboard, super_admin_dashboard_websocket
     api_router.include_router(super_admin_dashboard.router, prefix="/super-admin", tags=["super-admin-dashboard"])
+    api_router.include_router(super_admin_dashboard_websocket.router, prefix="/super-admin", tags=["super-admin-dashboard-websocket"])
     logger.info("Super admin dashboard endpoints loaded successfully")
 except ImportError as e:
     logger.warning(f"Super admin dashboard endpoints not available (ImportError): {e}")
@@ -191,8 +192,9 @@ except ImportError:
 
 # Tenant Admin endpoints (for MSPs to manage their customers)
 try:
-    from app.api.v1.endpoints import tenant_admin
+    from app.api.v1.endpoints import tenant_admin, tenant_admin_dashboard
     api_router.include_router(tenant_admin.router, prefix="/tenant-admin", tags=["tenant-admin"])
+    api_router.include_router(tenant_admin_dashboard.router, prefix="/tenant-admin", tags=["tenant-admin-dashboard"])
 except ImportError:
     pass  # Tenant admin module not available
 
