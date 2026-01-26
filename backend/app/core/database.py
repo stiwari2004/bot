@@ -100,6 +100,10 @@ async def init_db():
             from app.models import log_entry, log_pattern, prediction  # Prediction models
         except ImportError:
             pass
+        try:
+            from app.models import scheduled_report  # Scheduled reports model
+        except ImportError:
+            pass
         
         # Enable required PostgreSQL extensions
         with engine.connect() as conn:

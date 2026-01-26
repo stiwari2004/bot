@@ -143,7 +143,27 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Alert poller service disabled (ENABLE_ALERT_POLLER=false)")
     
+    # Start report scheduler service (optional, can be disabled via env var)
+    enable_report_scheduler = os.getenv("ENABLE_REPORT_SCHEDULER", "true").lower() in ("1", "true", "yes")
+    if enable_report_scheduler:
+        try:
+            from app.services.reporting.report_scheduler import ReportScheduler
+            scheduler_interval = int(os.getenv("REPORT_SCHEDULER_INTERVAL", "300"))  # Default: 5 minutes
+            await ReportScheduler.start(check_interval=scheduler_interval)
+            logger.info(f"Report scheduler service started (check interval: {scheduler_interval}s)")
+        except Exception as e:
+            logger.error(f"Failed to start report scheduler: {e}", exc_info=True)
+    else:
+        logger.info("Report scheduler service disabled (ENABLE_REPORT_SCHEDULER=false)")
+    
     yield
+    
+    # Shutdown: Stop report scheduler
+    try:
+        from app.services.reporting.report_scheduler import ReportScheduler
+        await ReportScheduler.stop()
+    except Exception:
+        pass
     # Shutdown
     logger.info("Shutting down Troubleshooting AI Agent")
     

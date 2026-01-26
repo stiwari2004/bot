@@ -72,6 +72,33 @@ class ScheduledReportResponse(BaseModel):
     
     class Config:
         from_attributes = True
+    
+    @classmethod
+    def from_orm(cls, report: ScheduledReport) -> "ScheduledReportResponse":
+        """Convert ScheduledReport model to response model"""
+        return cls(
+            id=report.id,
+            name=report.name,
+            description=report.description,
+            report_type=report.report_type.value,
+            format=report.format.value,
+            frequency=report.frequency.value,
+            schedule_config=report.schedule_config or {},
+            recipients=report.recipients or [],
+            filters=report.filters or {},
+            is_active=report.is_active,
+            last_run_at=report.last_run_at.isoformat() if report.last_run_at else None,
+            next_run_at=report.next_run_at.isoformat() if report.next_run_at else None,
+            created_by_id=report.created_by_id,
+            created_at=report.created_at.isoformat(),
+            updated_at=report.updated_at.isoformat() if report.updated_at else None
+        )
+
+
+def _check_report_ownership(report: ScheduledReport, admin: SuperAdmin) -> None:
+    """Check if admin owns the report, raise HTTPException if not"""
+    if report.created_by_id != admin.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this report")
 
 
 # Custom Report Generation
@@ -126,23 +153,7 @@ async def create_scheduled_report(
             created_by_id=current_admin.id
         )
         
-        return ScheduledReportResponse(
-            id=scheduled_report.id,
-            name=scheduled_report.name,
-            description=scheduled_report.description,
-            report_type=scheduled_report.report_type.value,
-            format=scheduled_report.format.value,
-            frequency=scheduled_report.frequency.value,
-            schedule_config=scheduled_report.schedule_config,
-            recipients=scheduled_report.recipients,
-            filters=scheduled_report.filters,
-            is_active=scheduled_report.is_active,
-            last_run_at=scheduled_report.last_run_at.isoformat() if scheduled_report.last_run_at else None,
-            next_run_at=scheduled_report.next_run_at.isoformat() if scheduled_report.next_run_at else None,
-            created_by_id=scheduled_report.created_by_id,
-            created_at=scheduled_report.created_at.isoformat(),
-            updated_at=scheduled_report.updated_at.isoformat() if scheduled_report.updated_at else None
-        )
+        return ScheduledReportResponse.from_orm(scheduled_report)
     except HTTPException:
         raise
     except Exception as e:
@@ -164,26 +175,7 @@ async def list_scheduled_reports(
             is_active=is_active
         )
         
-        return [
-            ScheduledReportResponse(
-                id=report.id,
-                name=report.name,
-                description=report.description,
-                report_type=report.report_type.value,
-                format=report.format.value,
-                frequency=report.frequency.value,
-                schedule_config=report.schedule_config,
-                recipients=report.recipients,
-                filters=report.filters,
-                is_active=report.is_active,
-                last_run_at=report.last_run_at.isoformat() if report.last_run_at else None,
-                next_run_at=report.next_run_at.isoformat() if report.next_run_at else None,
-                created_by_id=report.created_by_id,
-                created_at=report.created_at.isoformat(),
-                updated_at=report.updated_at.isoformat() if report.updated_at else None
-            )
-            for report in reports
-        ]
+        return [ScheduledReportResponse.from_orm(report) for report in reports]
     except Exception as e:
         logger.error(f"Error listing scheduled reports: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list scheduled reports: {str(e)}")
@@ -203,27 +195,8 @@ async def get_scheduled_report(
         if not report:
             raise HTTPException(status_code=404, detail="Scheduled report not found")
         
-        # Check ownership
-        if report.created_by_id != current_admin.id:
-            raise HTTPException(status_code=403, detail="Not authorized to access this report")
-        
-        return ScheduledReportResponse(
-            id=report.id,
-            name=report.name,
-            description=report.description,
-            report_type=report.report_type.value,
-            format=report.format.value,
-            frequency=report.frequency.value,
-            schedule_config=report.schedule_config,
-            recipients=report.recipients,
-            filters=report.filters,
-            is_active=report.is_active,
-            last_run_at=report.last_run_at.isoformat() if report.last_run_at else None,
-            next_run_at=report.next_run_at.isoformat() if report.next_run_at else None,
-            created_by_id=report.created_by_id,
-            created_at=report.created_at.isoformat(),
-            updated_at=report.updated_at.isoformat() if report.updated_at else None
-        )
+        _check_report_ownership(report, current_admin)
+        return ScheduledReportResponse.from_orm(report)
     except HTTPException:
         raise
     except Exception as e:
@@ -246,9 +219,7 @@ async def update_scheduled_report(
         if not report:
             raise HTTPException(status_code=404, detail="Scheduled report not found")
         
-        # Check ownership
-        if report.created_by_id != current_admin.id:
-            raise HTTPException(status_code=403, detail="Not authorized to update this report")
+        _check_report_ownership(report, current_admin)
         
         # Prepare update data
         update_data = {}
@@ -272,24 +243,7 @@ async def update_scheduled_report(
             update_data["is_active"] = request.is_active
         
         updated_report = service.update_scheduled_report(report_id, **update_data)
-        
-        return ScheduledReportResponse(
-            id=updated_report.id,
-            name=updated_report.name,
-            description=updated_report.description,
-            report_type=updated_report.report_type.value,
-            format=updated_report.format.value,
-            frequency=updated_report.frequency.value,
-            schedule_config=updated_report.schedule_config,
-            recipients=updated_report.recipients,
-            filters=updated_report.filters,
-            is_active=updated_report.is_active,
-            last_run_at=updated_report.last_run_at.isoformat() if updated_report.last_run_at else None,
-            next_run_at=updated_report.next_run_at.isoformat() if updated_report.next_run_at else None,
-            created_by_id=updated_report.created_by_id,
-            created_at=updated_report.created_at.isoformat(),
-            updated_at=updated_report.updated_at.isoformat() if updated_report.updated_at else None
-        )
+        return ScheduledReportResponse.from_orm(updated_report)
     except HTTPException:
         raise
     except ValueError as e:
@@ -313,9 +267,7 @@ async def delete_scheduled_report(
         if not report:
             raise HTTPException(status_code=404, detail="Scheduled report not found")
         
-        # Check ownership
-        if report.created_by_id != current_admin.id:
-            raise HTTPException(status_code=403, detail="Not authorized to delete this report")
+        _check_report_ownership(report, current_admin)
         
         success = service.delete_scheduled_report(report_id)
         
@@ -344,9 +296,7 @@ async def execute_scheduled_report(
         if not report:
             raise HTTPException(status_code=404, detail="Scheduled report not found")
         
-        # Check ownership
-        if report.created_by_id != current_admin.id:
-            raise HTTPException(status_code=403, detail="Not authorized to execute this report")
+        _check_report_ownership(report, current_admin)
         
         success = service.execute_scheduled_report(report_id)
         
