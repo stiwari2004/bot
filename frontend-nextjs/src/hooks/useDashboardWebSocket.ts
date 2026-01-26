@@ -76,14 +76,32 @@ export function useDashboardWebSocket({
       if (process.env.NODE_ENV === 'development') {
         console.debug('Connecting to WebSocket:', wsUrl.replace(/token=[^&]+/, 'token=***'));
       }
+      
+      // Close existing connection if any
+      if (wsRef.current) {
+        try {
+          if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+            wsRef.current.close();
+          }
+        } catch (error) {
+          // Ignore errors
+        }
+        wsRef.current = null;
+      }
+      
       const ws = new WebSocket(wsUrl);
+      wsRef.current = ws; // Set ref immediately so cleanup can find it
 
       ws.onopen = () => {
-        if (process.env.NODE_ENV === 'development') {
-          console.debug('Dashboard WebSocket connected');
+        // Double-check the ref is still the same WebSocket (React Strict Mode protection)
+        if (wsRef.current === ws) {
+          if (process.env.NODE_ENV === 'development') {
+            console.debug('Dashboard WebSocket connected');
+          }
+          setIsConnected(true);
+          reconnectAttempts.current = 0;
+          wsDisabledRef.current = false; // Reset disabled flag on successful connection
         }
-        setIsConnected(true);
-        reconnectAttempts.current = 0;
       };
 
       ws.onmessage = (event) => {
@@ -162,7 +180,18 @@ export function useDashboardWebSocket({
     }
     
     if (wsRef.current) {
-      wsRef.current.close();
+      // Only close if WebSocket is in a state that can be closed
+      // CONNECTING (0), OPEN (1), CLOSING (2), CLOSED (3)
+      if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+        try {
+          wsRef.current.close();
+        } catch (error) {
+          // Ignore errors when closing - WebSocket might already be closed
+          if (process.env.NODE_ENV === 'development') {
+            console.debug('Error closing WebSocket:', error);
+          }
+        }
+      }
       wsRef.current = null;
     }
     setIsConnected(false);
@@ -186,9 +215,11 @@ export function useDashboardWebSocket({
     }
 
     return () => {
+      // Cleanup: disconnect WebSocket when component unmounts or dependencies change
       disconnect();
     };
-  }, [enabled, token, connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, token]); // Only depend on enabled and token, not connect/disconnect to avoid re-renders
 
   return {
     isConnected,
