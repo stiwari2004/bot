@@ -4,12 +4,14 @@ import { useSuperAdminAuth } from '@/contexts/SuperAdminAuthContext';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiConfig } from '@/lib/api-config';
+import { superAdminFetch } from '@/lib/super-admin-fetch';
 import { useDashboardWebSocket } from '@/hooks/useDashboardWebSocket';
 import { useDashboardPreferences } from '@/hooks/useDashboardPreferences';
 import { DashboardAnalytics } from '@/components/dashboard/DashboardAnalytics';
 import { DashboardActions } from '@/components/dashboard/DashboardActions';
 import { DashboardReports } from '@/components/dashboard/DashboardReports';
 import { PreferencesPanel } from '@/components/dashboard/PreferencesPanel';
+import { DashboardErrorBoundary } from '@/components/dashboard/DashboardErrorBoundary';
 import { 
   ShieldCheckIcon, 
   ChartBarIcon,
@@ -93,12 +95,16 @@ export default function SuperAdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiConfig.endpoints.superAdmin.dashboard.overview(), {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      // Use superAdminFetch for consistent error handling and 401 management
+      const response = await superAdminFetch(
+        apiConfig.endpoints.superAdmin.dashboard.overview(),
+        token,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
       
       if (!response.ok) {
         if (response.status === 401) {
@@ -142,11 +148,8 @@ export default function SuperAdminDashboard() {
           return;
       }
 
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      // Use superAdminFetch for consistent error handling
+      const response = await superAdminFetch(url, token);
 
       if (!response.ok) {
         throw new Error(`Export failed: ${response.status}`);
@@ -396,20 +399,26 @@ export default function SuperAdminDashboard() {
           </nav>
         </div>
 
-        {/* Tab Content */}
+        {/* Tab Content with Error Boundaries for Resilience */}
         {activeTab === 'analytics' && (
-          <DashboardAnalytics overview={overview} loading={loading} />
+          <DashboardErrorBoundary>
+            <DashboardAnalytics overview={overview} loading={loading} />
+          </DashboardErrorBoundary>
         )}
 
         {activeTab === 'actions' && (
-          <DashboardActions onRefresh={() => {
-            sendRefresh();
-            fetchOverview();
-          }} />
+          <DashboardErrorBoundary>
+            <DashboardActions onRefresh={() => {
+              sendRefresh();
+              fetchOverview();
+            }} />
+          </DashboardErrorBoundary>
         )}
 
         {activeTab === 'reports' && (
-          <DashboardReports token={token} onExport={handleExport} />
+          <DashboardErrorBoundary>
+            <DashboardReports token={token} onExport={handleExport} />
+          </DashboardErrorBoundary>
         )}
       </main>
     </div>
