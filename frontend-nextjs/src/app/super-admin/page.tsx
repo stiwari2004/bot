@@ -22,6 +22,7 @@ import {
   WifiIcon,
   SignalSlashIcon,
   Cog6ToothIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 
 interface DashboardOverview {
@@ -69,7 +70,7 @@ export default function SuperAdminDashboard() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'actions'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'actions' | 'reports'>('analytics');
   const [exporting, setExporting] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   
@@ -297,9 +298,15 @@ export default function SuperAdminDashboard() {
               {/* Preferences Button */}
               <button
                 onClick={() => setShowPreferences(!showPreferences)}
-                className="flex items-center space-x-2 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100 rounded-lg transition"
+                className={`flex items-center space-x-2 px-4 py-2 text-sm rounded-lg transition ${
+                  showPreferences 
+                    ? 'bg-primary-100 text-primary-700' 
+                    : 'text-neutral-700 hover:bg-neutral-100'
+                }`}
+                title="Dashboard Settings"
               >
                 <Cog6ToothIcon className="h-5 w-5" />
+                <span className="hidden sm:inline">Settings</span>
               </button>
               
               <div className="text-right">
@@ -320,6 +327,78 @@ export default function SuperAdminDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Preferences Panel */}
+        {showPreferences && (
+          <div className="mb-6 bg-white border border-neutral-200 rounded-lg p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-neutral-900">Dashboard Settings</h3>
+              <button
+                onClick={() => setShowPreferences(false)}
+                className="text-neutral-500 hover:text-neutral-700 text-xl leading-none"
+                aria-label="Close settings"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between py-2">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-neutral-700">Auto Refresh</label>
+                  <p className="text-xs text-neutral-500 mt-1">Enable real-time updates via WebSocket</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={preferences?.auto_refresh ?? true}
+                    onChange={(e) => savePreferences({ auto_refresh: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-neutral-700">Refresh Interval</label>
+                  <p className="text-xs text-neutral-500 mt-1">Time between updates (milliseconds)</p>
+                </div>
+                <input
+                  type="number"
+                  value={preferences?.refresh_interval ?? 30000}
+                  onChange={(e) => savePreferences({ refresh_interval: parseInt(e.target.value) || 30000 })}
+                  className="w-32 px-3 py-1.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  min="5000"
+                  step="5000"
+                />
+              </div>
+              {preferences?.widgets && (
+                <div className="pt-4 border-t border-neutral-200">
+                  <p className="text-sm font-medium text-neutral-700 mb-3">Widget Visibility</p>
+                  <div className="space-y-2">
+                    {Object.entries(preferences.widgets).map(([key, widget]: [string, any]) => (
+                      <div key={key} className="flex items-center justify-between py-1">
+                        <label className="text-sm text-neutral-600 capitalize">{key.replace(/_/g, ' ')}</label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={widget.enabled}
+                            onChange={(e) => {
+                              const newWidgets = { ...preferences.widgets };
+                              newWidgets[key] = { ...widget, enabled: e.target.checked };
+                              savePreferences({ widgets: newWidgets });
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
         {/* Error Message */}
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
@@ -366,6 +445,22 @@ export default function SuperAdminDashboard() {
               <div className="flex items-center space-x-2">
                 <BoltIcon className="h-5 w-5" />
                 <span>Actions</span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`
+                py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                ${
+                  activeTab === 'reports'
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+                }
+              `}
+            >
+              <div className="flex items-center space-x-2">
+                <DocumentTextIcon className="h-5 w-5" />
+                <span>Reports</span>
               </div>
             </button>
           </nav>
@@ -640,6 +735,95 @@ export default function SuperAdminDashboard() {
               </div>
             </button>
           </div>
+          </div>
+        )}
+
+        {/* Reports Tab Content */}
+        {activeTab === 'reports' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-neutral-900 mb-4">Generate Reports</h2>
+              <p className="text-sm text-neutral-600 mb-6">
+                Create comprehensive reports for platform analytics, revenue, and tenant data.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="border border-neutral-200 rounded-lg p-4 hover:border-primary-300 transition">
+                  <h3 className="font-medium text-neutral-900 mb-2">Platform Overview</h3>
+                  <p className="text-sm text-neutral-600 mb-4">Complete platform statistics and metrics</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleExport('overview', 'pdf')}
+                      disabled={!!exporting}
+                      className="flex-1 px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                    >
+                      PDF
+                    </button>
+                    <button
+                      onClick={() => handleExport('overview', 'csv')}
+                      disabled={!!exporting}
+                      className="flex-1 px-3 py-2 text-sm bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 disabled:opacity-50 transition"
+                    >
+                      CSV
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="border border-neutral-200 rounded-lg p-4 hover:border-primary-300 transition">
+                  <h3 className="font-medium text-neutral-900 mb-2">Tenant Report</h3>
+                  <p className="text-sm text-neutral-600 mb-4">All tenants with usage and billing data</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleExport('tenants', 'pdf')}
+                      disabled={!!exporting}
+                      className="flex-1 px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                    >
+                      PDF
+                    </button>
+                    <button
+                      onClick={() => handleExport('tenants', 'csv')}
+                      disabled={!!exporting}
+                      className="flex-1 px-3 py-2 text-sm bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 disabled:opacity-50 transition"
+                    >
+                      CSV
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="border border-neutral-200 rounded-lg p-4 hover:border-primary-300 transition">
+                  <h3 className="font-medium text-neutral-900 mb-2">Revenue Report</h3>
+                  <p className="text-sm text-neutral-600 mb-4">Revenue analytics and trends</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleExport('revenue', 'pdf')}
+                      disabled={!!exporting}
+                      className="flex-1 px-3 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition"
+                    >
+                      PDF
+                    </button>
+                    <button
+                      onClick={() => handleExport('revenue', 'csv')}
+                      disabled={!!exporting}
+                      className="flex-1 px-3 py-2 text-sm bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 disabled:opacity-50 transition"
+                    >
+                      CSV
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-neutral-900 mb-4">Scheduled Reports</h2>
+              <p className="text-sm text-neutral-600 mb-4">
+                Configure automated reports to be generated and emailed on a schedule.
+              </p>
+              <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4">
+                <p className="text-sm text-neutral-600">
+                  <span className="font-medium">Coming Soon:</span> Schedule automated reports (daily, weekly, monthly) to be generated and emailed automatically.
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </main>
