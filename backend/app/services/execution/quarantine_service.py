@@ -8,8 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
 from app.models.runbook_quarantine import RunbookQuarantine
-from app.models.execution_session import ExecutionSession
-from app.models.execution_step import ExecutionStep
+from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
