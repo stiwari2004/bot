@@ -129,18 +129,28 @@
 
 ### Database Migrations (100% Complete)
 
-#### ✅ Migration File Created
-**File:** `backend/sql/create_priority_features_tables.sql`
+#### ✅ Migration Files Created (Separate files per feature)
 
-**Creates:**
-1. `parameter_tunings` table
-2. `approval_audits` table
-3. `runbook_quarantines` table
-4. `remediation_analytics` table
-5. `incident_packages` table
+**Feature 2: Human-in-the-Loop**
+- `backend/sql/create_human_in_loop_tables.sql`
+  - Creates `parameter_tunings` table
+  - Creates `approval_audits` table
 
-**Enhances:**
-- `runbook_versions` table (adds `diff_summary`, `rollback_reason`, `deployment_approval_id`)
+**Feature 3: Quarantine**
+- `backend/sql/create_runbook_quarantine_tables.sql`
+  - Creates `runbook_quarantines` table
+
+**Feature 4: Versioning**
+- `backend/sql/enhance_runbook_versioning.sql`
+  - Enhances `runbook_versions` table (adds `diff_summary`, `rollback_reason`, `deployment_approval_id`)
+
+**Feature 5: Remediation Analytics**
+- `backend/sql/create_remediation_analytics_tables.sql`
+  - Creates `remediation_analytics` table
+
+**Feature 6: Incident Package**
+- `backend/sql/create_incident_package_tables.sql`
+  - Creates `incident_packages` table
 
 **All migrations are idempotent** - safe to run multiple times
 
@@ -310,7 +320,7 @@
 **Total Files Created/Modified:**
 - **Backend:** 25+ files
 - **Frontend:** 5+ files
-- **Database:** 1 migration file
+- **Database:** 5 migration files (one per feature/table group)
 - **Documentation:** 2 plan/summary files
 
 The implementation is production-ready and follows all architectural guidelines!
