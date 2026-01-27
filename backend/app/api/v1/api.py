@@ -112,8 +112,6 @@ else:
 if agent_execution:
     api_router.include_router(agent_execution.router, prefix="/agent", tags=["agent-execution"])
     logger.info("Registered agent_execution router")
-else:
-    logger.warning("agent_execution router not registered - module import failed or is None")
     
     # Execution-related endpoints (WebSocket, debug, Azure debug)
     try:
@@ -126,6 +124,8 @@ else:
         logger.warning(f"Execution WebSocket/debug endpoints not available (ImportError): {e}")
     except Exception as e:
         logger.error(f"Error loading execution WebSocket/debug endpoints: {e}", exc_info=True)
+else:
+    logger.warning("agent_execution router not registered - module import failed or is None")
 
 api_router.include_router(network.router, prefix="/network", tags=["network"])
 if ticket_csv_upload:
