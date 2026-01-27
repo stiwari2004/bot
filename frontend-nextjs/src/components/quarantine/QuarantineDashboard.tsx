@@ -55,7 +55,7 @@ export function QuarantineDashboard() {
   const fetchPendingReviews = async () => {
     setLoading(true);
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/quarantine/pending-review`;
+      const url = apiConfig.endpoints.quarantine.pendingReview();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -76,7 +76,7 @@ export function QuarantineDashboard() {
 
   const fetchFailurePatterns = async (runbookId: number) => {
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/quarantine/failure-patterns/${runbookId}`;
+      const url = apiConfig.endpoints.quarantine.failurePatterns(runbookId);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -95,7 +95,7 @@ export function QuarantineDashboard() {
 
   const handleRelease = async (runbookId: number, versionId?: number) => {
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/quarantine/release/${runbookId}`;
+      const url = apiConfig.endpoints.quarantine.release(runbookId);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -210,7 +210,7 @@ export function QuarantineDashboard() {
 
                       <div className="flex gap-2">
                         <Button
-                          variant="default"
+                          variant="primary"
                           onClick={() => {
                             setSelectedRunbook(quarantine.runbook_id);
                             fetchFailurePatterns(quarantine.runbook_id);
@@ -220,7 +220,7 @@ export function QuarantineDashboard() {
                           Analyze Patterns
                         </Button>
                         <Button
-                          variant="default"
+                          variant="primary"
                           onClick={() => handleRelease(quarantine.runbook_id, quarantine.runbook_version_id)}
                         >
                           <CheckCircleIcon className="h-4 w-4 mr-1" />

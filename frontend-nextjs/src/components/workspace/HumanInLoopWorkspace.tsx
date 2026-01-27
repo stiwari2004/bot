@@ -61,7 +61,7 @@ export function HumanInLoopWorkspace() {
   const fetchPendingApprovals = async () => {
     setLoading(true);
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/workspace/pending-approvals`;
+      const url = apiConfig.endpoints.workspace.pendingApprovals();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -82,7 +82,7 @@ export function HumanInLoopWorkspace() {
 
   const fetchAuditTrail = async (sessionId: number) => {
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/workspace/audit-trail/${sessionId}`;
+      const url = apiConfig.endpoints.workspace.auditTrail(sessionId);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -101,7 +101,7 @@ export function HumanInLoopWorkspace() {
 
   const handleApprove = async (sessionId: number, stepId: number, approve: boolean) => {
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/workspace/approve/${sessionId}/${stepId}`;
+      const url = apiConfig.endpoints.workspace.approve(sessionId, stepId);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -134,7 +134,7 @@ export function HumanInLoopWorkspace() {
 
   const handleTuneParameters = async (sessionId: number, stepId: number) => {
     try {
-      const url = `${apiConfig.baseUrl}/api/v1/demo/workspace/tune-parameters/${sessionId}/${stepId}`;
+      const url = apiConfig.endpoints.workspace.tuneParameters(sessionId, stepId);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -213,9 +213,11 @@ export function HumanInLoopWorkspace() {
                           </h5>
                           <div className="space-y-2">
                             {Object.entries(approval.current_parameters).map(([key, value]) => (
-                              <div key={key} className="flex gap-2">
+                              <div key={key} className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-neutral-700">
+                                  {key}
+                                </label>
                                 <Input
-                                  label={key}
                                   value={tuningParams[key] ?? String(value)}
                                   onChange={(e) =>
                                     setTuningParams({ ...tuningParams, [key]: e.target.value })
@@ -241,7 +243,7 @@ export function HumanInLoopWorkspace() {
 
                       <div className="flex gap-2">
                         <Button
-                          variant="default"
+                          variant="primary"
                           onClick={() => handleApprove(approval.session_id, approval.step_id, true)}
                         >
                           <CheckCircleIcon className="h-4 w-4 mr-1" />
