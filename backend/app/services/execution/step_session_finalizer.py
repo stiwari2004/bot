@@ -40,6 +40,8 @@ class StepSessionFinalizer:
             main_steps_failed = any(s.step_type == "main" for s in failed_steps)
             if main_steps_failed:
                 session.status = "failed"
+                # Track failure for quarantine
+                self._track_failure_for_quarantine(db, session, failed_steps)
             else:
                 # Only diagnostic steps failed
                 session.status = "completed_with_errors"
@@ -214,6 +216,50 @@ class StepSessionFinalizer:
                 logger.warning(f"Final cleanup failed: {cleanup_result.get('error', 'Unknown')}")
         except Exception as cleanup_error:
             logger.warning(f"Final cleanup error: {cleanup_error}")
+    
+    def _track_failure_for_quarantine(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        failed_steps: List[ExecutionStep]
+    ) -> None:
+        """Track execution failure for quarantine system"""
+        try:
+            from app.services.execution.quarantine_service import QuarantineService
+            from app.services.runbook.versioning_service import VersioningService
+            
+            quarantine_service = QuarantineService()
+            versioning_service = VersioningService()
+            
+            # Get current runbook version
+            runbook_version_id = None
+            current_version = versioning_service.get_current_version(
+                db=db,
+                runbook_id=session.runbook_id,
+                tenant_id=session.tenant_id
+            )
+            if current_version:
+                runbook_version_id = current_version.id
+            
+            # Get error details from first failed step
+            first_failed_step = failed_steps[0] if failed_steps else None
+            error_details = {
+                "error": first_failed_step.error[:500] if first_failed_step and first_failed_step.error else "Unknown error",
+                "step_number": first_failed_step.step_number if first_failed_step else None,
+                "error_type": "execution_failure"
+            }
+            
+            # Track failure (will auto-quarantine if threshold reached)
+            quarantine_service.track_failure(
+                db=db,
+                runbook_id=session.runbook_id,
+                runbook_version_id=runbook_version_id,
+                session_id=session.id,
+                error_details=error_details,
+                tenant_id=session.tenant_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to track failure for quarantine: {e}")
 
 
 

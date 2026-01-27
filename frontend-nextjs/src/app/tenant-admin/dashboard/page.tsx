@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiConfig } from '@/lib/api-config';
 import { useAuth } from '@/contexts/AuthContext';
+import { authFetch } from '@/lib/auth-fetch';
 import { 
   BuildingOfficeIcon, 
   UserGroupIcon,
@@ -72,19 +73,13 @@ export default function TenantAdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(apiConfig.endpoints.tenantAdmin.dashboard.overview(), {
+      const response = await authFetch(apiConfig.endpoints.tenantAdmin.dashboard.overview(), {
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
       
       if (!response.ok) {
-        if (response.status === 401) {
-          logout();
-          router.push('/login');
-          return;
-        }
         const errorText = await response.text();
         setError(`Failed to load dashboard: ${response.status} ${errorText}`);
         return;
@@ -97,7 +92,7 @@ export default function TenantAdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [token, logout, router]);
+  }, [token]);
 
   const handleExport = async (format: 'csv' | 'pdf') => {
     if (!token) return;
@@ -106,11 +101,7 @@ export default function TenantAdminDashboard() {
     
     try {
       const url = apiConfig.endpoints.tenantAdmin.dashboard.exportOverview(format);
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const response = await authFetch(url);
 
       if (!response.ok) {
         throw new Error(`Export failed: ${response.status}`);

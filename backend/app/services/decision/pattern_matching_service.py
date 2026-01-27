@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, text
 from datetime import datetime, timezone
+import math
 
 from app.models.execution_pattern import ExecutionPattern
 from app.models.ticket import Ticket
@@ -20,7 +21,7 @@ class PatternMatchingService:
     def __init__(self):
         pass
     
-    async def find_matching_patterns(
+    def find_matching_patterns(
         self,
         issue_description: str,
         context: Dict[str, Any],
@@ -70,7 +71,7 @@ class PatternMatchingService:
         # Score each pattern
         scored_patterns = []
         for pattern in patterns:
-            score = await self.score_pattern_match(pattern, issue_description, context)
+            score = self.score_pattern_match(pattern, issue_description, context)
             scored_patterns.append((pattern, score))
         
         # Sort by score descending
@@ -79,7 +80,7 @@ class PatternMatchingService:
         # Return top N
         return scored_patterns[:limit]
     
-    async def score_pattern_match(
+    def score_pattern_match(
         self,
         pattern: ExecutionPattern,
         issue_description: str,
@@ -122,12 +123,11 @@ class PatternMatchingService:
         
         # 4. Usage count (10% weight) - more usage = more reliable
         if pattern.usage_count:
-            import math
-            # Log normalization: log(1 + usage_count) / log(1 + max_expected_usage)
+            # Log normalization using log1p for better numerical stability
             # Using max_expected_usage = 100 for reasonable scaling
             # This gives: 1 use = 0.15, 10 uses = 0.50, 50 uses = 0.85, 100+ uses = 1.0
             max_expected_usage = 100
-            usage_score = min(1.0, math.log(1 + pattern.usage_count) / math.log(1 + max_expected_usage))
+            usage_score = min(1.0, math.log1p(pattern.usage_count) / math.log1p(max_expected_usage))
             score += usage_score * 0.1
         max_score += 0.1
         
@@ -208,7 +208,7 @@ class PatternMatchingService:
         
         return match_count / total_fields
     
-    async def get_best_pattern(
+    def get_best_pattern(
         self,
         patterns: List[Tuple[ExecutionPattern, float]],
         min_score: float = 0.5
@@ -232,7 +232,7 @@ class PatternMatchingService:
         
         return None
     
-    async def find_patterns_by_runbook(
+    def find_patterns_by_runbook(
         self,
         runbook_id: int,
         db: Session,
@@ -257,11 +257,3 @@ class PatternMatchingService:
         ).limit(limit).all()
         
         return patterns
-
-
-
-
-
-
-
-

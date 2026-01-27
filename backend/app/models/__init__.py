@@ -49,6 +49,9 @@ from app.models.execution_session import (
     AgentWorkerAssignment,
 )
 from app.models.execution_pattern import ExecutionPattern
+from app.models.parameter_tuning import ParameterTuning
+from app.models.approval_audit import ApprovalAudit
+from app.models.runbook_quarantine import RunbookQuarantine
 from app.models.pattern_feedback import PatternFeedback
 from app.models.runbook_metrics import RunbookMetrics
 from app.models.confidence_breakdown import ConfidenceBreakdown
@@ -128,6 +131,11 @@ __all__ = [
     "AgentWorkerAssignment",
     "ExecutionPattern",
     "PatternFeedback",
+    "ParameterTuning",
+    "ApprovalAudit",
+    "RunbookQuarantine",
+    "RemediationAnalytics",
+    "IncidentPackage",
     "RunbookMetrics",
     "ConfidenceBreakdown",
     "RunbookVersion",

@@ -21,7 +21,7 @@ class ContextCorrelationService:
     def __init__(self):
         pass
     
-    async def correlate_ticket_context(
+    def correlate_ticket_context(
         self,
         ticket_id: int,
         db: Session,
@@ -43,13 +43,13 @@ class ContextCorrelationService:
             raise ValueError(f"Ticket {ticket_id} not found")
         
         # Get correlated alerts
-        alerts = await self._find_correlated_alerts(ticket, db, time_window_hours)
+        alerts = self._find_correlated_alerts(ticket, db, time_window_hours)
         
         # Get related executions
-        executions = await self._find_related_executions(ticket, db, time_window_hours)
+        executions = self._find_related_executions(ticket, db, time_window_hours)
         
         # Extract context signals
-        signals = await self._extract_context_signals(ticket, alerts, executions)
+        signals = self._extract_context_signals(ticket, alerts, executions)
         
         return {
             "ticket": ticket,
@@ -60,7 +60,7 @@ class ContextCorrelationService:
             "correlated_at": datetime.now(timezone.utc)
         }
     
-    async def _find_correlated_alerts(
+    def _find_correlated_alerts(
         self,
         ticket: Ticket,
         db: Session,
@@ -99,7 +99,7 @@ class ContextCorrelationService:
         logger.info(f"Found {len(alerts)} correlated alerts for ticket {ticket.id}")
         return alerts
     
-    async def _find_related_executions(
+    def _find_related_executions(
         self,
         ticket: Ticket,
         db: Session,
@@ -138,7 +138,7 @@ class ContextCorrelationService:
         logger.info(f"Found {len(executions)} related executions for ticket {ticket.id}")
         return executions
     
-    async def _extract_context_signals(
+    def _extract_context_signals(
         self,
         ticket: Ticket,
         alerts: List[Alert],
@@ -185,7 +185,7 @@ class ContextCorrelationService:
         
         return signals
     
-    async def find_related_executions(
+    def find_related_executions(
         self,
         ticket: Ticket,
         db: Session,
@@ -209,7 +209,7 @@ class ContextCorrelationService:
         
         return executions
     
-    async def find_similar_issues(
+    def find_similar_issues(
         self,
         ticket: Ticket,
         db: Session,
@@ -246,11 +246,3 @@ class ContextCorrelationService:
         
         logger.info(f"Found {len(similar_tickets)} similar tickets for ticket {ticket.id}")
         return similar_tickets
-
-
-
-
-
-
-
-

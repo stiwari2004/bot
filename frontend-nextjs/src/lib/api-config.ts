@@ -240,6 +240,70 @@ const createEndpoints = (baseUrl: string) => ({
     },
     runbookConfidence: (runbookId: number) => `${baseUrl}/api/v1/decision/demo/runbooks/${runbookId}/confidence`,
     recommendationConfidence: (recommendationId: number) => `${baseUrl}/api/v1/decision/demo/recommendations/${recommendationId}/confidence`,
+    explanation: (ticketId: number, recommendationId?: number) => {
+      const query = recommendationId ? `?recommendation_id=${recommendationId}` : '';
+      return `${baseUrl}/api/v1/decision/demo/tickets/${ticketId}/explanation${query}`;
+    },
+    explain: (ticketId: number) => `${baseUrl}/api/v1/decision/demo/tickets/${ticketId}/explain`,
+  },
+  workspace: {
+    pendingApprovals: () => `${baseUrl}/api/v1/workspace/demo/workspace/pending-approvals`,
+    approve: (sessionId: number, stepId: number) => `${baseUrl}/api/v1/workspace/demo/workspace/approve/${sessionId}/${stepId}`,
+    tuneParameters: (sessionId: number, stepId: number) => `${baseUrl}/api/v1/workspace/demo/workspace/tune-parameters/${sessionId}/${stepId}`,
+    auditTrail: (sessionId: number) => `${baseUrl}/api/v1/workspace/demo/workspace/audit-trail/${sessionId}`,
+  },
+  quarantine: {
+    status: (runbookId: number, versionId?: number) => {
+      const query = versionId ? `?runbook_version_id=${versionId}` : '';
+      return `${baseUrl}/api/v1/quarantine/demo/quarantine/status/${runbookId}${query}`;
+    },
+    quarantine: (runbookId: number) => `${baseUrl}/api/v1/quarantine/demo/quarantine/quarantine/${runbookId}`,
+    release: (runbookId: number) => `${baseUrl}/api/v1/quarantine/demo/quarantine/release/${runbookId}`,
+    pendingReview: () => `${baseUrl}/api/v1/quarantine/demo/quarantine/pending-review`,
+    failurePatterns: (runbookId: number, versionId?: number) => {
+      const query = versionId ? `?runbook_version_id=${versionId}` : '';
+      return `${baseUrl}/api/v1/quarantine/demo/quarantine/failure-patterns/${runbookId}${query}`;
+    },
+  },
+  versioning: {
+    createVersion: (runbookId: number) => `${baseUrl}/api/v1/versioning/demo/runbooks/${runbookId}/versions`,
+    getVersions: (runbookId: number) => `${baseUrl}/api/v1/versioning/demo/runbooks/${runbookId}/versions`,
+    compareVersions: (versionId1: number, versionId2: number) => `${baseUrl}/api/v1/versioning/demo/versions/${versionId1}/compare/${versionId2}`,
+    rollback: (runbookId: number) => `${baseUrl}/api/v1/versioning/demo/runbooks/${runbookId}/rollback`,
+    requestPromotion: (runbookId: number) => `${baseUrl}/api/v1/versioning/demo/runbooks/${runbookId}/promote`,
+    approvePromotion: () => `${baseUrl}/api/v1/versioning/demo/deployment-approvals/approve`,
+    rejectPromotion: () => `${baseUrl}/api/v1/versioning/demo/deployment-approvals/reject`,
+    pendingApprovals: () => `${baseUrl}/api/v1/versioning/demo/deployment-approvals/pending`,
+  },
+  remediation: {
+    effectiveness: (periodStart?: string, periodEnd?: string, periodType?: string) => {
+      const params = new URLSearchParams();
+      if (periodStart) params.append('period_start', periodStart);
+      if (periodEnd) params.append('period_end', periodEnd);
+      if (periodType) params.append('period_type', periodType);
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return `${baseUrl}/api/v1/analytics/demo/remediation/effectiveness${query}`;
+    },
+    trends: (periodType?: string, periods?: number) => {
+      const params = new URLSearchParams();
+      if (periodType) params.append('period_type', periodType);
+      if (periods) params.append('periods', periods.toString());
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return `${baseUrl}/api/v1/analytics/demo/remediation/trends${query}`;
+    },
+    failingSteps: (periodStart?: string, periodEnd?: string, limit?: number) => {
+      const params = new URLSearchParams();
+      if (periodStart) params.append('period_start', periodStart);
+      if (periodEnd) params.append('period_end', periodEnd);
+      if (limit) params.append('limit', limit.toString());
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return `${baseUrl}/api/v1/analytics/demo/remediation/failing-steps${query}`;
+    },
+  },
+  incidents: {
+    generatePackage: (ticketId: number) => `${baseUrl}/api/v1/incidents/demo/incidents/${ticketId}/generate-package`,
+    getPackage: (ticketId: number) => `${baseUrl}/api/v1/incidents/demo/incidents/${ticketId}/package`,
+    listPackages: () => `${baseUrl}/api/v1/incidents/demo/incidents/packages`,
   },
   tenantAdmin: {
     dashboard: {

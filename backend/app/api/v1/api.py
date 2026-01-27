@@ -35,6 +35,11 @@ try:
         decision,
         resolution,
         change_tickets,
+        human_in_loop,
+        quarantine,
+        versioning,
+        remediation_analytics,
+        incident_package,
     )
     connectors = None  # Will be imported separately if available
     try:
@@ -53,6 +58,11 @@ except ImportError:
     monitoring_connections = None
     decision = None
     resolution = None
+    human_in_loop = None
+    quarantine = None
+    versioning = None
+    remediation_analytics = None
+    incident_package = None
 
 api_router = APIRouter()
 
@@ -122,6 +132,20 @@ if decision:
     api_router.include_router(decision.router, prefix="/decision", tags=["decision"])
 if resolution:
     api_router.include_router(resolution.router, prefix="/resolution", tags=["resolution"])
+if human_in_loop:
+    api_router.include_router(human_in_loop.router, prefix="/workspace", tags=["human-in-loop"])
+if quarantine:
+    api_router.include_router(quarantine.router, prefix="/quarantine", tags=["quarantine"])
+if versioning:
+    api_router.include_router(versioning.router, prefix="/versioning", tags=["versioning"])
+if remediation_analytics:
+    api_router.include_router(remediation_analytics.router, prefix="/analytics", tags=["remediation-analytics"])
+if incident_package:
+    api_router.include_router(incident_package.router, prefix="/incidents", tags=["incident-package"])
+if remediation_analytics:
+    api_router.include_router(remediation_analytics.router, prefix="/analytics", tags=["remediation-analytics"])
+if incident_package:
+    api_router.include_router(incident_package.router, prefix="/incidents", tags=["incident-package"])
 if change_tickets:
     api_router.include_router(change_tickets.router, prefix="/change-tickets", tags=["change-tickets"])
 

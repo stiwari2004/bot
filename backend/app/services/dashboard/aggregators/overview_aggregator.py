@@ -40,20 +40,26 @@ class OverviewAggregator:
             TenantSubscription.status == "active"
         ).all()
         
+        # Batch fetch all plans to avoid N+1 queries
+        plan_ids = [sub.license_plan_id for sub in subscriptions if sub.license_plan_id]
+        plans = {}
+        if plan_ids:
+            plans_query = self.db.query(LicensePlan).filter(LicensePlan.id.in_(plan_ids)).all()
+            plans = {plan.id: plan for plan in plans_query}
+        
         plan_distribution = {}
         trial_count = 0
         paid_count = 0
         
         for sub in subscriptions:
-            if sub.license_plan_id:
-                plan = self.db.query(LicensePlan).filter(LicensePlan.id == sub.license_plan_id).first()
-                if plan:
-                    plan_key = plan.plan_key
-                    plan_distribution[plan_key] = plan_distribution.get(plan_key, 0) + 1
-                    if plan_key == "trial":
-                        trial_count += 1
-                    else:
-                        paid_count += 1
+            if sub.license_plan_id and sub.license_plan_id in plans:
+                plan = plans[sub.license_plan_id]
+                plan_key = plan.plan_key
+                plan_distribution[plan_key] = plan_distribution.get(plan_key, 0) + 1
+                if plan_key == "trial":
+                    trial_count += 1
+                else:
+                    paid_count += 1
         
         return {
             "total_tenants": total_tenants,

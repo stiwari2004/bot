@@ -84,6 +84,37 @@ class SessionService:
         user_id: Optional[int] = None
     ) -> ExecutionSession:
         """Create a new execution session"""
+        # Check if runbook is quarantined
+        from app.services.execution.quarantine_service import QuarantineService
+        quarantine_service = QuarantineService()
+        
+        # Get runbook version if available
+        runbook = db.query(Runbook).filter(Runbook.id == runbook_id).first()
+        runbook_version_id = None
+        if runbook:
+            from app.services.runbook.versioning_service import VersioningService
+            versioning_service = VersioningService()
+            current_version = versioning_service.get_current_version(
+                db=db,
+                runbook_id=runbook_id,
+                tenant_id=tenant_id
+            )
+            if current_version:
+                runbook_version_id = current_version.id
+        
+        is_quarantined = quarantine_service.is_quarantined(
+            db=db,
+            runbook_id=runbook_id,
+            runbook_version_id=runbook_version_id,
+            tenant_id=tenant_id
+        )
+        
+        if is_quarantined:
+            raise ValueError(
+                f"Runbook {runbook_id} is quarantined and cannot be executed. "
+                "Please review and release from quarantine before execution."
+            )
+        
         # Create session
         session = ExecutionSession(
             runbook_id=runbook_id,

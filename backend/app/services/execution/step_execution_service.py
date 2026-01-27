@@ -737,6 +737,41 @@ class StepExecutionService:
             session.status = "failed"
             session.completed_at = datetime.now(timezone.utc)
             
+            # Track failure for quarantine
+            try:
+                from app.services.execution.quarantine_service import QuarantineService
+                from app.services.runbook.versioning_service import VersioningService
+                
+                quarantine_service = QuarantineService()
+                versioning_service = VersioningService()
+                
+                # Get current runbook version
+                runbook_version_id = None
+                current_version = versioning_service.get_current_version(
+                    db=db,
+                    runbook_id=session.runbook_id,
+                    tenant_id=session.tenant_id
+                )
+                if current_version:
+                    runbook_version_id = current_version.id
+                
+                error_details = {
+                    "error": error_text[:500],
+                    "step_number": step.step_number,
+                    "error_type": "execution_failure"
+                }
+                
+                quarantine_service.track_failure(
+                    db=db,
+                    runbook_id=session.runbook_id,
+                    runbook_version_id=runbook_version_id,
+                    session_id=session.id,
+                    error_details=error_details,
+                    tenant_id=session.tenant_id
+                )
+            except Exception as quarantine_error:
+                logger.warning(f"Failed to track failure for quarantine: {quarantine_error}")
+            
             # Publish step failed event
             if self.event_service:
                 try:

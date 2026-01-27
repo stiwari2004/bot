@@ -85,7 +85,7 @@ async def get_recommendation(
         
         # Get recommendation
         recommendation_engine = RecommendationEngine()
-        recommendation = await recommendation_engine.recommend_runbook(ticket, db)
+        recommendation = recommendation_engine.recommend_runbook(ticket, db)
         
         return RecommendationResponse(**recommendation.to_dict())
     
@@ -129,7 +129,7 @@ async def get_matching_patterns(
         # Find matching patterns
         pattern_matching_service = PatternMatchingService()
         issue_description = ticket.description or ticket.title
-        matching_patterns = await pattern_matching_service.find_matching_patterns(
+        matching_patterns = pattern_matching_service.find_matching_patterns(
             issue_description,
             context,
             db,
@@ -182,7 +182,7 @@ async def get_ticket_context(
         
         # Correlate context
         context_service = ContextCorrelationService()
-        context_data = await context_service.correlate_ticket_context(
+        context_data = context_service.correlate_ticket_context(
             ticket_id, db, time_window_hours
         )
         
@@ -622,3 +622,97 @@ async def calculate_runbook_confidence(
         logger.error(f"Error calculating runbook confidence: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+class ExplanationRequest(BaseModel):
+    """Request model for explanation generation"""
+    recommendation_id: Optional[int] = None
+
+
+class ExplanationResponse(BaseModel):
+    """Response model for explanation"""
+    ticket_id: int
+    recommendation_id: Optional[int] = None
+    has_breakdown: bool
+    confidence_breakdown: Optional[Dict[str, Any]] = None
+    detailed_explanation: Optional[Dict[str, Any]] = None
+
+
+@router.get("/demo/tickets/{ticket_id}/explanation", response_model=ExplanationResponse)
+@rate_limit("60/minute")
+async def get_recommendation_explanation(
+    ticket_id: int,
+    recommendation_id: Optional[int] = Query(None, description="Optional recommendation ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get detailed explanation for a recommendation
+    
+    Returns comprehensive explanation including confidence breakdown,
+    reasoning steps, citations, and pattern match details
+    """
+    try:
+        # Get ticket
+        ticket = db.query(Ticket).filter(
+            Ticket.id == ticket_id,
+            Ticket.tenant_id == current_user.tenant_id
+        ).first()
+        
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        
+        # Generate explanation
+        recommendation_engine = RecommendationEngine()
+        explanation = await recommendation_engine.generate_explanation(
+            ticket_id=ticket_id,
+            recommendation_id=recommendation_id,
+            db=db
+        )
+        
+        return ExplanationResponse(**explanation)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting explanation for ticket {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/demo/tickets/{ticket_id}/explain", response_model=ExplanationResponse)
+@rate_limit("30/minute")
+async def explain_recommendation(
+    ticket_id: int,
+    request: ExplanationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate explanation for a recommendation
+    
+    Creates a detailed explanation including confidence breakdown
+    """
+    try:
+        # Get ticket
+        ticket = db.query(Ticket).filter(
+            Ticket.id == ticket_id,
+            Ticket.tenant_id == current_user.tenant_id
+        ).first()
+        
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        
+        # Generate explanation
+        recommendation_engine = RecommendationEngine()
+        explanation = await recommendation_engine.generate_explanation(
+            ticket_id=ticket_id,
+            recommendation_id=request.recommendation_id,
+            db=db
+        )
+        
+        return ExplanationResponse(**explanation)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error explaining recommendation for ticket {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -83,7 +83,7 @@ class TicketController(BaseController):
             
             # Generate recommendation
             try:
-                recommendation = await self.recommendation_engine.recommend_runbook(ticket, self.db)
+                recommendation = self.recommendation_engine.recommend_runbook(ticket, self.db)
                 self.ticket_repo.update_ticket_metadata(
                     ticket_id=ticket.id,
                     tenant_id=self.tenant_id,
@@ -142,7 +142,7 @@ class TicketController(BaseController):
             
             # Generate recommendation
             try:
-                recommendation = await self.recommendation_engine.recommend_runbook(ticket, self.db)
+                recommendation = self.recommendation_engine.recommend_runbook(ticket, self.db)
                 self.ticket_repo.update_ticket_metadata(
                     ticket_id=ticket.id,
                     tenant_id=self.tenant_id,
@@ -354,7 +354,7 @@ class TicketController(BaseController):
             # If no recommendation in meta_data, generate one
             if not recommendation:
                 try:
-                    rec = await self.recommendation_engine.recommend_runbook(ticket, self.db)
+                    rec = self.recommendation_engine.recommend_runbook(ticket, self.db)
                     recommendation = rec.to_dict()
                     self.ticket_repo.update_ticket_metadata(
                         ticket_id=ticket_id,
@@ -469,5 +469,3 @@ class TicketController(BaseController):
             logger.error(f"Error cleaning up demo tickets: {e}")
             self.db.rollback()
             raise self.handle_error(e, "Failed to clean up demo tickets")
-
-

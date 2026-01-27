@@ -3,6 +3,7 @@ RunbookVersion model for tracking runbook version history
 """
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -40,6 +41,15 @@ class RunbookVersion(Base):
     # Change tracking
     change_summary = Column(Text, nullable=True)  # Human-readable summary of changes
     change_type = Column(String(50), nullable=True)  # 'major', 'minor', 'patch', 'custom'
+    diff_summary = Column(JSONB, nullable=True)  # Structured diff between versions
+    
+    # Rollback tracking
+    rollback_reason = Column(Text, nullable=True)  # Reason for rollback if this version was rolled back
+    
+    # Deployment approval link
+    deployment_approval_id = Column(
+        Integer, ForeignKey("deployment_approvals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     
     # Metadata
     created_by = Column(Integer, nullable=True)  # User ID who created this version
@@ -47,6 +57,9 @@ class RunbookVersion(Base):
     
     # Status
     is_current = Column(String(10), nullable=False, default='false')  # 'true' or 'false'
+    
+    # Relationships
+    deployment_approval = relationship("DeploymentApproval", backref="runbook_versions")
     
     # Relationships
     runbook = relationship("Runbook", backref="versions")

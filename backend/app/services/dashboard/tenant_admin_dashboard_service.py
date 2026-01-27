@@ -71,7 +71,7 @@ class TenantAdminDashboardService:
             if subscription.license_plan_id:
                 plan = self.db.query(LicensePlan).filter(LicensePlan.id == subscription.license_plan_id).first()
                 if plan:
-                    plan_name = plan.name
+                    plan_name = plan.plan_name
                     plan_key = plan.plan_key
             
             nodes_limit = subscription.max_nodes or 0
@@ -133,8 +133,8 @@ class TenantAdminDashboardService:
             TenantBillingUsage.period_start >= current_month_start
         ).all()
         
-        total_llm_tokens = sum(usage.llm_tokens_used or 0 for usage in billing_usage)
-        total_api_calls = sum(usage.api_calls_count or 0 for usage in billing_usage)
+        total_llm_tokens = sum((usage.llm_tokens or 0) for usage in billing_usage)
+        total_api_calls = sum((usage.api_calls_count or 0) for usage in billing_usage)
         
         return {
             "total_executions": total_executions,
