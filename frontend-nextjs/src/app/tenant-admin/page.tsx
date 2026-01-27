@@ -48,7 +48,7 @@ export default function MspAdminDashboard() {
     
     setLoading(true);
     try {
-      const response = await fetch(apiConfig.endpoints.tenantAdmin.dashboard(), {
+      const response = await fetch(apiConfig.endpoints.tenantAdmin.dashboard.overview(), {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
