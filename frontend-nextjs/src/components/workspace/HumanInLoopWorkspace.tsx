@@ -229,8 +229,10 @@ export function HumanInLoopWorkspace() {
                       )}
 
                       <div>
+                        <label className="block text-sm font-semibold text-neutral-900 mb-2">
+                          Reason (optional)
+                        </label>
                         <Textarea
-                          label="Reason (optional)"
                           value={approvalReason}
                           onChange={(e) => setApprovalReason(e.target.value)}
                           placeholder="Enter reason for approval/rejection..."

@@ -198,8 +198,10 @@ export function QuarantineDashboard() {
                       )}
 
                       <div>
+                        <label className="block text-sm font-semibold text-neutral-900 mb-2">
+                          Review Notes
+                        </label>
                         <Textarea
-                          label="Review Notes"
                           value={releaseNotes}
                           onChange={(e) => setReleaseNotes(e.target.value)}
                           placeholder="Enter review notes before releasing..."
