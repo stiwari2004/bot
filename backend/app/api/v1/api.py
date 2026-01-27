@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     search,
     runbooks,
     upload,
-    test,
+    # test,  # Removed - module doesn't exist
     demo,
     test_auth,
     tickets,
@@ -85,7 +85,7 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["analytic
 api_router.include_router(executions.router, prefix="/executions", tags=["executions"])
 api_router.include_router(agent_workers.router, prefix="/agent/workers", tags=["agent-workers"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
-api_router.include_router(test.router, prefix="/test", tags=["testing"])
+# api_router.include_router(test.router, prefix="/test", tags=["testing"])  # Removed - test module doesn't exist
 api_router.include_router(demo.router, prefix="/demo", tags=["demo"])
 api_router.include_router(test_auth.router, prefix="/test-auth", tags=["test-auth"])
 
