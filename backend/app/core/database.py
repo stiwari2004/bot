@@ -5,11 +5,33 @@ from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import asyncio
+import json
+import os
+import time
 
 from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Debug logging setup
+DEBUG_LOG_PATH = "/Users/sandiptiwari/Documents/bot/.cursor/debug.log"
+def _debug_log(location, message, data=None, hypothesis_id=None):
+    """Write debug log entry"""
+    try:
+        log_entry = {
+            "timestamp": int(time.time() * 1000),
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": hypothesis_id
+        }
+        with open(DEBUG_LOG_PATH, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except Exception:
+        pass  # Fail silently if logging fails
 
 # Create database engine (standard pooled engine for Postgres)
 engine = create_engine(
@@ -113,8 +135,115 @@ async def init_db():
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
             conn.commit()
         
-        # Create all tables
-        Base.metadata.create_all(bind=engine)
+        # Create all tables with error handling for existing sequences
+        # #region agent log
+        _debug_log("database.py:117", "Starting table creation", {"table_count": len(Base.metadata.tables)}, "A")
+        # #endregion
+        
+        # Check database state before creation
+        # #region agent log
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        existing_tables_before = inspector.get_table_names()
+        _debug_log("database.py:120", "Existing tables before creation", {"tables": existing_tables_before}, "A")
+        
+        # Check for orphaned sequences (sequences without corresponding tables)
+        # #region agent log
+        with engine.connect() as conn:
+            # Check if parameter_tunings_id_seq exists
+            seq_check = conn.execute(text("""
+                SELECT relname FROM pg_class 
+                WHERE relkind = 'S' 
+                AND relname = 'parameter_tunings_id_seq'
+            """)).fetchone()
+            table_check = conn.execute(text("""
+                SELECT relname FROM pg_class 
+                WHERE relkind = 'r' 
+                AND relname = 'parameter_tunings'
+            """)).fetchone()
+            _debug_log("database.py:155", "Sequence and table state check", {
+                "sequence_exists": seq_check is not None,
+                "table_exists": table_check is not None,
+                "is_orphaned": seq_check is not None and table_check is None
+            }, "B")
+        # #endregion
+        
+        try:
+            # #region agent log
+            _debug_log("database.py:135", "Calling create_all", {"checkfirst": True}, "A")
+            # #endregion
+            Base.metadata.create_all(bind=engine, checkfirst=True)
+            # #region agent log
+            _debug_log("database.py:137", "create_all succeeded", {}, "A")
+            # #endregion
+        except Exception as create_error:
+            # #region agent log
+            _debug_log("database.py:139", "create_all failed", {"error": str(create_error), "error_type": type(create_error).__name__}, "A")
+            # #endregion
+            # Handle case where sequences exist but tables don't (partial migration)
+            error_str = str(create_error)
+            if "duplicate key value violates unique constraint" in error_str and "_seq" in error_str:
+                logger.warning(f"Sequence conflict detected: {create_error}")
+                logger.info("Attempting to create tables individually, skipping sequence conflicts...")
+                
+                # Extract table name from error
+                import re
+                seq_match = re.search(r'(\w+)_id_seq', error_str)
+                problematic_table = seq_match.group(1) if seq_match else None
+                
+                # Check which tables exist
+                from sqlalchemy import inspect
+                inspector = inspect(engine)
+                existing_tables = inspector.get_table_names()
+                
+                # If problematic table sequence exists but table doesn't, drop sequence and recreate
+                if problematic_table and problematic_table not in existing_tables:
+                    # #region agent log
+                    _debug_log("database.py:145", "Orphaned sequence detected", {"table": problematic_table, "table_exists": problematic_table in existing_tables}, "B")
+                    # #endregion
+                    logger.info(f"Fixing orphaned sequence for {problematic_table}...")
+                    with engine.connect() as conn:
+                        try:
+                            # Check sequence exists before dropping
+                            # #region agent log
+                            seq_check = conn.execute(text(f"SELECT 1 FROM pg_class WHERE relname = '{problematic_table}_id_seq' AND relkind = 'S'")).fetchone()
+                            _debug_log("database.py:151", "Sequence check before drop", {"table": problematic_table, "sequence_exists": seq_check is not None}, "B")
+                            # #endregion
+                            
+                            # Drop the orphaned sequence and let SQLAlchemy recreate it with the table
+                            conn.execute(text(f"DROP SEQUENCE IF EXISTS {problematic_table}_id_seq CASCADE"))
+                            conn.commit()
+                            # #region agent log
+                            _debug_log("database.py:156", "Sequence dropped", {"table": problematic_table}, "B")
+                            # #endregion
+                            logger.info(f"Dropped orphaned sequence {problematic_table}_id_seq")
+                        except Exception as drop_error:
+                            # #region agent log
+                            _debug_log("database.py:159", "Failed to drop sequence", {"error": str(drop_error)}, "B")
+                            # #endregion
+                            logger.warning(f"Could not drop sequence: {drop_error}")
+                
+                # Now try creating tables again
+                try:
+                    Base.metadata.create_all(bind=engine, checkfirst=True)
+                    logger.info("Successfully created all tables after sequence cleanup")
+                except Exception as retry_error:
+                    # If still failing, create tables individually
+                    logger.warning(f"Bulk create still failing, creating tables individually: {retry_error}")
+                    existing_tables = inspector.get_table_names()
+                    for table_name, table in Base.metadata.tables.items():
+                        if table_name not in existing_tables:
+                            try:
+                                table.create(bind=engine, checkfirst=True)
+                                logger.info(f"Created table: {table_name}")
+                            except Exception as table_error:
+                                error_msg = str(table_error).lower()
+                                if "already exists" in error_msg or "_seq" in error_msg or "duplicate" in error_msg:
+                                    logger.debug(f"Table {table_name} or sequence already exists, skipping")
+            else:
+                # Re-raise if it's a different error
+                logger.error(f"Database creation failed with unexpected error: {create_error}")
+                raise
         
         # Create full-text search index for execution_patterns.issue_signature
         # This needs to be done via raw SQL as SQLAlchemy doesn't handle gin_trgm_ops well

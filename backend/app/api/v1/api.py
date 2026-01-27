@@ -58,6 +58,7 @@ except ImportError:
     monitoring_connections = None
     decision = None
     resolution = None
+    change_tickets = None
     human_in_loop = None
     quarantine = None
     versioning = None
@@ -138,10 +139,6 @@ if quarantine:
     api_router.include_router(quarantine.router, prefix="/quarantine", tags=["quarantine"])
 if versioning:
     api_router.include_router(versioning.router, prefix="/versioning", tags=["versioning"])
-if remediation_analytics:
-    api_router.include_router(remediation_analytics.router, prefix="/analytics", tags=["remediation-analytics"])
-if incident_package:
-    api_router.include_router(incident_package.router, prefix="/incidents", tags=["incident-package"])
 if remediation_analytics:
     api_router.include_router(remediation_analytics.router, prefix="/analytics", tags=["remediation-analytics"])
 if incident_package:
