@@ -164,6 +164,7 @@ const createEndpoints = (baseUrl: string) => ({
       me: () => `${baseUrl}/api/v1/super-admin/auth/me`,
     },
     overview: () => `${baseUrl}/api/v1/super-admin/overview`,
+    activityFeed: () => `${baseUrl}/api/v1/super-admin/activity-feed`,
     dashboard: {
       overview: () => `${baseUrl}/api/v1/super-admin/dashboard/overview`,
       tenants: () => `${baseUrl}/api/v1/super-admin/dashboard/tenants`,
