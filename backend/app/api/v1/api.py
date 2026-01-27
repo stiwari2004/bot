@@ -46,7 +46,9 @@ try:
         from app.api.v1.endpoints import connectors
     except ImportError:
         connectors = None
-except ImportError:
+    logger.info("Successfully imported Phase 2 endpoints: ticket_ingestion=%s, agent_execution=%s, alerts=%s, change_tickets=%s",
+                ticket_ingestion is not None, agent_execution is not None, alerts is not None, change_tickets is not None)
+except ImportError as e:
     # If modules don't exist yet, create placeholders
     ticket_ingestion = None
     agent_execution = None
@@ -64,6 +66,7 @@ except ImportError:
     versioning = None
     remediation_analytics = None
     incident_package = None
+    logger.warning(f"Failed to import Phase 2 endpoints: {e}")
 
 api_router = APIRouter()
 
@@ -82,6 +85,9 @@ api_router.include_router(runbooks.router, prefix="/runbooks", tags=["runbooks"]
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
 if alerts:
     api_router.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
+    logger.info("Registered alerts router")
+else:
+    logger.warning("alerts router not registered - module import failed or is None")
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(executions.router, prefix="/executions", tags=["executions"])
 api_router.include_router(agent_workers.router, prefix="/agent/workers", tags=["agent-workers"])
@@ -100,8 +106,14 @@ except ImportError:
 # Include Phase 2 endpoints if available
 if ticket_ingestion:
     api_router.include_router(ticket_ingestion.router, prefix="/tickets", tags=["ticket-ingestion"])
+    logger.info("Registered ticket_ingestion router")
+else:
+    logger.warning("ticket_ingestion router not registered - module import failed or is None")
 if agent_execution:
     api_router.include_router(agent_execution.router, prefix="/agent", tags=["agent-execution"])
+    logger.info("Registered agent_execution router")
+else:
+    logger.warning("agent_execution router not registered - module import failed or is None")
     
     # Execution-related endpoints (WebSocket, debug, Azure debug)
     try:
@@ -145,6 +157,9 @@ if incident_package:
     api_router.include_router(incident_package.router, prefix="/incidents", tags=["incident-package"])
 if change_tickets:
     api_router.include_router(change_tickets.router, prefix="/change-tickets", tags=["change-tickets"])
+    logger.info("Registered change_tickets router")
+else:
+    logger.warning("change_tickets router not registered - module import failed or is None")
 
 # User profile and preferences endpoints
 try:
