@@ -32,6 +32,9 @@ interface FailurePattern {
   same_error?: boolean;
   varied_errors?: boolean;
   recent_errors?: any[];
+  quarantine_reason?: string;
+  quarantined_at?: string;
+  message?: string;
 }
 
 export function QuarantineDashboard() {
