@@ -207,7 +207,55 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
     try:
         # Case-insensitive email lookup
         from sqlalchemy import func
+        # #region agent log - Check for duplicate super admins
+        import json
+        import time
+        try:
+            all_super_admins = db.query(SuperAdmin).filter(func.lower(SuperAdmin.email) == func.lower(email)).all()
+            log_path = '/app/.cursor/debug.log' if __import__('os').path.exists('/app/.cursor') else '/tmp/debug.log'
+            __import__('os').makedirs(__import__('os').path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({
+                    "location": "super_admin_auth.py:duplicate_check",
+                    "message": "Found super admins with same email",
+                    "data": {
+                        "email": email,
+                        "super_admin_count": len(all_super_admins),
+                        "super_admins": [{"id": sa.id, "email": sa.email, "is_active": sa.is_active, "created_at": str(sa.created_at) if sa.created_at else None} for sa in all_super_admins]
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "super-admin-check",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         super_admin = db.query(SuperAdmin).filter(func.lower(SuperAdmin.email) == func.lower(email)).first()
+        
+        # #region agent log - Selected super admin
+        try:
+            log_path = '/app/.cursor/debug.log' if __import__('os').path.exists('/app/.cursor') else '/tmp/debug.log'
+            __import__('os').makedirs(__import__('os').path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({
+                    "location": "super_admin_auth.py:super_admin_selected",
+                    "message": "Super admin selected for authentication",
+                    "data": {
+                        "super_admin_id": super_admin.id if super_admin else None,
+                        "email": super_admin.email if super_admin else None,
+                        "is_active": super_admin.is_active if super_admin else None
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "super-admin-check",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         if not super_admin:
             logger.warning(f"Super admin not found for email: {email}")
             return None
