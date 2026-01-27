@@ -120,25 +120,48 @@ async def init_db():
             # Handle case where sequences exist but tables don't (partial migration)
             error_str = str(create_error)
             if "duplicate key value violates unique constraint" in error_str and "_seq" in error_str:
-                logger.warning(f"Sequence conflict during table creation (non-critical): {create_error}")
-                # Check which tables actually exist and create missing ones
+                logger.warning(f"Sequence conflict detected: {create_error}")
+                logger.info("Attempting to create tables individually, skipping sequence conflicts...")
+                
+                # Extract table name from error
+                import re
+                seq_match = re.search(r'(\w+)_id_seq', error_str)
+                problematic_table = seq_match.group(1) if seq_match else None
+                
+                # Check which tables exist
                 from sqlalchemy import inspect
                 inspector = inspect(engine)
                 existing_tables = inspector.get_table_names()
                 
-                # Try to create missing tables individually
-                for table_name, table in Base.metadata.tables.items():
-                    if table_name not in existing_tables:
+                # If problematic table sequence exists but table doesn't, drop sequence and recreate
+                if problematic_table and problematic_table not in existing_tables:
+                    logger.info(f"Fixing orphaned sequence for {problematic_table}...")
+                    with engine.connect() as conn:
                         try:
-                            table.create(bind=engine, checkfirst=True)
-                            logger.info(f"Created table: {table_name}")
-                        except Exception as table_error:
-                            error_msg = str(table_error).lower()
-                            # Ignore sequence conflicts and "already exists" errors
-                            if "already exists" in error_msg or "_seq" in error_msg or "duplicate" in error_msg:
-                                logger.debug(f"Table {table_name} or sequence already exists, skipping")
-                            else:
-                                logger.warning(f"Could not create table {table_name}: {table_error}")
+                            # Drop the orphaned sequence and let SQLAlchemy recreate it with the table
+                            conn.execute(text(f"DROP SEQUENCE IF EXISTS {problematic_table}_id_seq CASCADE"))
+                            conn.commit()
+                            logger.info(f"Dropped orphaned sequence {problematic_table}_id_seq")
+                        except Exception as drop_error:
+                            logger.warning(f"Could not drop sequence: {drop_error}")
+                
+                # Now try creating tables again
+                try:
+                    Base.metadata.create_all(bind=engine, checkfirst=True)
+                    logger.info("Successfully created all tables after sequence cleanup")
+                except Exception as retry_error:
+                    # If still failing, create tables individually
+                    logger.warning(f"Bulk create still failing, creating tables individually: {retry_error}")
+                    existing_tables = inspector.get_table_names()
+                    for table_name, table in Base.metadata.tables.items():
+                        if table_name not in existing_tables:
+                            try:
+                                table.create(bind=engine, checkfirst=True)
+                                logger.info(f"Created table: {table_name}")
+                            except Exception as table_error:
+                                error_msg = str(table_error).lower()
+                                if "already exists" in error_msg or "_seq" in error_msg or "duplicate" in error_msg:
+                                    logger.debug(f"Table {table_name} or sequence already exists, skipping")
             else:
                 # Re-raise if it's a different error
                 logger.error(f"Database creation failed with unexpected error: {create_error}")
