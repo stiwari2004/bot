@@ -62,7 +62,7 @@ class RunbookQuarantine(Base):
     auto_release_reason = Column(String(255), nullable=True)
     
     # Additional metadata
-    metadata = Column(JSONB, nullable=True)  # Additional quarantine metadata
+    quarantine_metadata = Column("metadata", JSONB, nullable=True)  # Additional quarantine metadata (renamed to avoid SQLAlchemy conflict)
     
     # Relationships
     tenant = relationship("Tenant")

@@ -46,7 +46,7 @@ class ApprovalAudit(Base):
     # Additional metadata
     ip_address = Column(String(45), nullable=True)  # IP address of the user
     user_agent = Column(String(500), nullable=True)  # User agent string
-    metadata = Column(JSONB, nullable=True)  # Additional audit metadata
+    audit_metadata = Column("metadata", JSONB, nullable=True)  # Additional audit metadata (renamed to avoid SQLAlchemy conflict)
     
     # Relationships
     tenant = relationship("Tenant")

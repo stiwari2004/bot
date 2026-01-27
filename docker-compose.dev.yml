@@ -108,7 +108,7 @@ services:
       - ./backend/.env
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_started  # Changed from service_healthy to avoid health check timeout issues
       redis:
         condition: service_started
     volumes:
