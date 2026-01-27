@@ -113,8 +113,36 @@ async def init_db():
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
             conn.commit()
         
-        # Create all tables
-        Base.metadata.create_all(bind=engine)
+        # Create all tables with error handling for existing sequences
+        try:
+            Base.metadata.create_all(bind=engine, checkfirst=True)
+        except Exception as create_error:
+            # Handle case where sequences exist but tables don't (partial migration)
+            error_str = str(create_error)
+            if "duplicate key value violates unique constraint" in error_str and "_seq" in error_str:
+                logger.warning(f"Sequence conflict during table creation (non-critical): {create_error}")
+                # Check which tables actually exist and create missing ones
+                from sqlalchemy import inspect
+                inspector = inspect(engine)
+                existing_tables = inspector.get_table_names()
+                
+                # Try to create missing tables individually
+                for table_name, table in Base.metadata.tables.items():
+                    if table_name not in existing_tables:
+                        try:
+                            table.create(bind=engine, checkfirst=True)
+                            logger.info(f"Created table: {table_name}")
+                        except Exception as table_error:
+                            error_msg = str(table_error).lower()
+                            # Ignore sequence conflicts and "already exists" errors
+                            if "already exists" in error_msg or "_seq" in error_msg or "duplicate" in error_msg:
+                                logger.debug(f"Table {table_name} or sequence already exists, skipping")
+                            else:
+                                logger.warning(f"Could not create table {table_name}: {table_error}")
+            else:
+                # Re-raise if it's a different error
+                logger.error(f"Database creation failed with unexpected error: {create_error}")
+                raise
         
         # Create full-text search index for execution_patterns.issue_signature
         # This needs to be done via raw SQL as SQLAlchemy doesn't handle gin_trgm_ops well
