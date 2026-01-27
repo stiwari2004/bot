@@ -38,10 +38,83 @@ async def login(
     from app.core.logging import get_logger
     logger = get_logger(__name__)
     
+    # #region agent log - Login start
+    import json
+    import time
+    import os
+    try:
+        # Try workspace log path first, fallback to /tmp
+        log_path = '/app/.cursor/debug.log' if os.path.exists('/app/.cursor') else '/tmp/debug.log'
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a') as f:
+            f.write(json.dumps({
+                "location": "auth.py:login_start",
+                "message": "Login attempt started",
+                "data": {
+                    "email": form_data.username,
+                    "has_password": bool(form_data.password)
+                },
+                "timestamp": int(time.time() * 1000),
+                "sessionId": "debug-session",
+                "runId": "login-check",
+                "hypothesisId": "A"
+            }) + "\n")
+    except Exception:
+        pass
+    # #endregion
+    
     try:
         # Check if user exists first (case-insensitive email lookup)
         from sqlalchemy import func
+        # #region agent log - Check for duplicate users
+        try:
+            all_users_same_email = db.query(User).filter(func.lower(User.email) == func.lower(form_data.username)).all()
+            log_path = '/app/.cursor/debug.log' if os.path.exists('/app/.cursor') else '/tmp/debug.log'
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({
+                    "location": "auth.py:duplicate_check",
+                    "message": "Found users with same email",
+                    "data": {
+                        "email": form_data.username,
+                        "user_count": len(all_users_same_email),
+                        "users": [{"id": u.id, "email": u.email, "tenant_id": u.tenant_id, "role": u.role, "is_active": u.is_active} for u in all_users_same_email]
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "login-check",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         user = db.query(User).filter(func.lower(User.email) == func.lower(form_data.username)).first()
+        
+        # #region agent log - Selected user
+        try:
+            log_path = '/app/.cursor/debug.log' if os.path.exists('/app/.cursor') else '/tmp/debug.log'
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({
+                    "location": "auth.py:user_selected",
+                    "message": "User selected for authentication",
+                    "data": {
+                        "user_id": user.id if user else None,
+                        "email": user.email if user else None,
+                        "tenant_id": user.tenant_id if user else None,
+                        "role": user.role if user else None,
+                        "is_active": user.is_active if user else None
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "login-check",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         if not user:
             logger.warning(f"Login attempt with non-existent email: {form_data.username}")
             raise HTTPException(
@@ -161,12 +234,62 @@ async def login(
             logger.warning(f"Failed to track login history: {e}")
             db.rollback()
         
+        # #region agent log - Before token creation
+        try:
+            from app.models.tenant import Tenant
+            tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+            log_path = '/app/.cursor/debug.log' if os.path.exists('/app/.cursor') else '/tmp/debug.log'
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({
+                    "location": "auth.py:before_token",
+                    "message": "Creating token with tenant info",
+                    "data": {
+                        "user_id": user.id,
+                        "user_email": user.email,
+                        "user_tenant_id": user.tenant_id,
+                        "tenant_id": tenant.id if tenant else None,
+                        "tenant_name": tenant.name if tenant else None,
+                        "tenant_slug": tenant.subdomain_slug if tenant else None
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "login-check",
+                    "hypothesisId": "B"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         # Create access token first
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": user.email, "tenant_id": user.tenant_id},
             expires_delta=access_token_expires
         )
+        
+        # #region agent log - Token created
+        try:
+            log_path = '/app/.cursor/debug.log' if os.path.exists('/app/.cursor') else '/tmp/debug.log'
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({
+                    "location": "auth.py:token_created",
+                    "message": "Access token created",
+                    "data": {
+                        "user_id": user.id,
+                        "user_email": user.email,
+                        "tenant_id_in_token": user.tenant_id,
+                        "token_length": len(access_token)
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "login-check",
+                    "hypothesisId": "B"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
         
         # Track session using the actual token that will be returned
         try:
