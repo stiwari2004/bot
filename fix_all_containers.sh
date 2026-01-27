@@ -11,7 +11,7 @@ docker rm -f bot-prod-postgres 2>/dev/null || true
 docker rm -f bot-prod-backend 2>/dev/null || true
 docker rm -f bot-prod-frontend 2>/dev/null || true
 docker rm -f bot-prod-worker 2>/dev/null || true
-docker rm -f bot-prod-proxy 2>/dev/null || true
+docker rm -f bot-prod-proxy bot-proxy 2>/dev/null || true
 
 # Remove by IDs from errors
 docker rm -f 6db8e39880b5 728a9af896ba 2>/dev/null || true

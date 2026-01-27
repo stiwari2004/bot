@@ -19,13 +19,13 @@ echo ""
 
 # Step 3: Remove containers by exact names
 echo "3. Removing containers by exact names..."
-docker rm -f bot-prod-redis bot-prod-postgres bot-prod-backend bot-prod-frontend bot-prod-worker 2>/dev/null || true
+docker rm -f bot-prod-redis bot-prod-postgres bot-prod-backend bot-prod-frontend bot-prod-worker bot-prod-proxy bot-proxy 2>/dev/null || true
 echo "✓ Removed"
 echo ""
 
 # Step 4: Remove containers by IDs mentioned in errors
 echo "4. Removing specific corrupted containers..."
-docker rm -f 6db8e39880b5 728a9af896ba 2c16a439cd05 805e07a3268c 0c3cae750d41 2>/dev/null || true
+docker rm -f 6db8e39880b5 728a9af896ba 2c16a439cd05 805e07a3268c 0c3cae750d41 e1010ac1538f 2>/dev/null || true
 echo "✓ Removed"
 echo ""
 
