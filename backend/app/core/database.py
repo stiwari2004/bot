@@ -126,7 +126,11 @@ async def init_db():
             from app.models import scheduled_report  # Scheduled reports model
         except ImportError:
             pass
-        
+        try:
+            from app.models import inquiry  # Trial intake inquiries
+        except ImportError:
+            pass
+
         # Enable required PostgreSQL extensions
         with engine.connect() as conn:
             # Enable pgvector extension for vector similarity search

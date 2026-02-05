@@ -8,6 +8,7 @@ import {
   KeyIcon,
   SparklesIcon,
   ChartBarIcon,
+  InboxIcon,
 } from '@heroicons/react/24/outline';
 
 interface DashboardActionsProps {
@@ -69,6 +70,16 @@ export function DashboardActions({ onRefresh }: DashboardActionsProps) {
           <div>
             <p className="font-medium text-neutral-900">License Plans</p>
             <p className="text-sm text-neutral-600">Create and manage subscription plans</p>
+          </div>
+        </button>
+        <button
+          onClick={() => router.push('/super-admin/inquiries')}
+          className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition text-left"
+        >
+          <InboxIcon className="h-6 w-6 text-primary-600" />
+          <div>
+            <p className="font-medium text-neutral-900">Manage Inquiries</p>
+            <p className="text-sm text-neutral-600">View and approve trial intake submissions</p>
           </div>
         </button>
         <button

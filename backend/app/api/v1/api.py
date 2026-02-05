@@ -244,6 +244,26 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"Error loading safety policy endpoints: {e}", exc_info=True)
 
+# Public trial intake (no auth)
+try:
+    from app.api.v1.endpoints import inquiry
+    api_router.include_router(inquiry.router, tags=["inquiry"])
+    logger.info("Trial intake (inquiry) endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Trial intake endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading trial intake endpoints: {e}", exc_info=True)
+
+# Inquiry admin (Super Admin only)
+try:
+    from app.api.v1.endpoints import inquiry_admin
+    api_router.include_router(inquiry_admin.router, prefix="/super-admin", tags=["inquiry-admin"])
+    logger.info("Inquiry admin endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Inquiry admin endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading inquiry admin endpoints: {e}", exc_info=True)
+
 # RBAC endpoints (Super Admin only)
 try:
     from app.api.v1.endpoints import permissions, roles

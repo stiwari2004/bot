@@ -192,6 +192,15 @@ except ImportError:  # pragma: no cover - optional dependency
 if ScheduledReport:
     __all__.extend(["ScheduledReport", "ReportFrequency", "ReportFormat", "ReportType"])
 
+# Inquiry model (trial intake)
+try:
+    from app.models.inquiry import Inquiry
+except ImportError:  # pragma: no cover - optional dependency
+    Inquiry = None
+
+if Inquiry:
+    __all__.append("Inquiry")
+
 # Super Admin model
 try:
     from app.models.super_admin import SuperAdmin
@@ -200,4 +209,3 @@ except ImportError:
 
 if SuperAdmin:
     __all__.append("SuperAdmin")
-
