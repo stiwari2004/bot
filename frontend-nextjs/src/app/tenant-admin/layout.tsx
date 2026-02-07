@@ -3,6 +3,21 @@
 import { MspAdminAuthProvider, useMspAdminAuth } from '@/contexts/MspAdminAuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
+import {
+  HomeIcon,
+  BuildingOfficeIcon,
+  UserGroupIcon,
+  KeyIcon,
+  CircleStackIcon,
+} from '@heroicons/react/24/outline';
+
+const navItems = [
+  { href: '/tenant-admin', label: 'Home', icon: HomeIcon },
+  { href: '/tenant-admin/customers', label: 'Customers', icon: BuildingOfficeIcon },
+  { href: '/tenant-admin/users', label: 'Users', icon: UserGroupIcon },
+  { href: '/tenant-admin/subscriptions', label: 'Subscriptions', icon: KeyIcon },
+  { href: '/tenant-admin/discovery', label: 'Discovery', icon: CircleStackIcon },
+];
 
 function MspAdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -40,9 +55,39 @@ function MspAdminLayoutContent({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Show content if authenticated
+  // Show content if authenticated, with nav tabs
   if (isAuthenticated) {
-    return <>{children}</>;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-neutral-50">
+        <nav className="sticky top-0 z-40 border-b border-neutral-200 bg-white shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6">
+            <div className="flex gap-1 overflow-x-auto">
+              {navItems.map(({ href, label, icon: Icon }) => {
+                const isActive =
+                  href === '/tenant-admin'
+                    ? pathname === '/tenant-admin'
+                    : pathname.startsWith(href);
+                return (
+                  <button
+                    key={href}
+                    onClick={() => router.push(href)}
+                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                      isActive
+                        ? 'border-primary-600 text-primary-600'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900 hover:border-neutral-300'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
+        {children}
+      </div>
+    );
   }
 
   // Default: show nothing (will redirect)

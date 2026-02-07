@@ -14,7 +14,13 @@ const publicApiBase =
     ? process.env.NEXT_PUBLIC_API_BASE_URL.trim()
     : '';
 
+// When served under resolvify.tech/app (marketing at root, app at /app)
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH && process.env.NEXT_PUBLIC_BASE_PATH.trim() !== ''
+  ? process.env.NEXT_PUBLIC_BASE_PATH.trim().replace(/\/$/, '')
+  : '';
+
 const nextConfig = {
+  ...(basePath ? { basePath } : {}),
   async rewrites() {
     return [
       {
