@@ -25,17 +25,19 @@ RUN npm rebuild || true
 # CRITICAL: NEXT_PUBLIC_API_BASE_URL must be empty for relative URLs (nginx handles proxying)
 # Accept build arg but force to empty if not provided or if it has a value
 ARG NEXT_PUBLIC_API_BASE_URL
+# Optional: set to /app for resolvify.tech/app so all assets are under /app (no separate /_next/ proxy needed)
+ARG NEXT_PUBLIC_BASE_PATH
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_DISABLE_TURBOPACK=1
 ENV IN_DOCKER=1
 ENV DOCKER=1
 # FORCE empty - this is what gets baked into the JavaScript bundle
-# Next.js will use relative URLs like /api/v1/... instead of http://...
 ENV NEXT_PUBLIC_API_BASE_URL=""
-# Verify it's empty before build (for debugging)
+# Pass through base path if provided (e.g. /app for resolvify.tech)
+ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 RUN echo "=== Build Environment Check ===" && \
     echo "NEXT_PUBLIC_API_BASE_URL (should be empty): '${NEXT_PUBLIC_API_BASE_URL}'" && \
-    [ -z "${NEXT_PUBLIC_API_BASE_URL}" ] && echo "✓ NEXT_PUBLIC_API_BASE_URL is empty - good!" || echo "✗ WARNING: NEXT_PUBLIC_API_BASE_URL is not empty!" && \
+    echo "NEXT_PUBLIC_BASE_PATH: '${NEXT_PUBLIC_BASE_PATH}'" && \
     npm run build
 
 EXPOSE 3000

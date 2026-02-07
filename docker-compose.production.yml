@@ -140,7 +140,6 @@ services:
     environment:
       - NODE_ENV=production
       # Leave empty to use same-origin (nginx proxies /api to backend)
-      # This ensures relative URLs which work with HTTPS
       - NEXT_PUBLIC_API_BASE_URL=
     restart: unless-stopped
     depends_on:
@@ -148,6 +147,32 @@ services:
     networks:
       - app-network
     command: npm start
+
+  # Optional: Next.js app with basePath /app for resolvify.tech/app (avoids _next/ proxy issues)
+  # Use this when serving resolvify.tech/app so all assets are under /app (no separate /_next/ on host).
+  frontend-app:
+    container_name: bot-prod-frontend-app
+    build:
+      context: ./frontend-nextjs
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+        - NEXT_PUBLIC_API_BASE_URL=
+        - NEXT_PUBLIC_BASE_PATH=/app
+    ports:
+      - "3005:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_BASE_URL=
+      - NEXT_PUBLIC_BASE_PATH=/app
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    command: npm start
+    profiles:
+      - resolvify-app
 
 volumes:
   postgres_data:
