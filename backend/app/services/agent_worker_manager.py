@@ -84,11 +84,15 @@ class AgentWorkerManager:
         return state
 
     def heartbeat(self, worker_id: str, current_load: Optional[int] = None) -> Optional[WorkerState]:
-        """Refresh heartbeat for an existing worker."""
+        """Refresh heartbeat for an existing worker. If worker is unknown (e.g. request hit a
+        different uvicorn process), register it lazily so multi-worker deployments work."""
         state = self._registry.get(worker_id)
         if not state:
-            logger.warning("Received heartbeat for unknown worker %s", worker_id)
-            return None
+            logger.info(
+                "Received heartbeat for worker %s not in this process registry (multi-worker); registering lazily",
+                worker_id,
+            )
+            state = self.register_worker(worker_id=worker_id)
         if current_load is not None:
             state.current_load = current_load
         state.touch()

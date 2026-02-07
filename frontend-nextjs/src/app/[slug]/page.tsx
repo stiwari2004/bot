@@ -26,7 +26,7 @@ export default function DirectTenantPathPage() {
     'favicon.ico',
     'globals.css',
     'page.tsx',
-    // Add any other top-level paths that are not tenant slugs
+    'app', // When basePath is /app, pathname can match [slug]=app; redirect to root and keep query (e.g. customer_slug=Konverge)
   ];
 
   useEffect(() => {
@@ -35,9 +35,11 @@ export default function DirectTenantPathPage() {
 
     // Check if the slug is a reserved path
     if (reservedPaths.includes(slug.toLowerCase())) {
-      // If it's a reserved path, do not treat it as a tenant slug
-      // Let Next.js handle it normally (e.g., 404 or other route)
-      console.warn(`Attempted to access reserved path as tenant slug: /${slug}`);
+      // With basePath /app, URL /app?customer_slug=Konverge can match [slug]=app; redirect to root preserving query
+      if (typeof window !== 'undefined' && slug.toLowerCase() === 'app') {
+        const search = window.location.search || '';
+        router.replace(search ? `/${search}` : '/');
+      }
       return;
     }
 
