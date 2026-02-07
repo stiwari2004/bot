@@ -268,9 +268,11 @@ if settings.ENVIRONMENT.lower() in ("sandbox", "development", "dev"):
     cors_origins = [
         "http://localhost:3000", 
         "http://localhost:3001", 
+        "http://localhost:4321",  # Astro marketing site dev server
         "http://localhost:8000", 
         "http://localhost:8001",
-        "https://dev.resolvify.tech"
+        "https://dev.resolvify.tech",
+        "https://resolvify.tech",
     ]
     logger.info(f"CORS: Allowing localhost and dev domain origins for {settings.ENVIRONMENT} environment")
 

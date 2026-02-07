@@ -36,7 +36,10 @@ class Tenant(Base):
     
     # Configuration metadata (JSON)
     config_metadata = Column(JSON, nullable=True)  # Store limits, features, connection configs, etc.
-    
+
+    # Discovery: current run for "current" vs "history" lifecycle (FK added in migration to avoid circular dep)
+    current_discovery_run_id = Column(Integer, nullable=True, index=True)
+
     # White-labeling / MSP support
     is_msp = Column(Boolean, default=False, nullable=False)  # Is this tenant an MSP that can create sub-tenants?
     parent_tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)  # If sub-tenant, reference parent MSP

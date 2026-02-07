@@ -113,6 +113,20 @@ except ImportError:  # pragma: no cover - optional dependency
     ProvisionedResource = None
     InfrastructureTemplate = None
 
+# Discovery models (L1/L2/L3 inventory and dependency mapping)
+try:
+    from app.models.discovery_run import DiscoveryRun
+    from app.models.discovery_asset import DiscoveryAsset
+    from app.models.discovery_component import DiscoveryComponent
+    from app.models.discovery_edge import DiscoveryEdge
+    from app.models.discovery_asset_snapshot import DiscoveryAssetSnapshot
+except ImportError:  # pragma: no cover - optional dependency
+    DiscoveryRun = None
+    DiscoveryAsset = None
+    DiscoveryComponent = None
+    DiscoveryEdge = None
+    DiscoveryAssetSnapshot = None
+
 
 # Export for backward compatibility
 __all__ = [
@@ -165,6 +179,9 @@ if DeploymentApproval:
 if ProvisioningProject:
     __all__.extend(["ProvisioningProject", "ProvisionedResource", "InfrastructureTemplate"])
 
+if DiscoveryRun:
+    __all__.extend(["DiscoveryRun", "DiscoveryAsset", "DiscoveryComponent", "DiscoveryEdge", "DiscoveryAssetSnapshot"])
+
 # Prediction models
 try:
     from app.models.log_entry import LogEntry
@@ -206,6 +223,5 @@ try:
     from app.models.super_admin import SuperAdmin
 except ImportError:
     SuperAdmin = None
-
 if SuperAdmin:
     __all__.append("SuperAdmin")

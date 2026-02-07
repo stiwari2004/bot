@@ -1,0 +1,5 @@
+# Unified discovery (run_discovery.py with network + storage)
+# For agent-only (discovery_agent.py) no install needed (stdlib only).
+
+netmiko>=4.0.0
+PyYAML>=6.0

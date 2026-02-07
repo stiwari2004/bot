@@ -9,6 +9,7 @@ import {
   ChartBarIcon,
   ArrowRightOnRectangleIcon,
   KeyIcon,
+  CircleStackIcon,
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 
@@ -204,6 +205,16 @@ export default function MspAdminDashboard() {
               <div>
                 <p className="font-medium text-neutral-900">Subscription Management</p>
                 <p className="text-sm text-neutral-600">Manage seat and node limits</p>
+              </div>
+            </button>
+            <button
+              onClick={() => router.push('/tenant-admin/discovery')}
+              className="flex items-center space-x-3 p-4 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition text-left"
+            >
+              <CircleStackIcon className="h-6 w-6 text-primary-600" />
+              <div>
+                <p className="font-medium text-neutral-900">Discovery</p>
+                <p className="text-sm text-neutral-600">Agent token, staged assets, create nodes</p>
               </div>
             </button>
             <button

@@ -144,6 +144,26 @@ const createEndpoints = (baseUrl: string) => ({
     deleteMonitoringConnection: (connectionId: number) =>
       `${baseUrl}/api/v1/connectors/monitoring-connections/${connectionId}`,
   },
+  discovery: {
+    run: () => `${baseUrl}/api/v1/discovery/run`,
+    runs: (params?: { limit?: number; status?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.limit) q.append('limit', String(params.limit));
+      if (params?.status) q.append('status', params.status);
+      const query = q.toString() ? `?${q.toString()}` : '';
+      return `${baseUrl}/api/v1/discovery/runs${query}`;
+    },
+    current: () => `${baseUrl}/api/v1/discovery/current`,
+    assets: (params?: { run_id?: number; source?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.run_id != null) q.append('run_id', String(params.run_id));
+      if (params?.source) q.append('source', params.source);
+      const query = q.toString() ? `?${q.toString()}` : '';
+      return `${baseUrl}/api/v1/discovery/assets${query}`;
+    },
+    adopt: () => `${baseUrl}/api/v1/discovery/adopt`,
+    ingest: () => `${baseUrl}/api/v1/discovery/ingest`,
+  },
   system: {
     health: () => `${baseUrl}/api/v1/test/health-detailed`,
     healthDetailed: () => `${baseUrl}/api/v1/test/health-detailed`,
@@ -320,6 +340,30 @@ const createEndpoints = (baseUrl: string) => ({
     customerUsers: (customerId: number) => `${baseUrl}/api/v1/tenant-admin/customers/${customerId}/users`,
     customerUser: (customerId: number, userId: number) => `${baseUrl}/api/v1/tenant-admin/customers/${customerId}/users/${userId}`,
     customerSubscription: (customerId: number) => `${baseUrl}/api/v1/tenant-admin/customers/${customerId}/subscription`,
+    discovery: {
+      run: () => `${baseUrl}/api/v1/tenant-admin/discovery/run`,
+      runs: (params?: { limit?: number; status?: string }) => {
+        const q = new URLSearchParams();
+        if (params?.limit) q.append('limit', String(params.limit));
+        if (params?.status) q.append('status', params.status);
+        const query = q.toString() ? `?${q.toString()}` : '';
+        return `${baseUrl}/api/v1/tenant-admin/discovery/runs${query}`;
+      },
+      current: () => `${baseUrl}/api/v1/tenant-admin/discovery/current`,
+      assets: (params?: { run_id?: number; source?: string }) => {
+        const q = new URLSearchParams();
+        if (params?.run_id != null) q.append('run_id', String(params.run_id));
+        if (params?.source) q.append('source', params.source);
+        const query = q.toString() ? `?${q.toString()}` : '';
+        return `${baseUrl}/api/v1/tenant-admin/discovery/assets${query}`;
+      },
+      adopt: () => `${baseUrl}/api/v1/tenant-admin/discovery/adopt`,
+      adoptBulk: () => `${baseUrl}/api/v1/tenant-admin/discovery/adopt-bulk`,
+      token: () => `${baseUrl}/api/v1/tenant-admin/discovery/token`,
+      tokenRotate: () => `${baseUrl}/api/v1/tenant-admin/discovery/token/rotate`,
+      tokenStatus: () => `${baseUrl}/api/v1/tenant-admin/discovery/token/status`,
+      ingestUrl: () => `${baseUrl}/api/v1/tenant-admin/discovery/ingest`,
+    },
   },
   clientAdmin: {
     dashboard: () => `${baseUrl}/api/v1/client-admin/dashboard`,

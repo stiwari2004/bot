@@ -161,6 +161,14 @@ if change_tickets:
 else:
     logger.warning("change_tickets router not registered - module import failed or is None")
 
+# Discovery: tenant-admin only (staging, approval, create assets, token, ingest)
+try:
+    from app.api.v1.endpoints import tenant_admin_discovery
+    api_router.include_router(tenant_admin_discovery.router, prefix="/tenant-admin/discovery", tags=["tenant-admin-discovery"])
+    logger.info("Tenant admin discovery endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Tenant admin discovery endpoints not available (ImportError): {e}")
+
 # User profile and preferences endpoints
 try:
     from app.api.v1.endpoints import user_profile, user_preferences, user_activity, user_sessions

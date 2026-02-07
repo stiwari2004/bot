@@ -1,0 +1,52 @@
+# Resolvify Discovery - unified scanner config
+# Copy to config.yaml and set ingest URL + token. Optionally override with env:
+#   DISCOVERY_INGEST_URL, DISCOVERY_TOKEN, DISCOVERY_RUN_ID
+
+ingest:
+  url: "https://your-app.example.com/api/v1/tenant-admin/discovery/ingest"
+  token: "your-discovery-token-from-tenant-admin"
+  run_id: null   # optional; omit to let backend create a run
+
+# Report this host (Windows/Linux/Unix server) as one asset
+agent:
+  enabled: true
+
+# Network devices: routers, switches (SSH and/or SNMP)
+network:
+  enabled: false
+  snmp_community: "public"   # default if not per-device
+  prefer_ssh: true
+  devices:
+    - host: "192.168.1.1"
+      device_type: "cisco_ios"
+      username: "admin"
+      password: "secret"
+      port: 22
+    # - host: "192.168.1.2"
+    #   device_type: "juniper_junos"
+    #   username: "admin"
+    #   password: "secret"
+    # SNMP-only (no SSH):
+    # - host: "192.168.1.3"
+    #   snmp_only: true
+    #   snmp_community: "public"
+
+# Storage / SAN / NAS
+storage:
+  enabled: false
+  targets:
+    # Synology NAS
+    - type: synology
+      host: "192.168.1.10"
+      username: "admin"
+      password: "secret"
+      port: 5001
+      use_https: true
+    # Generic REST: URL returns JSON array (or set items_path to array path)
+    # - type: generic_rest
+    #   url: "https://storage-api.example.com/api/arrays"
+    #   headers: { "Authorization": "Bearer YOUR_API_KEY" }
+    #   items_path: "data"       # optional: path to list, e.g. "data.hosts"
+    #   name_key: "name"
+    #   id_key: "id"
+    #   ip_key: "management_ip"

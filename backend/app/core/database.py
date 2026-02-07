@@ -130,6 +130,10 @@ async def init_db():
             from app.models import inquiry  # Trial intake inquiries
         except ImportError:
             pass
+        try:
+            from app.models import discovery_run, discovery_asset, discovery_component, discovery_edge, discovery_asset_snapshot  # Discovery L1/L2/L3
+        except ImportError:
+            pass
 
         # Enable required PostgreSQL extensions
         with engine.connect() as conn:
