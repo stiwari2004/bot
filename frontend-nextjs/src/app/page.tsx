@@ -21,6 +21,7 @@ import {
   CurrencyDollarIcon,
   ClockIcon,
   CircleStackIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { Tickets } from '@/features/tickets';
 import { Alerts } from '@/features/alerts';
@@ -35,6 +36,7 @@ import { UserManagement } from '@/features/admin/components/UserManagement';
 import { NodeManagement } from '@/features/admin/components/NodeManagement';
 import { BillingView } from '@/features/admin/components/BillingView';
 import { DiscoveryView } from '@/features/admin/components/DiscoveryView';
+import { AuditLogView } from '@/features/admin/components/AuditLogView';
 import { useAgentVitals } from '@/features/agent/hooks/useAgentVitals';
 import { ExecutionsSurface } from '@/features/executions/components/ExecutionsSurface';
 import { AnalyticsAccuracyDashboard } from '@/features/analytics/components/AnalyticsAccuracyDashboard';
@@ -105,6 +107,8 @@ export default function Home() {
         targetTab = 'admin-discovery';
       } else if (adminPath === 'settings') {
         targetTab = 'settings';
+      } else if (adminPath === 'audit-log') {
+        targetTab = 'admin-audit-log';
       }
       
       // Redirect to main page with appropriate tab
@@ -234,6 +238,7 @@ export default function Home() {
           { id: 'admin-nodes', name: 'Node Management', description: 'Approve and manage nodes', icon: ServerIcon },
           { id: 'admin-billing', name: 'Billing & Subscription', description: 'View billing details', icon: CurrencyDollarIcon },
           { id: 'admin-discovery', name: 'Discovery', description: 'Agent token, staged assets, create nodes', icon: CircleStackIcon },
+          { id: 'admin-audit-log', name: 'Audit log', description: 'View and download execution and generation events', icon: DocumentTextIcon },
         ] : []),
         { id: 'stats', name: 'System Stats', description: 'Platform diagnostics', icon: ChartBarIcon },
       ],
@@ -288,6 +293,8 @@ export default function Home() {
         return <BillingView />;
       case 'admin-discovery':
         return <DiscoveryView token={token} />;
+      case 'admin-audit-log':
+        return <AuditLogView />;
       case 'stats':
         return (
           <SystemStats

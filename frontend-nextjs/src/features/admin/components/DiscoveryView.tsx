@@ -236,8 +236,19 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to create assets');
+      let data: any = {};
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          data = await res.json();
+        } catch {
+          // If JSON parsing fails, use empty object
+        }
+      }
+      if (!res.ok) {
+        const errorMsg = data.detail || data.message || `Server error (${res.status}): ${res.statusText}`;
+        throw new Error(errorMsg);
+      }
       const okCount = (data.results || []).filter((r: { ok: boolean }) => r.ok).length;
       setMessage(`Created ${okCount} node(s). Add credentials in Settings & Connections to connect and run runbooks.`);
       setSelectedAssetIds(new Set());

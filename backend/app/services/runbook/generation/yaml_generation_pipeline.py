@@ -29,14 +29,17 @@ class YamlGenerationPipeline:
         env: str,
         risk: str,
         context: str,
-        os_type: Optional[str] = None
+        os_type: Optional[str] = None,
+        operational_context: Optional[str] = None,
     ) -> str:
         """
-        Generate YAML from LLM with error handling
-        
+        Generate YAML from LLM with error handling.
+
         Returns:
             Raw YAML string from LLM
         """
+        if operational_context and operational_context.strip():
+            context = (context or "") + "\n\nCurrent context (ticket/alert):\n" + operational_context.strip()
         llm = get_llm_service()
         try:
             logger.debug(
@@ -46,7 +49,7 @@ class YamlGenerationPipeline:
             )
         except Exception:
             pass
-        
+
         try:
             ai_yaml = await llm.generate_yaml_runbook(
                 tenant_id=tenant_id,

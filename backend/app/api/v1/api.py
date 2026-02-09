@@ -128,6 +128,14 @@ else:
     logger.warning("agent_execution router not registered - module import failed or is None")
 
 api_router.include_router(network.router, prefix="/network", tags=["network"])
+
+# Audit log (read/export)
+try:
+    from app.api.v1.endpoints import audit_log as audit_log_endpoints
+    api_router.include_router(audit_log_endpoints.router, prefix="/audit-log", tags=["audit-log"])
+    logger.info("Audit log endpoints loaded successfully")
+except ImportError as e:
+    logger.warning("Audit log endpoints not available: %s", e)
 if ticket_csv_upload:
     api_router.include_router(ticket_csv_upload.router, prefix="/tickets", tags=["ticket-csv-upload"])
 try:

@@ -24,8 +24,11 @@ async def record_event(
     session_id: int,
     event_type: str,
     payload: Dict[str, Any],
+    tenant_id: Optional[int] = None,
 ) -> None:
-    """Persist an immutable audit record for the given event."""
+    """Persist an immutable audit record for the given event.
+    session_id may be 0 for non-session events (e.g. runbook_generation_*).
+    """
     if not settings.AUDIT_LOG_ENABLED:
         return
 
@@ -35,6 +38,8 @@ async def record_event(
         "event_type": event_type,
         "payload": payload,
     }
+    if tenant_id is not None:
+        envelope["tenant_id"] = tenant_id
 
     async with _lock:
         global _last_hash

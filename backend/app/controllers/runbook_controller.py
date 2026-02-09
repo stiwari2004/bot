@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.controllers.base_controller import BaseController
 from app.repositories.runbook_repository import RunbookRepository
+from app.services import audit_log
 from app.repositories.ticket_repository import TicketRepository
 from app.services.runbook.generation import RunbookGeneratorService
 from app.services.runbook.duplicate_detection_service import DuplicateDetectionService
@@ -33,7 +34,39 @@ class RunbookController(BaseController):
         self.generator = RunbookGeneratorService()
         self.duplicate_service = DuplicateDetectionService()
         self.cleanup_service = TicketCleanupService()
-    
+
+    def _build_operational_context(self, ticket_id: Optional[int]) -> Optional[str]:
+        """Build a short operational context string from ticket (and optional alert) for CAG."""
+        if not ticket_id:
+            return None
+        try:
+            ticket = self.ticket_repo.get_by_id_and_tenant(ticket_id, self.tenant_id)
+            if not ticket:
+                return None
+            parts = [
+                f"Ticket: {ticket.title or 'Untitled'}",
+                f"Source: {ticket.source or 'unknown'}",
+                f"Severity: {ticket.severity or 'unknown'}",
+                f"Service: {ticket.service or 'unknown'}",
+                f"Environment: {ticket.environment or 'unknown'}",
+            ]
+            if ticket.description:
+                snippet = (ticket.description or "").strip()[:500]
+                if snippet:
+                    parts.append(f"Description: {snippet}")
+            if ticket.raw_payload and isinstance(ticket.raw_payload, dict):
+                alert = ticket.raw_payload.get("alert", ticket.raw_payload.get("alerts", []))
+                if isinstance(alert, list) and alert:
+                    alert = alert[0]
+                if isinstance(alert, dict):
+                    summary = alert.get("annotations", {}).get("summary") or alert.get("labels", {}).get("alertname") or str(alert)[:200]
+                    if summary:
+                        parts.append(f"Alert: {summary}")
+            return "\n".join(parts)
+        except Exception as e:
+            logger.warning(f"Could not build operational context for ticket {ticket_id}: {e}")
+            return None
+
     async def generate_agent_runbook(
         self,
         issue_description: str,
@@ -62,6 +95,18 @@ class RunbookController(BaseController):
                     }
                 )
             
+            await audit_log.record_event(
+                session_id=0,
+                event_type="runbook_generation_started",
+                payload={
+                    "runbook_id": None,
+                    "ticket_id": ticket_id,
+                    "issue_description_preview": (issue_description or "")[:200],
+                    "tenant_id": self.tenant_id,
+                },
+                tenant_id=self.tenant_id,
+            )
+            operational_context = self._build_operational_context(ticket_id)
             # Generate runbook
             runbook = await self.generator.generate_agent_runbook(
                 issue_description=issue_description,
@@ -69,7 +114,8 @@ class RunbookController(BaseController):
                 db=self.db,
                 service=service,
                 env=env,
-                risk=risk
+                risk=risk,
+                operational_context=operational_context,
             )
             
             # Store ticket_id in runbook meta_data for later association during approval
@@ -98,6 +144,17 @@ class RunbookController(BaseController):
                     logger.warning(f"Failed to store ticket_id in meta_data: {e}")
                     # Don't fail the request - this is not critical
             
+            await audit_log.record_event(
+                session_id=0,
+                event_type="runbook_generation_completed",
+                payload={
+                    "runbook_id": runbook.id,
+                    "ticket_id": ticket_id,
+                    "tenant_id": self.tenant_id,
+                    "status": "success",
+                },
+                tenant_id=self.tenant_id,
+            )
             return runbook
             
         except HTTPException:
@@ -105,6 +162,21 @@ class RunbookController(BaseController):
         except Exception as e:
             import traceback
             error_detail = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+            try:
+                await audit_log.record_event(
+                    session_id=0,
+                    event_type="runbook_generation_completed",
+                    payload={
+                        "runbook_id": None,
+                        "ticket_id": ticket_id,
+                        "tenant_id": self.tenant_id,
+                        "status": "failed",
+                        "error_preview": error_detail[:500],
+                    },
+                    tenant_id=self.tenant_id,
+                )
+            except Exception:
+                pass
             logger.error(f"Runbook generation error: {error_detail}\n{traceback.format_exc()}")
             raise self.handle_error(e, "Agent runbook generation failed")
     

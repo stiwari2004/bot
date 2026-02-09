@@ -60,6 +60,7 @@ class EventService:
                     session_id=session.id,
                     event_type=event_type,
                     payload=envelope,
+                    tenant_id=session.tenant_id,
                 )
             except Exception as exc:
                 logger.warning("Failed to persist audit log for session %s: %s", session.id, exc)

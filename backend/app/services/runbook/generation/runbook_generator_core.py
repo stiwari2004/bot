@@ -132,7 +132,8 @@ class RunbookGeneratorService:
         service: str = "auto",
         env: str = "prod",
         risk: str = "low",
-        top_k: int = 5
+        top_k: int = 5,
+        operational_context: Optional[str] = None,
     ) -> RunbookResponse:
         """Generate an agent-executable, atomic YAML runbook.
         Auto-detects service type from issue description if service="auto".
@@ -161,18 +162,18 @@ class RunbookGeneratorService:
         # Use CI type for prompt selection (not OS type)
         service = ci_type
 
-        # RAG: retrieve top context to condition the LLM (using hybrid search)
+        # RAG: retrieve runbook + document context (KAG)
         try:
             search_results = await self.vector_service.hybrid_search(
                 query=issue_description,
                 tenant_id=tenant_id,
                 db=db,
-                top_k=5,
-                source_types=['runbook'],  # Only search runbooks
+                top_k=10,
+                source_types=['runbook', 'document'],
                 use_reranking=True
             )
             context = self._format_runbook_context(search_results, issue_description)
-            logger.info(f"RAG search found {len(search_results)} similar runbooks for context")
+            logger.info(f"RAG search found {len(search_results)} chunks (runbooks + documents) for context")
         except Exception as e:
             logger.warning(f"RAG search failed, generating without context: {e}")
             search_results = []
@@ -186,7 +187,8 @@ class RunbookGeneratorService:
             env=env,
             risk=risk,
             context=context,
-            os_type=os_type if service == "server" else None
+            os_type=os_type if service == "server" else None,
+            operational_context=operational_context,
         )
         
         # Phase 2: Extract and clean YAML
@@ -483,19 +485,19 @@ class RunbookGeneratorService:
     
     def _format_runbook_context(self, search_results: List[SearchResult], issue_description: str) -> str:
         """
-        Format retrieved runbooks into structured context that guides LLM generation.
-        Filters out diagnostic-only runbooks and extracts only relevant remediation examples.
-        
-        Args:
-            search_results: List of SearchResult objects from vector search
-            issue_description: The original issue description
-            
-        Returns:
-            Formatted context string to include in LLM prompt
+        Format retrieved runbooks and documents into structured context (KAG).
+        Labels sources so the model can distinguish runbook vs document chunks.
         """
         if not search_results:
-            return "No similar runbooks found."
-        
+            return "No similar runbooks or documents found."
+
+        def _is_document(result: SearchResult) -> bool:
+            src = getattr(result, "document_source", "") or ""
+            return str(src).lower() == "document"
+
+        runbook_results = [r for r in search_results if not _is_document(r)]
+        document_results = [r for r in search_results if _is_document(r)]
+
         context_parts = []
         remediation_keywords = [
             "stop-process", "restart-service", "kill", "systemctl restart",
@@ -504,74 +506,62 @@ class RunbookGeneratorService:
         diagnostic_keywords = [
             "get-process", "get-counter", "get-service", "top", "ps", "free", "df"
         ]
-        
-        # Filter and prioritize runbooks with remediation steps
+
+        # Runbook section: filter and prioritize runbooks with remediation
         filtered_results = []
-        for result in search_results[:5]:  # Check top 5
+        for result in runbook_results[:6]:
             text = result.text.lower()
-            commands = text
-            
-            # Count remediation vs diagnostic commands
-            remediation_count = sum(1 for kw in remediation_keywords if kw in commands)
-            diagnostic_count = sum(1 for kw in diagnostic_keywords if kw in commands)
-            
-            # Prefer runbooks with remediation (at least 2 remediation indicators)
-            if remediation_count >= 2:
+            remediation_count = sum(1 for kw in remediation_keywords if kw in text)
+            diagnostic_count = sum(1 for kw in diagnostic_keywords if kw in text)
+            if remediation_count >= 1:
                 filtered_results.append((result, remediation_count, diagnostic_count))
-            elif remediation_count >= 1:
-                # Include if has at least some remediation
-                filtered_results.append((result, remediation_count, diagnostic_count))
-        
-        # Sort by remediation count (descending)
         filtered_results.sort(key=lambda x: x[1], reverse=True)
-        
-        # Limit to top 2-3 runbooks with remediation
-        for i, (result, rem_count, diag_count) in enumerate(filtered_results[:3], 1):
+
+        for i, (result, rem_count, _) in enumerate(filtered_results[:3], 1):
             title = result.document_title or "Untitled Runbook"
             score = result.score
             text = result.text
-            
-            # Extract only remediation commands and step names
             relevant_parts = []
-            
             import re
-            # Find remediation commands specifically
             command_pattern = r'(?:command|Command):\s*(.+?)(?:\n|$)'
             all_commands = re.findall(command_pattern, text, re.IGNORECASE)
-            
-            # Filter to show remediation commands
-            remediation_commands = []
-            for cmd in all_commands[:8]:  # Check up to 8 commands
-                cmd_lower = cmd.lower()
-                if any(kw in cmd_lower for kw in remediation_keywords):
-                    remediation_commands.append(cmd.strip())
-            
+            remediation_commands = [
+                cmd.strip() for cmd in all_commands[:8]
+                if any(kw in cmd.lower() for kw in remediation_keywords)
+            ]
             if remediation_commands:
                 relevant_parts.extend([f"  Remediation Command: {cmd}" for cmd in remediation_commands[:3]])
-            
-            # Extract step names that mention remediation
             step_pattern = r'(?:name|Name|step|Step):\s*(.+?)(?:\n|$)'
             steps = re.findall(step_pattern, text, re.IGNORECASE)
             remediation_steps = [
                 step.strip() for step in steps[:5]
                 if any(kw in step.lower() for kw in ["remediate", "fix", "kill", "restart", "stop", "clear", "repair"])
             ]
-            
             if remediation_steps:
                 relevant_parts.extend([f"  Remediation Step: {step}" for step in remediation_steps[:2]])
-            
             if relevant_parts:
-                context_parts.append(f"Runbook {i}: {title} (similarity: {score:.2f}, remediation steps: {rem_count})")
+                context_parts.append(f"[Runbook] {i}: {title} (similarity: {score:.2f}, remediation steps: {rem_count})")
                 context_parts.extend(relevant_parts)
                 context_parts.append("")
-        
-        if not context_parts:
-            # Fallback: show titles but warn about diagnostic-only
-            context_parts.append("Note: Similar runbooks found but they may be diagnostic-only. Focus on REMEDIATION steps.")
-            for i, result in enumerate(search_results[:2], 1):
-                context_parts.append(f"Runbook {i}: {result.document_title or 'Untitled'} (similarity: {result.score:.2f})")
-        
-        return "\n".join(context_parts) if context_parts else "No similar runbooks with remediation found."
+
+        if not any("[Runbook]" in p for p in context_parts) and runbook_results:
+            context_parts.append("Note: Similar runbooks found; focus on REMEDIATION steps.")
+            for i, result in enumerate(runbook_results[:2], 1):
+                context_parts.append(f"[Runbook] {i}: {result.document_title or 'Untitled'} (similarity: {result.score:.2f})")
+            context_parts.append("")
+
+        # Document section: knowledge chunks clearly labeled
+        if document_results:
+            context_parts.append("Document knowledge (reference only):")
+            for i, result in enumerate(document_results[:5], 1):
+                title = result.document_title or "Untitled Document"
+                snippet = (result.text or "").strip()[:400]
+                if snippet:
+                    context_parts.append(f"  [Document] {i}: {title} (similarity: {result.score:.2f})")
+                    context_parts.append(f"    {snippet}")
+                    context_parts.append("")
+
+        return "\n".join(context_parts).strip() if context_parts else "No similar runbooks or documents with remediation found."
     
     def _validate_generated_runbook(
         self, 

@@ -277,6 +277,28 @@ const createEndpoints = (baseUrl: string) => ({
     tuneParameters: (sessionId: number, stepId: number) => `${baseUrl}/api/v1/workspace/demo/workspace/tune-parameters/${sessionId}/${stepId}`,
     auditTrail: (sessionId: number) => `${baseUrl}/api/v1/workspace/demo/workspace/audit-trail/${sessionId}`,
   },
+  auditLog: {
+    list: (params?: { from_ts?: number; to_ts?: number; session_id?: number; event_type?: string; limit?: number }) => {
+      const search = new URLSearchParams();
+      if (params?.from_ts != null) search.append('from_ts', String(params.from_ts));
+      if (params?.to_ts != null) search.append('to_ts', String(params.to_ts));
+      if (params?.session_id != null) search.append('session_id', String(params.session_id));
+      if (params?.event_type) search.append('event_type', params.event_type);
+      if (params?.limit != null) search.append('limit', String(params.limit));
+      const q = search.toString();
+      return `${baseUrl}/api/v1/audit-log${q ? `?${q}` : ''}`;
+    },
+    export: (params?: { from_ts?: number; to_ts?: number; session_id?: number; event_type?: string; limit?: number }) => {
+      const search = new URLSearchParams();
+      if (params?.from_ts != null) search.append('from_ts', String(params.from_ts));
+      if (params?.to_ts != null) search.append('to_ts', String(params.to_ts));
+      if (params?.session_id != null) search.append('session_id', String(params.session_id));
+      if (params?.event_type) search.append('event_type', params.event_type);
+      if (params?.limit != null) search.append('limit', String(params.limit));
+      const q = search.toString();
+      return `${baseUrl}/api/v1/audit-log/export${q ? `?${q}` : ''}`;
+    },
+  },
   quarantine: {
     status: (runbookId: number, versionId?: number) => {
       const query = versionId ? `?runbook_version_id=${versionId}` : '';

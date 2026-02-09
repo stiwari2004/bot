@@ -291,14 +291,13 @@ async def login(
             pass
         # #endregion
         
-        # Track session using the actual token that will be returned
+        # Track session using the actual token that will be returned.
+        # If this fails we must not return the token, or the next request will get 401 "Session not found".
         try:
             from app.models.user_session import UserSession
             import hashlib
-            
-            # Create session record with hash of the actual token
+
             token_hash = hashlib.sha256(access_token.encode()).hexdigest()
-            
             session = UserSession(
                 user_id=user.id,
                 token_hash=token_hash,
@@ -309,9 +308,13 @@ async def login(
             db.add(session)
             db.commit()
         except Exception as e:
-            logger.warning(f"Failed to track session: {e}")
             db.rollback()
-        
+            logger.error(f"Failed to persist session for user {user.email}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Session could not be created. Please try logging in again.",
+            ) from e
+
         return {
             "access_token": access_token,
             "token_type": "bearer",
