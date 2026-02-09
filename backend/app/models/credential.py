@@ -52,7 +52,7 @@ class InfrastructureConnection(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
-    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="CASCADE"), nullable=False, index=True)
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False)  # Descriptive name
     connection_type = Column(String(50), nullable=False)  # ssh, database, api, cloud
     target_host = Column(String(255), nullable=True)  # Host/IP

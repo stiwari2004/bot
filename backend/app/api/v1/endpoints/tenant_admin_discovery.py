@@ -68,7 +68,7 @@ class DiscoveryRunRequest(BaseModel):
 
 class AdoptAssetRequest(BaseModel):
     asset_id: int
-    credential_id: int
+    credential_id: Optional[int] = None  # Optional: create node first, add credential later in Settings
     connection_type: str = "ssh"
     name: Optional[str] = None
     environment: str = "prod"
@@ -184,23 +184,25 @@ async def adopt_asset_into_infrastructure(
     )
     if not asset:
         raise HTTPException(status_code=404, detail="Discovery asset not found")
-    cred = (
-        db.query(Credential)
-        .filter(
-            Credential.id == body.credential_id,
-            Credential.tenant_id == current_user.tenant_id,
+    credential_id = body.credential_id
+    if credential_id is not None:
+        cred = (
+            db.query(Credential)
+            .filter(
+                Credential.id == credential_id,
+                Credential.tenant_id == current_user.tenant_id,
+            )
+            .first()
         )
-        .first()
-    )
-    if not cred:
-        raise HTTPException(status_code=404, detail="Credential not found")
+        if not cred:
+            raise HTTPException(status_code=404, detail="Credential not found")
     name = body.name or asset.name or (asset.primary_ip or asset.source_native_id)
     if not name:
         name = f"asset-{asset.id}"
     meta = {"discovery_asset_id": asset.id}
     conn = InfrastructureConnection(
         tenant_id=current_user.tenant_id,
-        credential_id=body.credential_id,
+        credential_id=credential_id,
         name=name,
         connection_type=body.connection_type,
         target_host=asset.primary_ip or asset.name,
@@ -234,22 +236,24 @@ async def adopt_bulk_into_infrastructure(
         if not asset:
             results.append({"asset_id": item.asset_id, "ok": False, "error": "Asset not found"})
             continue
-        cred = (
-            db.query(Credential)
-            .filter(
-                Credential.id == item.credential_id,
-                Credential.tenant_id == current_user.tenant_id,
+        cred_id = item.credential_id
+        if cred_id is not None:
+            cred = (
+                db.query(Credential)
+                .filter(
+                    Credential.id == cred_id,
+                    Credential.tenant_id == current_user.tenant_id,
+                )
+                .first()
             )
-            .first()
-        )
-        if not cred:
-            results.append({"asset_id": item.asset_id, "ok": False, "error": "Credential not found"})
-            continue
+            if not cred:
+                results.append({"asset_id": item.asset_id, "ok": False, "error": "Credential not found"})
+                continue
         name = item.name or asset.name or (asset.primary_ip or asset.source_native_id) or f"asset-{asset.id}"
         meta = {"discovery_asset_id": asset.id}
         conn = InfrastructureConnection(
             tenant_id=current_user.tenant_id,
-            credential_id=item.credential_id,
+            credential_id=cred_id,
             name=name,
             connection_type=item.connection_type,
             target_host=asset.primary_ip or asset.name,
