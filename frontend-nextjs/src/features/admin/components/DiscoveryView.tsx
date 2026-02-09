@@ -174,8 +174,13 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to generate token');
+      const text = await res.text();
+      const data = text ? (() => { try { return JSON.parse(text); } catch { return {}; } })() : {};
+      if (!res.ok) {
+        const msg = Array.isArray(data.detail) ? data.detail.map((x: { msg?: string }) => x.msg).join(', ') : (data.detail || `Failed to generate token (${res.status})`);
+        throw new Error(msg);
+      }
+      if (!data.token) throw new Error('No token in response');
       setNewToken(data.token);
       setTokenStatus({ configured: true });
       setMessage('Token created. Copy it now; it will not be shown again.');

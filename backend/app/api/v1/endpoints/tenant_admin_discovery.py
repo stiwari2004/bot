@@ -15,6 +15,8 @@ from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from app.core.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
@@ -33,16 +35,27 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-# Role check for tenant admin discovery (management endpoints)
+# Discovery token/management is for *customer* tenant admins (admin of a single customer),
+# not for MSP "group" admins. Two types: (1) MSP = entity with many customers, uses /tenant-admin.
+# (2) Customer admin = user with role "admin" in a non-MSP tenant (is_msp=false); they get
+# Discovery in the app (e.g. resolvify.tech/?customer_slug=...) and must be able to generate tokens.
 TENANT_ADMIN_ROLES = ("tenant_admin", "msp_admin", "super_admin")
 
 
 def get_current_tenant_admin(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> User:
-    if current_user.role not in TENANT_ADMIN_ROLES:
-        raise HTTPException(status_code=403, detail="Tenant admin access required")
-    return current_user
+    # Explicit tenant/MSP/super-admin roles (e.g. for /tenant-admin or super-admin flows)
+    if current_user.role in TENANT_ADMIN_ROLES:
+        return current_user
+    # Customer admin: role "admin" in a *customer* tenant (is_msp is not True).
+    # This is the admin within a customer; token generation is allowed for these.
+    if current_user.role == "admin":
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        if tenant and getattr(tenant, "is_msp", None) is not True:
+            return current_user
+    raise HTTPException(status_code=403, detail="Tenant admin access required")
 
 
 # --- Request/Response models ---
@@ -264,6 +277,7 @@ async def create_discovery_token(
     config = dict(tenant.config_metadata) if tenant.config_metadata else {}
     config["discovery_ingest_token"] = token
     tenant.config_metadata = config
+    flag_modified(tenant, "config_metadata")
     db.add(tenant)
     db.commit()
     return {"token": token, "message": "Copy this token; it will not be shown again. Use it in the agent config."}
@@ -282,6 +296,7 @@ async def rotate_discovery_token(
     config = dict(tenant.config_metadata) if tenant.config_metadata else {}
     config["discovery_ingest_token"] = token
     tenant.config_metadata = config
+    flag_modified(tenant, "config_metadata")
     db.add(tenant)
     db.commit()
     return {"token": token, "message": "New token generated. Update the agent config. Old token is invalid."}

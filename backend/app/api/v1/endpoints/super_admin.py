@@ -26,6 +26,7 @@ class TenantCreate(BaseModel):
     description: Optional[str] = None
     deployment_type: str = "saas"
     is_active: bool = True
+    is_msp: bool = False  # True = MSP tenant (can create/manage customer sub-tenants)
     contact_email: Optional[EmailStr] = None
     contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
@@ -36,6 +37,7 @@ class TenantUpdate(BaseModel):
     subdomain_slug: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_msp: Optional[bool] = None  # True = MSP tenant
     contact_email: Optional[EmailStr] = None
     contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
@@ -48,6 +50,7 @@ class TenantResponse(BaseModel):
     description: Optional[str]
     deployment_type: str
     is_active: bool
+    is_msp: bool
     contact_email: Optional[str]
     contact_name: Optional[str]
     contact_phone: Optional[str]
@@ -167,6 +170,7 @@ async def list_tenants(
                 "description": t.description,
                 "deployment_type": t.deployment_type,
                 "is_active": t.is_active,
+                "is_msp": getattr(t, "is_msp", False),
                 "contact_email": t.contact_email,
                 "contact_name": t.contact_name,
                 "contact_phone": t.contact_phone,
@@ -199,6 +203,7 @@ async def get_tenant(
             "description": tenant.description,
             "deployment_type": tenant.deployment_type,
             "is_active": tenant.is_active,
+            "is_msp": getattr(tenant, "is_msp", False),
             "contact_email": tenant.contact_email,
             "contact_name": tenant.contact_name,
             "contact_phone": tenant.contact_phone,
@@ -239,6 +244,7 @@ async def create_tenant(
             description=tenant_data.description,
             deployment_type=tenant_data.deployment_type,
             is_active=tenant_data.is_active,
+            is_msp=tenant_data.is_msp,
             contact_email=tenant_data.contact_email,
             contact_name=tenant_data.contact_name,
             contact_phone=tenant_data.contact_phone,
@@ -257,6 +263,7 @@ async def create_tenant(
             "description": tenant.description,
             "deployment_type": tenant.deployment_type,
             "is_active": tenant.is_active,
+            "is_msp": tenant.is_msp,
             "contact_email": tenant.contact_email,
             "contact_name": tenant.contact_name,
             "contact_phone": tenant.contact_phone,
@@ -315,6 +322,8 @@ async def update_tenant(
             tenant.contact_name = tenant_data.contact_name
         if tenant_data.contact_phone is not None:
             tenant.contact_phone = tenant_data.contact_phone
+        if tenant_data.is_msp is not None:
+            tenant.is_msp = tenant_data.is_msp
         
         db.commit()
         db.refresh(tenant)
@@ -328,6 +337,7 @@ async def update_tenant(
             "description": tenant.description,
             "deployment_type": tenant.deployment_type,
             "is_active": tenant.is_active,
+            "is_msp": tenant.is_msp,
             "contact_email": tenant.contact_email,
             "contact_name": tenant.contact_name,
             "contact_phone": tenant.contact_phone,
