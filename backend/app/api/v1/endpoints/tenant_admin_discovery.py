@@ -325,12 +325,15 @@ async def get_run_script():
     One command: install + full discovery (agent + network + storage).
     """
     try:
-        # discovery-agent is sibling of backend (bot/discovery-agent, bot/backend)
         this_file = Path(__file__).resolve()
-        # endpoints -> v1 -> api -> app -> backend
+        # Prefer sibling discovery-agent (local dev: bot/discovery-agent/one_step.py)
         backend = this_file.parent.parent.parent.parent.parent
         repo_root = backend.parent
         script_path = repo_root / "discovery-agent" / "one_step.py"
+        if not script_path.is_file():
+            # Fallback: bundled script inside backend (production Docker image)
+            app_dir = this_file.parent.parent.parent.parent  # endpoints -> v1 -> api -> app
+            script_path = app_dir / "static" / "discovery" / "one_step.py"
         if script_path.is_file():
             return PlainTextResponse(script_path.read_text(encoding="utf-8"), media_type="text/plain")
     except Exception:
