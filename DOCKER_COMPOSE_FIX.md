@@ -79,3 +79,31 @@ docker-compose -f docker-compose.dev.yml -p bot-dev up -d
 ```
 
 This matches the container names in your compose file (`bot-dev-postgres`, `bot-dev-redis`, etc.)
+
+---
+
+## Build failure: "failed to solve: image ... already exists"
+
+When the backend build fails at **exporting to image** with `ERROR: failed to build: failed to solve: image "docker.io/library/bot-dev_backend:latest": already exists`, the export layer is conflicting with an existing image.
+
+**Fix:** Remove the image and rebuild with no cache:
+
+```bash
+# Dev
+docker image rm bot-dev_backend:latest 2>/dev/null || true
+docker compose -f docker-compose.dev.yml -p bot-dev build --no-cache backend
+docker compose -f docker-compose.dev.yml -p bot-dev up -d backend
+```
+
+Or use the script (from repo root):
+
+- **Windows (PowerShell):** `.\scripts\dev-rebuild-backend.ps1`
+- **Linux/macOS:** `./scripts/dev-rebuild-backend.sh`
+
+---
+
+## Worker 404 on POST /api/v1/agent/workers/events
+
+If the worker logs `HTTP/1.1 404 Not Found` for `POST http://backend:8000/api/v1/agent/workers/events`, the backend container is usually running an **old image** that was built before that route existed or before a clean export.
+
+**Fix:** Do a clean backend rebuild (see above). After rebuild, the route is registered and the worker can publish events.
