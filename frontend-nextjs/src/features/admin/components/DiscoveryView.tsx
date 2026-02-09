@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   ArrowLeftIcon,
   KeyIcon,
@@ -11,6 +12,7 @@ import {
   ClipboardDocumentIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 
@@ -56,6 +58,14 @@ interface DiscoveryViewProps {
 
 export function DiscoveryView({ token, standalone = false, backHref = '/tenant-admin' }: DiscoveryViewProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Link to Settings tab preserving current query (e.g. customer_slug)
+  const settingsUrl = (() => {
+    if (typeof window === 'undefined') return '/?tab=settings';
+    const params = new URLSearchParams(searchParams?.toString() ?? window.location.search);
+    params.set('tab', 'settings');
+    return `${window.location.pathname || '/'}?${params.toString()}`;
+  })();
   const [tokenStatus, setTokenStatus] = useState<TokenStatus | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [runs, setRuns] = useState<DiscoveryRun[]>([]);
@@ -497,6 +507,16 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
                       </option>
                     ))}
                   </select>
+                  {credentials.length === 0 && (
+                    <span className="text-amber-700 text-xs flex items-center gap-1">
+                      <Cog6ToothIcon className="h-4 w-4 shrink-0" />
+                      No credentials yet. Add an SSH or infrastructure credential in{' '}
+                      <Link href={settingsUrl} className="underline font-medium">
+                        Settings &amp; Connections
+                      </Link>
+                      , then return here to create nodes.
+                    </span>
+                  )}
                 </label>
                 <button
                   onClick={handleCreateAssets}
