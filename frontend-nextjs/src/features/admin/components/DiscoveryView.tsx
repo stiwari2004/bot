@@ -12,7 +12,6 @@ import {
   ClipboardDocumentIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
-  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
 
@@ -42,13 +41,6 @@ interface DiscoveryAsset {
   tags: string | null;
 }
 
-interface Credential {
-  id: number;
-  name: string;
-  credential_type: string;
-  environment: string;
-}
-
 interface DiscoveryViewProps {
   token: string | null;
   /** When true, show back button and full-page header (e.g. on /tenant-admin/discovery). When false, show only content (e.g. in-app System tab). */
@@ -71,9 +63,7 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
   const [runs, setRuns] = useState<DiscoveryRun[]>([]);
   const [current, setCurrent] = useState<DiscoveryCurrent | null>(null);
   const [assets, setAssets] = useState<DiscoveryAsset[]>([]);
-  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
-  const [credentialId, setCredentialId] = useState<number | ''>('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,42 +135,16 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
     }
   }, [token]);
 
-  const fetchCredentials = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(apiConfig.endpoints.connectors.credentials(), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // API returns { credentials: [...] }; items use "type", we use credential_type
-        const raw = Array.isArray(data) ? data : (data?.credentials ?? []);
-        const list: Credential[] = raw.map((c: { id: number; name: string; type?: string; credential_type?: string; environment: string }) => ({
-          id: c.id,
-          name: c.name,
-          credential_type: c.credential_type ?? c.type ?? 'unknown',
-          environment: c.environment ?? '',
-        }));
-        setCredentials(list);
-        if (list.length > 0 && credentialId === '') {
-          setCredentialId(list[0].id);
-        }
-      }
-    } catch (e) {
-      console.error('Credentials:', e);
-    }
-  }, [token]);
-
   useEffect(() => {
     if (!token) {
       setLoading(false);
       return;
     }
     setLoading(true);
-    Promise.all([fetchTokenStatus(), fetchRuns(), fetchCurrent(), fetchAssets(), fetchCredentials()]).finally(() =>
+    Promise.all([fetchTokenStatus(), fetchRuns(), fetchCurrent(), fetchAssets()]).finally(() =>
       setLoading(false)
     );
-  }, [token, fetchTokenStatus, fetchRuns, fetchCurrent, fetchAssets, fetchCredentials]);
+  }, [token, fetchTokenStatus, fetchRuns, fetchCurrent, fetchAssets]);
 
   const handleGenerateToken = async () => {
     if (!token) return;
@@ -259,13 +223,11 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
     setError(null);
     try {
       const adoptUrl = apiConfig.endpoints.tenantAdmin.discovery.adoptBulk();
-      const selectedCred = credentials.find((c) => c.id === credentialId);
-      const connectionType = selectedCred?.credential_type ?? 'ssh';
       const body = {
         assets: Array.from(selectedAssetIds).map((asset_id) => ({
           asset_id,
-          credential_id: credentialId === '' ? null : Number(credentialId),
-          connection_type: connectionType,
+          credential_id: null,
+          connection_type: 'ssh',
           environment: 'prod',
         })),
       };
@@ -277,7 +239,7 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to create assets');
       const okCount = (data.results || []).filter((r: { ok: boolean }) => r.ok).length;
-      setMessage(`Created ${okCount} asset(s). They appear in your nodes.`);
+      setMessage(`Created ${okCount} node(s). Add credentials in Settings & Connections to connect and run runbooks.`);
       setSelectedAssetIds(new Set());
       fetchCurrent();
       fetchAssets();
@@ -453,10 +415,11 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
             <ServerStackIcon className="h-5 w-5" />
             Runs and staged assets
           </h2>
-          <div className="mb-4 p-3 bg-neutral-50 border border-neutral-200 rounded-lg text-sm text-neutral-600">
-            <strong className="text-neutral-800">Two ways to use discovery:</strong>{' '}
-            (1) Create nodes now without credentials, then add and match credentials in Settings as part of setup.{' '}
-            (2) Add credentials in Settings first, then run discovery and pick an existing credential when creating nodes. Connections can be SSH, cloud, database, or other types.
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+            <strong className="text-blue-900">How discovery works:</strong>{' '}
+            Discovery finds and registers machines as nodes. After creating nodes here, add credentials (SSH, cloud, database, etc.) in{' '}
+            <Link href={settingsUrl} className="underline font-medium">Settings &amp; Connections</Link>{' '}
+            and attach them to nodes to enable runbooks and connectivity.
           </div>
           <div className="mb-4 flex items-center gap-4">
             <p className="text-sm text-neutral-600">
@@ -508,28 +471,6 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
                   />
                   <span className="text-sm">Select all</span>
                 </label>
-                <label className="flex items-center gap-2 text-sm">
-                  Credential for new nodes (optional):
-                  <select
-                    value={credentialId}
-                    onChange={(e) => setCredentialId(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="border border-neutral-300 rounded px-2 py-1"
-                  >
-                    <option value="">None — add later in Settings</option>
-                    {credentials.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.credential_type})
-                      </option>
-                    ))}
-                  </select>
-                  {credentials.length === 0 && (
-                    <span className="text-neutral-500 text-xs">
-                      Add credentials (SSH, cloud, database, etc.) in{' '}
-                      <Link href={settingsUrl} className="underline font-medium">Settings &amp; Connections</Link>{' '}
-                      and assign them to these nodes later, or create nodes now and add credentials as part of setup.
-                    </span>
-                  )}
-                </label>
                 <div className="flex flex-col gap-1">
                   <button
                     onClick={handleCreateAssets}
@@ -538,14 +479,16 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
                     title={selectedAssetIds.size === 0 ? 'Select at least one asset (checkbox)' : ''}
                   >
                     {actionLoading === 'adopt' ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : null}
-                    Create assets ({selectedAssetIds.size} selected)
+                    Create nodes ({selectedAssetIds.size} selected)
                   </button>
                   {selectedAssetIds.size === 0 && (
                     <span className="text-xs text-neutral-500">Select assets using the checkboxes above</span>
                   )}
-                  {selectedAssetIds.size > 0 && credentialId === '' && (
+                  {selectedAssetIds.size > 0 && (
                     <span className="text-xs text-neutral-500">
-                      Nodes will be created without a credential. Add and match credentials in Settings &amp; Connections when ready.
+                      Nodes will be created without credentials. Add credentials in{' '}
+                      <Link href={settingsUrl} className="underline">Settings &amp; Connections</Link>{' '}
+                      to connect and run runbooks.
                     </span>
                   )}
                 </div>
