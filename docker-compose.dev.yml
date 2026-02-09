@@ -154,6 +154,6 @@ volumes:
 
 networks:
   app-dev-network:
-    name: bot_app-dev-network
+    # No explicit name: let Compose use default (project_app-dev-network) so labels stay correct
     driver: bridge
 
