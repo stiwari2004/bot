@@ -32,6 +32,7 @@ def scan_remote_servers(
     
     Returns list of asset dicts (one per discovered server).
     """
+    import sys
     assets = []
     
     for server in servers:
@@ -39,9 +40,17 @@ def scan_remote_servers(
         if not host:
             continue
         
-        asset = _discover_server(server, jump_config, timeout)
-        if asset:
-            assets.append(asset)
+        try:
+            asset = _discover_server(server, jump_config, timeout)
+            if asset:
+                assets.append(asset)
+                print(f"  ✓ Discovered {host}", file=sys.stderr)
+            else:
+                username = server.get("username", "unknown")
+                auth_method = "SSH keys" if server.get("use_keys") else "password"
+                print(f"  ✗ Failed to connect to {host} (user: {username}, auth: {auth_method})", file=sys.stderr)
+        except Exception as e:
+            print(f"  ✗ Error scanning {host}: {e}", file=sys.stderr)
     
     return assets
 

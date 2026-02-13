@@ -199,17 +199,20 @@ def main() -> int:
                 if not remote_cfg.get("servers"):
                     remote_cfg["servers"] = discovered_servers
                     print(f"Auto-discovered {len(discovered_servers)} servers from /etc/hosts and ~/.ssh/known_hosts", file=sys.stderr)
+                    print(f"Note: Using SSH key authentication. If connections fail, configure passwords in config.yaml", file=sys.stderr)
     
     if remote_cfg.get("enabled") and remote_cfg.get("servers"):
         try:
             from scanners.remote_servers import scan_remote_servers
             jump_config = remote_cfg.get("jump_server")
             timeout = int(remote_cfg.get("timeout", 30))
+            print(f"Scanning {len(remote_cfg['servers'])} remote servers...", file=sys.stderr)
             remote_assets = scan_remote_servers(
                 servers=remote_cfg["servers"],
                 jump_config=jump_config,
                 timeout=timeout,
             )
+            print(f"Successfully discovered {len(remote_assets)}/{len(remote_cfg['servers'])} servers", file=sys.stderr)
             all_assets.extend(remote_assets)
         except ImportError as e:
             print(f"Warning: remote_servers scanner not available: {e}", file=sys.stderr)
