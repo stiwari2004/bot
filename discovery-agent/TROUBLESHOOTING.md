@@ -1,5 +1,28 @@
 # Discovery Agent Troubleshooting
 
+## Issue: "externally-managed-environment" when running pip
+
+### Symptoms
+```bash
+$ sudo pip3 install -r requirements.txt
+error: externally-managed-environment
+× This environment is externally managed
+```
+
+### Solution
+
+Do **not** use `sudo pip3 install`. Use the **`discover`** script instead—it creates a virtual environment (`.venv`) and installs dependencies there:
+
+```bash
+cd ~/discovery-agent
+chmod +x discover
+./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+```
+
+Or with an existing config: `./discover`
+
+---
+
 ## Issue: agent.zip is not a valid zip file
 
 ### Symptoms
@@ -40,13 +63,12 @@ scp -r discovery-agent/ labadmin@jump01:~/
 scp -r discovery-agent/ labadmin@jump01:~/
 ```
 
-**Then on jump server:**
+**Then on jump server (one command; no sudo pip):**
 ```bash
 cd ~/discovery-agent
-pip3 install -r requirements.txt
-# Edit config.yaml to enable remote_servers
-python3 run.py config.yaml
+./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
+To use a config file (e.g. after enabling remote_servers in config.yaml): run `./discover` with no arguments.
 
 ### Alternative: Git Clone (if repo is accessible)
 
@@ -54,9 +76,8 @@ If the repo is on GitHub/GitLab:
 ```bash
 git clone <repo-url>
 cd bot/discovery-agent
-pip3 install -r requirements.txt
-# Edit config.yaml
-python3 run.py config.yaml
+./discover "https://.../ingest" "YOUR_TOKEN"
+# Or edit config.yaml and run: ./discover
 ```
 
 ### Quick Test: Check Endpoint

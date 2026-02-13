@@ -30,11 +30,12 @@ scp -r discovery-agent\ labadmin@jump01:~/
 # Or use WinSCP/FileZilla GUI to copy the folder
 ```
 
-**Then on jump server:**
+**Then on jump server (one command, no sudo pip):**
 ```bash
 cd ~/discovery-agent
-pip3 install -r requirements.txt
+./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
+`./discover` creates a virtual environment (`.venv`), installs dependencies, and runs discovery. Use this on Debian/Ubuntu where `pip3 install` is blocked (externally-managed-environment).
 
 **Option C: Download agent.zip (if endpoint works)**
 
@@ -49,14 +50,21 @@ file agent.zip
 # If valid:
 unzip agent.zip
 cd discovery-agent
-pip3 install -r requirements.txt
+./discover "https://.../ingest" "YOUR_TOKEN"
 ```
 
-### Step 2: Install Dependencies
+### Step 2: Configure and run (no separate pip step)
+
+On Debian/Ubuntu do **not** run `sudo pip3 install` (it will fail). Use the `discover` script:
 
 ```bash
-pip3 install -r requirements.txt
-# Or: python3 -m pip install paramiko pywinrm PyYAML netmiko
+cd ~/discovery-agent
+./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+```
+
+With a config file (e.g. after editing `config.yaml` for remote_servers):
+```bash
+./discover
 ```
 
 ### Step 3: Create/Edit config.yaml

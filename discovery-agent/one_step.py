@@ -63,14 +63,18 @@ remote_servers:
         f.write(content)
 
 def _run_from_here(ingest_url, token):
-    """We're in discovery-agent folder: write config and run run.py"""
+    """We're in discovery-agent folder: use ./discover (venv + deps) or run run.py."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.isfile(os.path.join(script_dir, "run_discovery.py")):
         return False
-    _write_config(script_dir, ingest_url, token)
     import subprocess
-    reqs = os.path.join(script_dir, "requirements.txt")
-    if os.path.isfile(reqs):
+    discover = os.path.join(script_dir, "discover")
+    # Prefer ./discover so venv is used (avoids externally-managed-environment on Debian/Ubuntu)
+    if os.path.isfile(discover) and os.access(discover, os.X_OK):
+        code = subprocess.run([discover, ingest_url, token], cwd=script_dir).returncode
+        return None if code != 0 else True
+    _write_config(script_dir, ingest_url, token)
+    if os.path.isfile(os.path.join(script_dir, "requirements.txt")):
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
             cwd=script_dir,

@@ -23,7 +23,7 @@ That command fetches the scanner, installs dependencies, and runs full discovery
 - **Storage / SAN / NAS** if you add `storage.targets` in config
 - **Remote servers** (Linux/Windows servers, databases) via SSH/WinRM from a jump server if you add `remote_servers.servers` in config
 
-By default the one command reports this host. For network, storage, and remote servers, copy the discovery-agent folder, add a `config.yaml` with devices/targets/servers, and run `python run.py` (or `python3 run.py`) from that folder.
+By default the one command reports this host. For network, storage, and remote servers, copy the discovery-agent folder, add a `config.yaml` with devices/targets/servers, and run **`./discover`** from that folder (or `./discover "https://.../ingest" YOUR_TOKEN` with no config). On Debian/Ubuntu use `./discover` so dependencies install into a venv and you avoid the "externally-managed-environment" error—do not run `sudo pip3 install`.
 
 ---
 
@@ -35,7 +35,7 @@ If you have the discovery-agent folder (e.g. from the repo), you can add a `conf
 - **Storage**: Set `storage.enabled: true` with `targets` (SAN/NAS)
 - **Remote servers**: Set `remote_servers.enabled: true` with `servers` list (Linux/Windows servers, databases accessible via SSH/WinRM from a jump server)
 
-Then run `python run.py` (or `run.bat` / `./run.sh`) from that folder so the same run includes all configured scanners.
+Then run **`./discover`** from that folder (Linux/macOS) so the same run includes all configured scanners. On Windows use `python run.py config.yaml`.
 
 ### Remote servers from jump server
 
