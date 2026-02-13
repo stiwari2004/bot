@@ -63,15 +63,15 @@ remote_servers:
         f.write(content)
 
 def _run_from_here(ingest_url, token):
-    """We're in discovery-agent folder: use ./discover (venv + deps) or run run.py."""
+    """We're in discovery-agent folder: use discover.py (venv + deps) or run run.py."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.isfile(os.path.join(script_dir, "run_discovery.py")):
         return False
     import subprocess
-    discover = os.path.join(script_dir, "discover")
-    # Prefer ./discover so venv is used (avoids externally-managed-environment on Debian/Ubuntu)
-    if os.path.isfile(discover) and os.access(discover, os.X_OK):
-        code = subprocess.run([discover, ingest_url, token], cwd=script_dir).returncode
+    # Prefer discover.py so venv is used (avoids externally-managed-environment on Debian/Ubuntu)
+    discover_py = os.path.join(script_dir, "discover.py")
+    if os.path.isfile(discover_py):
+        code = subprocess.run([sys.executable, discover_py, ingest_url, token], cwd=script_dir).returncode
         return None if code != 0 else True
     _write_config(script_dir, ingest_url, token)
     if os.path.isfile(os.path.join(script_dir, "requirements.txt")):
@@ -184,12 +184,10 @@ def _report_this_host_only(ingest_url, token):
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 one_step.py INGEST_URL TOKEN", file=sys.stderr)
-        print("Example: python3 one_step.py \"https://app.example.com/api/v1/tenant-admin/discovery/ingest\" \"your-token\"", file=sys.stderr)
-        print("\nNote: To scan remote servers from a jump server:", file=sys.stderr)
-        print("  1. Run this script on the jump server", file=sys.stderr)
-        print("  2. Edit the generated config.yaml and set remote_servers.enabled: true", file=sys.stderr)
-        print("  3. Add your servers to remote_servers.servers list", file=sys.stderr)
-        print("  4. Run: python3 run.py config.yaml", file=sys.stderr)
+        print("   or: python3 discover.py INGEST_URL TOKEN   (recommended on jump server)", file=sys.stderr)
+        print("Example: python3 discover.py \"https://app.example.com/api/v1/tenant-admin/discovery/ingest\" \"your-token\"", file=sys.stderr)
+        print("(Quote the URL and token so the shell does not split them.)", file=sys.stderr)
+        print("\nOn a jump server, use: python3 discover.py INGEST_URL TOKEN", file=sys.stderr)
         return 1
     ingest_url = sys.argv[1].strip()
     token = sys.argv[2].strip()
