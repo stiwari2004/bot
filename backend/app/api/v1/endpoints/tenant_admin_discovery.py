@@ -475,5 +475,8 @@ async def ingest_discovery_payload(
     if isinstance(asset_data, dict):
         ingest_svc = DiscoveryIngestService(db, tenant_id=tenant_id)
         result = ingest_svc.ingest_asset_payload(run_id=run_id, payload=asset_data)
+        # So agent can reuse same run for subsequent assets in a batch (agent sends one POST per asset)
+        if isinstance(result, dict) and payload.get("run_id") is None:
+            result = {**result, "run_id": run_id}
         return result
     raise HTTPException(status_code=400, detail="payload.asset required")
