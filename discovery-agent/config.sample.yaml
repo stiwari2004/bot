@@ -50,3 +50,54 @@ storage:
     #   name_key: "name"
     #   id_key: "id"
     #   ip_key: "management_ip"
+
+# Remote servers: discover Linux/Windows servers, databases, etc. via SSH/WinRM from jump server
+remote_servers:
+  enabled: false
+  timeout: 30   # Connection timeout in seconds
+  jump_server:
+    # Optional: if you're running discovery FROM the jump server, omit this section
+    # If running from another machine, configure jump server here
+    host: "jump.example.com"
+    port: 22
+    username: "admin"
+    password: "secret"   # or use_keys: true with key_file
+    # use_keys: false
+    # key_file: "/path/to/ssh/key"
+  servers:
+    # Linux servers (via SSH)
+    - host: "192.168.1.10"
+      os_type: "linux"
+      username: "ubuntu"
+      password: "secret"
+      port: 22
+      # use_keys: false
+      # key_file: "/path/to/key"
+    - host: "192.168.1.11"
+      os_type: "linux"
+      username: "root"
+      use_keys: true
+      key_file: "/home/user/.ssh/id_rsa"
+    # Windows servers (via WinRM)
+    - host: "192.168.1.20"
+      os_type: "windows"
+      username: "Administrator"
+      password: "secret"
+      port: 5985   # WinRM HTTP port (5986 for HTTPS)
+      use_https: false
+    # Database servers
+    - host: "192.168.1.30"
+      db_type: "postgresql"
+      username: "postgres"
+      password: "secret"
+      db_port: 5432
+      database: "mydb"
+    - host: "192.168.1.31"
+      db_type: "mysql"
+      username: "root"
+      password: "secret"
+      db_port: 3306
+    # Auto-detect OS (tries SSH first, then WinRM if SSH fails)
+    - host: "192.168.1.40"
+      username: "admin"
+      password: "secret"

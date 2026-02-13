@@ -113,6 +113,24 @@ def main() -> int:
         storage_assets = scan_storage_targets(storage_cfg["targets"])
         all_assets.extend(storage_assets)
 
+    # Remote servers (Linux/Windows via SSH/WinRM from jump server)
+    remote_cfg = config.get("remote_servers") or {}
+    if remote_cfg.get("enabled") and remote_cfg.get("servers"):
+        try:
+            from scanners.remote_servers import scan_remote_servers
+            jump_config = remote_cfg.get("jump_server")
+            timeout = int(remote_cfg.get("timeout", 30))
+            remote_assets = scan_remote_servers(
+                servers=remote_cfg["servers"],
+                jump_config=jump_config,
+                timeout=timeout,
+            )
+            all_assets.extend(remote_assets)
+        except ImportError as e:
+            print(f"Warning: remote_servers scanner not available: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: remote servers scan failed: {e}", file=sys.stderr)
+
     if not all_assets:
         print("No assets to report.", file=sys.stderr)
         return 0
