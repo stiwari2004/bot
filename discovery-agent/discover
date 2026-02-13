@@ -2,7 +2,7 @@
 # One-command discovery: creates venv, installs deps, runs scan.
 # Usage:
 #   ./discover                                    # uses config.yaml
-#   ./discover "https://app/api/.../ingest" TOKEN # writes config and runs (no venv if system has deps)
+#   ./discover "https://app/api/.../ingest" TOKEN # no config file needed
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"

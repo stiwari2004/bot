@@ -19,13 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create upload directory
-RUN mkdir -p uploads
+# Create upload directory (use Python to avoid depending on /bin/sh in edge-case bases)
+RUN python3 -c "import pathlib; pathlib.Path('/app/uploads').mkdir(parents=True, exist_ok=True)"
 
-# Create non-root user for security (MF-8)
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /app/uploads
+# Create non-root user for security (MF-8) — exec form so no /bin/sh required
+RUN ["useradd", "-m", "-u", "1000", "appuser"]
+RUN ["chown", "-R", "appuser:appuser", "/app"]
+RUN ["chown", "-R", "appuser:appuser", "/app/uploads"]
 
 # Switch to non-root user
 USER appuser
