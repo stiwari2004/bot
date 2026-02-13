@@ -186,29 +186,27 @@ def main() -> int:
     # Remote servers (Linux/Windows via SSH/WinRM from jump server)
     remote_cfg = config.get("remote_servers") or {}
     auto_scan = os.environ.get("DISCOVERY_AUTO_SCAN", "").lower() in ("1", "true", "yes")
-    servers_to_scan = list(remote_cfg.get("servers") or [])  # Explicit list to scan
+    servers_to_scan = list(remote_cfg.get("servers") or [])
     
-    # Auto-discover servers from /etc/hosts and ~/.ssh/known_hosts when on Linux
-    if (auto_scan or (remote_cfg.get("enabled") and not servers_to_scan)):
+    # Auto-discover from /etc/hosts and ~/.ssh/known_hosts when on Linux and auto_scan or no servers in config
+    if (auto_scan or not servers_to_scan):
         import platform
         if platform.system() == "Linux":
-            discovered_servers = _auto_discover_local_servers()
-            if discovered_servers:
-                servers_to_scan = discovered_servers  # Use discovered list
-                remote_cfg["enabled"] = True
-                remote_cfg["servers"] = discovered_servers
-                print(f"Auto-discovered {len(discovered_servers)} servers from /etc/hosts and ~/.ssh/known_hosts", file=sys.stderr)
-                print(f"Note: Using SSH key authentication. If connections fail, configure passwords in config.yaml", file=sys.stderr)
+            discovered = _auto_discover_local_servers()
+            if discovered:
+                servers_to_scan = discovered
+                print(f"Auto-discovered {len(discovered)} servers from /etc/hosts and ~/.ssh/known_hosts", file=sys.stderr)
+                print("Note: Using SSH key auth. If connections fail, add passwords in config.yaml", file=sys.stderr)
                 sys.stderr.flush()
     
-    # Scan remote servers: use servers_to_scan so we always scan when we auto-discovered
-    if (remote_cfg.get("enabled") or (auto_scan and servers_to_scan)) and servers_to_scan:
+    # Scan whenever we have servers to scan (from config or auto-discovery)
+    if servers_to_scan:
         try:
             from scanners.remote_servers import scan_remote_servers
-            jump_config = remote_cfg.get("jump_server")
-            timeout = int(remote_cfg.get("timeout", 30))
             print(f"Scanning {len(servers_to_scan)} remote servers...", file=sys.stderr)
             sys.stderr.flush()
+            jump_config = remote_cfg.get("jump_server")
+            timeout = int(remote_cfg.get("timeout", 30))
             remote_assets = scan_remote_servers(
                 servers=servers_to_scan,
                 jump_config=jump_config,
