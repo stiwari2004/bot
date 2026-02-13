@@ -38,8 +38,41 @@ def _auto_discover_local_servers() -> list:
     import os.path
     import getpass
     
-    # Get current username for SSH connections
     current_user = getpass.getuser()
+    
+    # Don't try to SSH to ourselves (we already report this host via run_agent_self)
+    try:
+        _self_hostname = socket.gethostname() or ""
+        _self_short = _self_hostname.split(".")[0] if _self_hostname else ""
+    except Exception:
+        _self_hostname = _self_short = ""
+    try:
+        _self_ip = None
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(("8.8.8.8", 80))
+        _self_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        _self_ip = None
+    
+    def _is_self(host):
+        if not host:
+            return True
+        # Skip hashed known_hosts entries (e.g. |1|base64|base64|) - we can't connect to those
+        if host.startswith("|1|") or (host.startswith("|") and "|" in host[1:]):
+            return True
+        if host in ("localhost", "127.0.0.1", "::1"):
+            return True
+        if _self_ip and host == _self_ip:
+            return True
+        if _self_hostname and host == _self_hostname:
+            return True
+        if _self_short and host == _self_short:
+            return True
+        if _self_short and host.startswith(_self_short + "."):
+            return True
+        return False
     
     # Read /etc/hosts
     try:
@@ -51,24 +84,26 @@ def _auto_discover_local_servers() -> list:
                 parts = line.split()
                 if len(parts) >= 2:
                     ip = parts[0]
-                    hostname = parts[-1]  # Last part is usually hostname
-                    # Skip localhost and loopback
-                    if ip not in ("127.0.0.1", "::1", "localhost") and hostname not in ("localhost", "localhost.localdomain"):
-                        # Only include private IPs (assumes jump server can reach them)
-                        if ip.startswith(("192.168.", "10.", "172.")) or ":" not in ip:
-                            # Use hostname if it's not an IP, otherwise use IP
-                            host = hostname if not all(c.isdigit() or c == '.' for c in hostname.split('.')[0]) else ip
-                            if host not in [s.get("host") for s in servers]:
-                                servers.append({
-                                    "host": host,
-                                    "os_type": "linux",  # Default assumption
-                                    "username": current_user,  # Use current user
-                                    "use_keys": True,  # Prefer SSH keys (common on jump servers)
-                                })
+                    hostname = parts[-1]
+                    if ip in ("127.0.0.1", "::1", "localhost") or hostname in ("localhost", "localhost.localdomain"):
+                        continue
+                    if _is_self(ip) or _is_self(hostname):
+                        continue
+                    if not (ip.startswith(("192.168.", "10.", "172.")) or ":" not in ip):
+                        continue
+                    host = hostname if not all(c.isdigit() or c == '.' for c in hostname.split('.')[0]) else ip
+                    if _is_self(host) or any(s.get("host") == host for s in servers):
+                        continue
+                    servers.append({
+                        "host": host,
+                        "os_type": "linux",
+                        "username": current_user,
+                        "use_keys": True,
+                    })
     except Exception:
         pass
     
-    # Read ~/.ssh/known_hosts
+    # Read ~/.ssh/known_hosts (skip hashed entries: |1|...)
     ssh_dir = os.path.expanduser("~/.ssh")
     known_hosts = os.path.join(ssh_dir, "known_hosts")
     try:
@@ -78,23 +113,24 @@ def _auto_discover_local_servers() -> list:
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
-                    # known_hosts format: hostname,ip ssh-key...
                     parts = line.split()
-                    if parts:
-                        host_part = parts[0]
-                        # Can be "hostname,ip" or just "hostname"
-                        for host in host_part.split(","):
-                            host = host.strip()
-                            # Skip if it's an IP we already have or localhost
-                            if host and host not in ("localhost", "127.0.0.1") and not host.startswith("[") and not host.endswith("]"):
-                                # Skip if already added
-                                if not any(s.get("host") == host for s in servers):
-                                    servers.append({
-                                        "host": host,
-                                        "os_type": "linux",
-                                        "username": current_user,
-                                        "use_keys": True,
-                                    })
+                    if not parts:
+                        continue
+                    host_part = parts[0]
+                    for host in host_part.split(","):
+                        host = host.strip()
+                        if _is_self(host):
+                            continue
+                        if host.startswith("[") and host.endswith("]"):
+                            continue  # [hostname]:port format - could parse but skip for simplicity
+                        if any(s.get("host") == host for s in servers):
+                            continue
+                        servers.append({
+                            "host": host,
+                            "os_type": "linux",
+                            "username": current_user,
+                            "use_keys": True,
+                        })
     except Exception:
         pass
     

@@ -1,2 +1,4 @@
-# Shell scripts must use LF so shebang works on Linux (no 'bash\r' error)
+# Discovery agent: LF only so shebang works on Linux (no 'python3\r' / 'bash\r' error)
 discovery-agent/discover text eol=lf
+discovery-agent/*.py text eol=lf
+discovery-agent/scanners/**/*.py text eol=lf
