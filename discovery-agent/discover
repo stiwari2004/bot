@@ -1,36 +1,11 @@
-#!/usr/bin/env bash
-# One-command discovery: creates venv, installs deps, runs scan.
-# Usage:
-#   ./discover                                    # uses config.yaml
-#   ./discover "https://app/api/.../ingest" TOKEN # no config file needed
-set -e
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-VENV_DIR="$SCRIPT_DIR/.venv"
-PYTHON="${VENV_DIR}/bin/python"
-PIP="${VENV_DIR}/bin/pip"
-
-# Create venv if missing
-if [ ! -f "$PYTHON" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
-fi
-
-# Install deps into venv (no sudo)
-if [ -f requirements.txt ]; then
-    "$PIP" install -q -r requirements.txt
-fi
-
-# Optional: pass INGEST_URL and TOKEN as first two args (no config file needed)
-if [ $# -ge 2 ]; then
-    export DISCOVERY_INGEST_URL="$1"
-    export DISCOVERY_TOKEN="$2"
-    shift 2
-fi
-
-# Auto-discover servers from /etc/hosts and ~/.ssh/known_hosts when running on jump server
-# Set DISCOVERY_AUTO_SCAN=0 to disable
-export DISCOVERY_AUTO_SCAN="${DISCOVERY_AUTO_SCAN:-1}"
-
-exec "$PYTHON" run.py "$@"
+#!/usr/bin/env python3
+"""Wrapper script - use discover.py instead to avoid CRLF issues."""
+import sys
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+discover_py = os.path.join(script_dir, "discover.py")
+if os.path.isfile(discover_py):
+    os.execv(sys.executable, [sys.executable, discover_py] + sys.argv[1:])
+else:
+    print("Error: discover.py not found", file=sys.stderr)
+    sys.exit(1)

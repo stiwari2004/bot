@@ -33,9 +33,9 @@ scp -r discovery-agent\ labadmin@jump01:~/
 **Then on jump server (one command, no sudo pip):**
 ```bash
 cd ~/discovery-agent
-./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+python3 discover.py "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
-`./discover` creates a virtual environment (`.venv`), installs dependencies, and runs discovery. Use this on Debian/Ubuntu where `pip3 install` is blocked (externally-managed-environment).
+`discover.py` creates a virtual environment (`.venv`), installs dependencies, and runs discovery. Use this on Debian/Ubuntu where `pip3 install` is blocked (externally-managed-environment). It also auto-discovers servers from `/etc/hosts` and `~/.ssh/known_hosts`.
 
 **Option C: Download agent.zip (if endpoint works)**
 
@@ -50,22 +50,24 @@ file agent.zip
 # If valid:
 unzip agent.zip
 cd discovery-agent
-./discover "https://.../ingest" "YOUR_TOKEN"
+python3 discover.py "https://.../ingest" "YOUR_TOKEN"
 ```
 
 ### Step 2: Configure and run (no separate pip step)
 
-On Debian/Ubuntu do **not** run `sudo pip3 install` (it will fail). Use the `discover` script:
+On Debian/Ubuntu do **not** run `sudo pip3 install` (it will fail). Use the `discover.py` script:
 
 ```bash
 cd ~/discovery-agent
-./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+python3 discover.py "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
 
 With a config file (e.g. after editing `config.yaml` for remote_servers):
 ```bash
-./discover
+python3 discover.py
 ```
+
+**Note:** `discover.py` automatically discovers servers from `/etc/hosts` and `~/.ssh/known_hosts` when run on a jump server, so you may not need to configure `remote_servers.servers` manually.
 
 ### Step 3: Create/Edit config.yaml
 

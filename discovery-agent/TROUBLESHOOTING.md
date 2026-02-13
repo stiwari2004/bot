@@ -11,15 +11,14 @@ error: externally-managed-environment
 
 ### Solution
 
-Do **not** use `sudo pip3 install`. Use the **`discover`** script instead—it creates a virtual environment (`.venv`) and installs dependencies there:
+Do **not** use `sudo pip3 install`. Use the **`discover.py`** script instead—it creates a virtual environment (`.venv`) and installs dependencies there:
 
 ```bash
 cd ~/discovery-agent
-chmod +x discover
-./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+python3 discover.py "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
 
-Or with an existing config: `./discover`
+Or with an existing config: `python3 discover.py`
 
 ---
 
@@ -66,9 +65,9 @@ scp -r discovery-agent/ labadmin@jump01:~/
 **Then on jump server (one command; no sudo pip):**
 ```bash
 cd ~/discovery-agent
-./discover "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+python3 discover.py "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
-To use a config file (e.g. after enabling remote_servers in config.yaml): run `./discover` with no arguments.
+To use a config file (e.g. after enabling remote_servers in config.yaml): run `python3 discover.py` with no arguments.
 
 ### Alternative: Git Clone (if repo is accessible)
 
@@ -76,8 +75,8 @@ If the repo is on GitHub/GitLab:
 ```bash
 git clone <repo-url>
 cd bot/discovery-agent
-./discover "https://.../ingest" "YOUR_TOKEN"
-# Or edit config.yaml and run: ./discover
+python3 discover.py "https://.../ingest" "YOUR_TOKEN"
+# Or edit config.yaml and run: python3 discover.py
 ```
 
 ### Quick Test: Check Endpoint
