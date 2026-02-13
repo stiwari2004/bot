@@ -36,6 +36,28 @@ network:
 storage:
   enabled: false
   targets: []
+# Remote servers: discover Linux/Windows servers via SSH/WinRM from jump server
+# To enable, set enabled: true and configure servers list below
+remote_servers:
+  enabled: false
+  timeout: 30
+  # If running FROM jump server, omit jump_server section
+  # If running FROM another machine, configure jump_server:
+  # jump_server:
+  #   host: "jump.example.com"
+  #   username: "admin"
+  #   password: "secret"
+  servers: []
+  # Example servers (uncomment and configure):
+  # - host: "192.168.1.10"
+  #   os_type: "linux"
+  #   username: "ubuntu"
+  #   password: "secret"
+  # - host: "192.168.1.20"
+  #   os_type: "windows"
+  #   username: "Administrator"
+  #   password: "secret"
+  #   port: 5985
 """ % (ingest_url, token)
     with open(path, "w") as f:
         f.write(content)
@@ -159,6 +181,11 @@ def main():
     if len(sys.argv) < 3:
         print("Usage: python3 one_step.py INGEST_URL TOKEN", file=sys.stderr)
         print("Example: python3 one_step.py \"https://app.example.com/api/v1/tenant-admin/discovery/ingest\" \"your-token\"", file=sys.stderr)
+        print("\nNote: To scan remote servers from a jump server:", file=sys.stderr)
+        print("  1. Run this script on the jump server", file=sys.stderr)
+        print("  2. Edit the generated config.yaml and set remote_servers.enabled: true", file=sys.stderr)
+        print("  3. Add your servers to remote_servers.servers list", file=sys.stderr)
+        print("  4. Run: python3 run.py config.yaml", file=sys.stderr)
         return 1
     ingest_url = sys.argv[1].strip()
     token = sys.argv[2].strip()

@@ -338,11 +338,19 @@ async def get_run_script():
             # Fallback: bundled script inside backend (production Docker image)
             app_dir = this_file.parent.parent.parent.parent  # endpoints -> v1 -> api -> app
             script_path = app_dir / "static" / "discovery" / "one_step.py"
+        if not script_path.is_file():
+            # Additional fallback: try relative to current working directory
+            import os
+            cwd = Path(os.getcwd())
+            script_path = cwd / "discovery-agent" / "one_step.py"
         if script_path.is_file():
             return PlainTextResponse(script_path.read_text(encoding="utf-8"), media_type="text/plain")
-    except Exception:
-        pass
-    raise HTTPException(status_code=404, detail="Discovery run script not available")
+    except Exception as e:
+        # Log error for debugging but don't expose internal paths
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to locate discovery script: {e}", exc_info=True)
+    raise HTTPException(status_code=404, detail="Discovery run script not available. Please download agent.zip or use manual setup.")
 
 
 @router.get("/agent.zip", response_class=Response)
