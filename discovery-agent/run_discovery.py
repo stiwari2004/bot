@@ -186,34 +186,35 @@ def main() -> int:
     # Remote servers (Linux/Windows via SSH/WinRM from jump server)
     remote_cfg = config.get("remote_servers") or {}
     auto_scan = os.environ.get("DISCOVERY_AUTO_SCAN", "").lower() in ("1", "true", "yes")
+    servers_to_scan = list(remote_cfg.get("servers") or [])  # Explicit list to scan
     
-    # Auto-enable remote_servers if DISCOVERY_AUTO_SCAN is set or if enabled but servers list is empty
-    if auto_scan or (remote_cfg.get("enabled") and not remote_cfg.get("servers")):
-        # Try to auto-discover servers from local /etc/hosts and ~/.ssh/known_hosts
+    # Auto-discover servers from /etc/hosts and ~/.ssh/known_hosts when on Linux
+    if (auto_scan or (remote_cfg.get("enabled") and not servers_to_scan)):
         import platform
         if platform.system() == "Linux":
             discovered_servers = _auto_discover_local_servers()
             if discovered_servers:
-                remote_cfg["enabled"] = True  # Always enable if we found servers
-                remote_cfg["servers"] = discovered_servers  # Always set servers list
+                servers_to_scan = discovered_servers  # Use discovered list
+                remote_cfg["enabled"] = True
+                remote_cfg["servers"] = discovered_servers
                 print(f"Auto-discovered {len(discovered_servers)} servers from /etc/hosts and ~/.ssh/known_hosts", file=sys.stderr)
                 print(f"Note: Using SSH key authentication. If connections fail, configure passwords in config.yaml", file=sys.stderr)
                 sys.stderr.flush()
     
-    # Scan remote servers if enabled and we have servers
-    if remote_cfg.get("enabled") and remote_cfg.get("servers"):
+    # Scan remote servers: use servers_to_scan so we always scan when we auto-discovered
+    if (remote_cfg.get("enabled") or (auto_scan and servers_to_scan)) and servers_to_scan:
         try:
             from scanners.remote_servers import scan_remote_servers
             jump_config = remote_cfg.get("jump_server")
             timeout = int(remote_cfg.get("timeout", 30))
-            print(f"Scanning {len(remote_cfg['servers'])} remote servers...", file=sys.stderr)
-            sys.stderr.flush()  # Force output
+            print(f"Scanning {len(servers_to_scan)} remote servers...", file=sys.stderr)
+            sys.stderr.flush()
             remote_assets = scan_remote_servers(
-                servers=remote_cfg["servers"],
+                servers=servers_to_scan,
                 jump_config=jump_config,
                 timeout=timeout,
             )
-            print(f"Successfully discovered {len(remote_assets)}/{len(remote_cfg['servers'])} servers", file=sys.stderr)
+            print(f"Successfully discovered {len(remote_assets)}/{len(servers_to_scan)} servers", file=sys.stderr)
             all_assets.extend(remote_assets)
         except ImportError as e:
             print(f"Warning: remote_servers scanner not available: {e}", file=sys.stderr)
@@ -223,8 +224,6 @@ def main() -> int:
             print(f"Warning: remote servers scan failed: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc(file=sys.stderr)
-    elif auto_scan:
-        print(f"DEBUG: Auto-scan enabled but remote_servers not enabled or no servers found", file=sys.stderr)
 
     if not all_assets:
         print("No assets to report.", file=sys.stderr)
