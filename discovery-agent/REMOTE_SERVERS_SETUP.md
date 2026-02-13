@@ -7,21 +7,50 @@ When running discovery from a jump server, it only reports the jump server itsel
 
 ### Step 1: Get the Discovery Script
 
-**Option A: Direct Download (if endpoint works)**
+**⚠️ IMPORTANT**: The zip endpoint may not work in Docker. Use **Option B (Manual Setup)** instead.
+
+**Option A: Direct Download (may not work in Docker)**
 ```bash
 curl -sSL "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/run" -o run.py
 python3 run.py "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
 ```
 
-**Option B: Manual Setup (if endpoint returns 404)**
+**Option B: Manual Setup (RECOMMENDED)**
 
-1. **Copy discovery-agent folder to jump server** (via SCP, git clone, etc.)
-2. **Or download agent.zip**:
-   ```bash
-   curl -sSL "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/agent.zip" -o agent.zip
-   unzip agent.zip
-   cd discovery-agent
-   ```
+**Copy discovery-agent folder to jump server:**
+
+From your local machine (where you have the bot repo):
+```bash
+# Linux/Mac:
+scp -r discovery-agent/ labadmin@jump01:~/
+
+# Windows (PowerShell with OpenSSH):
+scp -r discovery-agent\ labadmin@jump01:~/
+
+# Or use WinSCP/FileZilla GUI to copy the folder
+```
+
+**Then on jump server:**
+```bash
+cd ~/discovery-agent
+pip3 install -r requirements.txt
+```
+
+**Option C: Download agent.zip (if endpoint works)**
+
+```bash
+curl -sSL "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/agent.zip" -o agent.zip
+
+# Verify it's a valid zip (not HTML error page):
+file agent.zip
+# Should show: "Zip archive data"
+# If it shows "HTML document", the endpoint failed - use Option B instead
+
+# If valid:
+unzip agent.zip
+cd discovery-agent
+pip3 install -r requirements.txt
+```
 
 ### Step 2: Install Dependencies
 

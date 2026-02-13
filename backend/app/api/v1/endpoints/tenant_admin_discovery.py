@@ -359,25 +359,90 @@ async def get_agent_zip():
     Returns discovery-agent folder as a zip so one_step.py can download and run
     full discovery when not run from inside the repo.
     """
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    agent_dir = None
     try:
         this_file = Path(__file__).resolve()
+        # Try multiple path resolution strategies
+        paths_to_try = []
+        
+        # Strategy 1: Relative to backend (local dev)
         backend = this_file.parent.parent.parent.parent.parent
         repo_root = backend.parent
-        agent_dir = repo_root / "discovery-agent"
-        if not agent_dir.is_dir():
-            raise HTTPException(status_code=404, detail="Discovery agent package not available")
+        paths_to_try.append(repo_root / "discovery-agent")
+        
+        # Strategy 2: Relative to app directory (Docker)
+        app_dir = this_file.parent.parent.parent.parent  # endpoints -> v1 -> api -> app
+        paths_to_try.append(app_dir.parent.parent / "discovery-agent")  # Go up to repo root
+        
+        # Strategy 3: Current working directory
+        import os
+        cwd = Path(os.getcwd())
+        paths_to_try.append(cwd / "discovery-agent")
+        paths_to_try.append(cwd.parent / "discovery-agent")
+        
+        # Strategy 4: Absolute path from environment (if set)
+        if os.environ.get("DISCOVERY_AGENT_DIR"):
+            paths_to_try.append(Path(os.environ["DISCOVERY_AGENT_DIR"]))
+        
+        # Find first existing directory
+        for path in paths_to_try:
+            if path.is_dir() and (path / "run_discovery.py").is_file():
+                agent_dir = path
+                logger.info(f"Found discovery-agent at: {agent_dir}")
+                break
+        
+        if not agent_dir:
+            logger.error("Discovery agent directory not found. Tried paths: %s", [str(p) for p in paths_to_try])
+            raise HTTPException(
+                status_code=404,
+                detail="Discovery agent package not available. Please ensure discovery-agent folder exists."
+            )
+        
+        # Create zip in memory
         buf = io.BytesIO()
+        files_added = 0
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in agent_dir.rglob("*"):
-                if f.is_file() and ".git" not in f.parts and "__pycache__" not in f.parts:
-                    arcname = f.relative_to(agent_dir.parent)
-                    zf.write(f, arcname)
+                if f.is_file():
+                    # Skip hidden files, git, cache
+                    if any(part.startswith(".") and part not in [".yaml", ".yml"] for part in f.parts):
+                        continue
+                    if ".git" in f.parts or "__pycache__" in f.parts or ".pyc" in f.name:
+                        continue
+                    try:
+                        # Archive name: preserve discovery-agent/ structure
+                        arcname = f.relative_to(agent_dir.parent)
+                        zf.write(f, arcname)
+                        files_added += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to add {f} to zip: {e}")
+                        continue
+        
+        if files_added == 0:
+            logger.error("No files added to zip archive")
+            raise HTTPException(status_code=500, detail="Failed to create discovery agent package")
+        
         buf.seek(0)
-        return Response(content=buf.getvalue(), media_type="application/zip")
+        zip_content = buf.getvalue()
+        logger.info(f"Created agent.zip with {files_added} files, size: {len(zip_content)} bytes")
+        
+        return Response(
+            content=zip_content,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=discovery-agent.zip"}
+        )
+        
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Discovery agent package not available")
+    except Exception as e:
+        logger.error(f"Error creating agent.zip: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create discovery agent package: {str(e)}"
+        )
 
 
 # --- Ingest (token-only; agent calls this, no session) ---
