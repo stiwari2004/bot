@@ -31,6 +31,76 @@ def load_config(path: str) -> dict:
         return {}
 
 
+def _auto_discover_local_servers() -> list:
+    """Auto-discover servers from local /etc/hosts and ~/.ssh/known_hosts when running on jump server."""
+    servers = []
+    import socket
+    import os.path
+    import getpass
+    
+    # Get current username for SSH connections
+    current_user = getpass.getuser()
+    
+    # Read /etc/hosts
+    try:
+        with open("/etc/hosts", "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    ip = parts[0]
+                    hostname = parts[-1]  # Last part is usually hostname
+                    # Skip localhost and loopback
+                    if ip not in ("127.0.0.1", "::1", "localhost") and hostname not in ("localhost", "localhost.localdomain"):
+                        # Only include private IPs (assumes jump server can reach them)
+                        if ip.startswith(("192.168.", "10.", "172.")) or ":" not in ip:
+                            # Use hostname if it's not an IP, otherwise use IP
+                            host = hostname if not all(c.isdigit() or c == '.' for c in hostname.split('.')[0]) else ip
+                            if host not in [s.get("host") for s in servers]:
+                                servers.append({
+                                    "host": host,
+                                    "os_type": "linux",  # Default assumption
+                                    "username": current_user,  # Use current user
+                                    "use_keys": True,  # Prefer SSH keys (common on jump servers)
+                                })
+    except Exception:
+        pass
+    
+    # Read ~/.ssh/known_hosts
+    ssh_dir = os.path.expanduser("~/.ssh")
+    known_hosts = os.path.join(ssh_dir, "known_hosts")
+    try:
+        if os.path.isfile(known_hosts):
+            with open(known_hosts, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    # known_hosts format: hostname,ip ssh-key...
+                    parts = line.split()
+                    if parts:
+                        host_part = parts[0]
+                        # Can be "hostname,ip" or just "hostname"
+                        for host in host_part.split(","):
+                            host = host.strip()
+                            # Skip if it's an IP we already have or localhost
+                            if host and host not in ("localhost", "127.0.0.1") and not host.startswith("[") and not host.endswith("]"):
+                                # Skip if already added
+                                if not any(s.get("host") == host for s in servers):
+                                    servers.append({
+                                        "host": host,
+                                        "os_type": "linux",
+                                        "username": current_user,
+                                        "use_keys": True,
+                                    })
+    except Exception:
+        pass
+    
+    return servers
+
+
 def run_agent_self() -> dict:
     """Build the single host asset (same as discovery_agent.py)."""
     import platform
@@ -115,6 +185,21 @@ def main() -> int:
 
     # Remote servers (Linux/Windows via SSH/WinRM from jump server)
     remote_cfg = config.get("remote_servers") or {}
+    auto_scan = os.environ.get("DISCOVERY_AUTO_SCAN", "").lower() in ("1", "true", "yes")
+    
+    # Auto-enable remote_servers if DISCOVERY_AUTO_SCAN is set or if enabled but servers list is empty
+    if auto_scan or (remote_cfg.get("enabled") and not remote_cfg.get("servers")):
+        # Try to auto-discover servers from local /etc/hosts and ~/.ssh/known_hosts
+        import platform
+        if platform.system() == "Linux":
+            discovered_servers = _auto_discover_local_servers()
+            if discovered_servers:
+                if not remote_cfg.get("enabled"):
+                    remote_cfg["enabled"] = True
+                if not remote_cfg.get("servers"):
+                    remote_cfg["servers"] = discovered_servers
+                    print(f"Auto-discovered {len(discovered_servers)} servers from /etc/hosts and ~/.ssh/known_hosts", file=sys.stderr)
+    
     if remote_cfg.get("enabled") and remote_cfg.get("servers"):
         try:
             from scanners.remote_servers import scan_remote_servers

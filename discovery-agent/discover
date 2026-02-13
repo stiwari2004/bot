@@ -29,4 +29,8 @@ if [ $# -ge 2 ]; then
     shift 2
 fi
 
+# Auto-discover servers from /etc/hosts and ~/.ssh/known_hosts when running on jump server
+# Set DISCOVERY_AUTO_SCAN=0 to disable
+export DISCOVERY_AUTO_SCAN="${DISCOVERY_AUTO_SCAN:-1}"
+
 exec "$PYTHON" run.py "$@"
