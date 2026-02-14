@@ -5,6 +5,7 @@ import { PlusIcon, WrenchScrewdriverIcon, ArrowUpTrayIcon } from '@heroicons/rea
 import type { InfrastructureConnection, Credential } from '../types';
 import { useInfrastructureConnections } from '../hooks/useInfrastructureConnections';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -52,7 +53,7 @@ export function InfrastructureConnectionsSection({
       const formData = new FormData();
       formData.append('file', importFile);
 
-      const response = await fetch(apiConfig.endpoints.connectors.infrastructureConnectionsImport(), {
+      const response = await authFetch(apiConfig.endpoints.connectors.infrastructureConnectionsImport(), {
         method: 'POST',
         body: formData,
       });

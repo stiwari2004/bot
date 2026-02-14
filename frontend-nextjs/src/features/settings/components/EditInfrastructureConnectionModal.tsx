@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import type { InfrastructureConnection, Credential } from '../types';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -47,7 +48,7 @@ export function EditInfrastructureConnectionModal({ connection, credentials, onC
         target_service: targetService || undefined,
       };
 
-      const response = await fetch(apiConfig.endpoints.connectors.infrastructureConnection(connection.id), {
+      const response = await authFetch(apiConfig.endpoints.connectors.infrastructureConnection(connection.id), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

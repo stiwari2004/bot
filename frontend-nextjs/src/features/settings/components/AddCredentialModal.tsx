@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
@@ -73,7 +74,7 @@ export function AddCredentialModal({ onClose, onSuccess }: AddCredentialModalPro
         if (databaseName) payload.database_name = databaseName;
       }
 
-      const response = await fetch(apiConfig.endpoints.connectors.credentials(), {
+      const response = await authFetch(apiConfig.endpoints.connectors.credentials(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
