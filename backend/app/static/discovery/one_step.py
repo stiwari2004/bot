@@ -42,28 +42,27 @@ storage:
         f.write(content)
 
 def _run_from_here(ingest_url, token):
-    """We're in discovery-agent folder: use discover.py (venv) to avoid system pip / externally-managed-environment."""
+    """We're in discovery-agent folder: run discover.py. Use exec to avoid two Python processes (reduces OOM)."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.isfile(os.path.join(script_dir, "run_discovery.py")):
         return False
-    import subprocess
     discover_py = os.path.join(script_dir, "discover.py")
     if os.path.isfile(discover_py):
-        code = subprocess.run(
-            [sys.executable, discover_py, ingest_url, token],
-            cwd=script_dir,
-        ).returncode
-        return None if code != 0 else True
+        os.chdir(script_dir)
+        os.execv(sys.executable, [sys.executable, discover_py, ingest_url, token])
+        return None  # unreachable
+    import subprocess
     _write_config(script_dir, ingest_url, token)
     reqs = os.path.join(script_dir, "requirements.txt")
     if os.path.isfile(reqs):
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
+            [sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir", "-r", "requirements.txt"],
             cwd=script_dir,
             check=False,
+            env=dict(os.environ, PIP_NO_CACHE_DIR="1"),
         )
     code = subprocess.run([sys.executable, "run.py"], cwd=script_dir).returncode
-    return None if code != 0 else True  # True = success
+    return None if code != 0 else True
 
 DOWNLOAD_TIMEOUT = 60
 
@@ -126,22 +125,20 @@ def _download_and_run(ingest_url, token):
             print("Package layout unexpected, reporting this host only.", file=sys.stderr)
             return _report_this_host_only(ingest_url, token)
         _write_config(agent_dir, ingest_url, token)
-        import subprocess
         discover_py = os.path.join(agent_dir, "discover.py")
         if os.path.isfile(discover_py):
-            code = subprocess.run(
-                [sys.executable, discover_py, ingest_url, token],
+            os.chdir(agent_dir)
+            os.execv(sys.executable, [sys.executable, "discover.py", ingest_url, token])
+        import subprocess
+        reqs = os.path.join(agent_dir, "requirements.txt")
+        if os.path.isfile(reqs):
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-q", "--no-cache-dir", "-r", "requirements.txt"],
                 cwd=agent_dir,
-            ).returncode
-        else:
-            reqs = os.path.join(agent_dir, "requirements.txt")
-            if os.path.isfile(reqs):
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
-                    cwd=agent_dir,
-                    check=False,
-                )
-            code = subprocess.run([sys.executable, "run.py"], cwd=agent_dir).returncode
+                check=False,
+                env=dict(os.environ, PIP_NO_CACHE_DIR="1"),
+            )
+        code = subprocess.run([sys.executable, "run.py"], cwd=agent_dir).returncode
         return 0 if code == 0 else 1
     except Exception as e:
         print("Setup failed: %s" % e, file=sys.stderr)

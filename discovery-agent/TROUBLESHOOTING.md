@@ -32,6 +32,25 @@ Then run: `python3 discover.py "https://.../ingest" "YOUR_TOKEN"`
 
 ---
 
+## Issue: Process shows `Killed` (no other message)
+
+### Cause
+The Linux OOM (out-of-memory) killer is terminating the process. Creating a venv and running `pip install` (paramiko, netmiko, PyYAML, pywinrm) can use a lot of memory on small VMs (e.g. 512MB–1GB).
+
+### What we do to reduce memory
+- The one-step script **replaces itself** with `discover.py` (no second Python process).
+- `pip install` is run with `--no-cache-dir` and `PIP_NO_CACHE_DIR=1`.
+
+### If it still gets killed
+1. **Run from your home directory**, not from inside `discovery-agent`:  
+   `cd ~` then run the curl one-liner. That way the script downloads the agent to a temp dir and runs there (single process after exec).
+2. **Increase memory** for the jump server (e.g. 2GB RAM) if possible.
+3. **Pre-create a venv and install deps once**, then run discovery without creating a new venv:  
+   `cd ~/discovery-agent && python3 -m venv .venv && .venv/bin/pip install --no-cache-dir -r requirements.txt`  
+   Then run: `.venv/bin/python run.py` with `DISCOVERY_INGEST_URL` and `DISCOVERY_TOKEN` set.
+
+---
+
 ## Issue: `discover.py` shows "Usage: python3 one_step.py ..."
 
 ### Cause

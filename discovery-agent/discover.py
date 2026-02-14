@@ -27,10 +27,16 @@ def main():
         print("Creating virtual environment...")
         subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True)
     
-    # Install deps into venv (no sudo)
+    # Install deps into venv (no sudo). --no-cache-dir reduces memory use on small systems.
     reqs = os.path.join(script_dir, "requirements.txt")
     if os.path.isfile(reqs):
-        subprocess.run([pip, "install", "-q", "-r", reqs], check=False)
+        env = os.environ.copy()
+        env["PIP_NO_CACHE_DIR"] = "1"
+        subprocess.run(
+            [pip, "install", "-q", "--no-cache-dir", "-r", reqs],
+            check=False,
+            env=env,
+        )
     
     # Optional: pass INGEST_URL and TOKEN as first two args (no config file needed)
     if len(sys.argv) >= 3:
