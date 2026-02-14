@@ -358,6 +358,10 @@ def _get_discovery_agent_dir() -> Path:
     """Return discovery-agent directory path; raises HTTPException if not found."""
     this_file = Path(__file__).resolve()
     paths_to_try = []
+    if os.environ.get("DISCOVERY_AGENT_DIR"):
+        paths_to_try.append(Path(os.environ["DISCOVERY_AGENT_DIR"]))
+    # Standard location when discovery-agent is mounted in Docker at /app/discovery-agent
+    paths_to_try.append(Path("/app/discovery-agent"))
     backend = this_file.parent.parent.parent.parent.parent
     repo_root = backend.parent
     paths_to_try.append(repo_root / "discovery-agent")
@@ -366,8 +370,6 @@ def _get_discovery_agent_dir() -> Path:
     cwd = Path(os.getcwd())
     paths_to_try.append(cwd / "discovery-agent")
     paths_to_try.append(cwd.parent / "discovery-agent")
-    if os.environ.get("DISCOVERY_AGENT_DIR"):
-        paths_to_try.insert(0, Path(os.environ["DISCOVERY_AGENT_DIR"]))
     for path in paths_to_try:
         if path.is_dir() and (path / "run_discovery.py").is_file():
             return path

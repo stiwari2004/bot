@@ -218,6 +218,26 @@ Check the Resolvify UI → Tenant Admin → Discovery → Assets to see all disc
 
 **Solution**: Use manual setup (Option B above) or download agent.zip directly.
 
+### Issue: 404 on `agent.tar.gz` or `agent.zip` (“Tar download failed … trying zip … Download failed … reporting this host only”)
+
+**Cause**: The backend container cannot find the `discovery-agent` folder, so it returns 404 for both archive endpoints.
+
+**Solution** (when using Docker Compose from the repo):
+
+- Ensure the backend service mounts the discovery-agent folder. In your compose file, add to the backend `volumes`:
+  ```yaml
+  - ./discovery-agent:/app/discovery-agent
+  ```
+- Restart the backend container so the mount is applied.
+
+**Solution** (when running the backend in Docker without compose):
+
+- Mount the repo’s discovery-agent directory into the container, e.g.:
+  ```bash
+  docker run ... -v /path/to/repo/discovery-agent:/app/discovery-agent ...
+  ```
+- Or set `DISCOVERY_AGENT_DIR=/path/inside/container/to/discovery-agent` and ensure that path exists in the image or is mounted.
+
 ### Issue: "remote_servers scanner not available"
 
 **Solution**: Install dependencies:

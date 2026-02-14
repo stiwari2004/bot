@@ -82,6 +82,7 @@ services:
         condition: service_started
     volumes:
       - ./backend:/app  # Mount backend code live for development (allows uvicorn --reload to work)
+      - ./discovery-agent:/app/discovery-agent  # Required for /api/v1/tenant-admin/discovery/agent.tar.gz and agent.zip
       - ./uploads-dev:/app/uploads  # Separate uploads directory for dev to avoid conflicts with production
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # Reload enabled for dev
     restart: unless-stopped

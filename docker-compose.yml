@@ -58,6 +58,7 @@ services:
         condition: service_started
     volumes:
       - ./backend:/app
+      - ./discovery-agent:/app/discovery-agent  # Required for discovery agent archives (agent.tar.gz / agent.zip)
       - ./uploads:/app/uploads
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
