@@ -1,9 +1,23 @@
 # Remote Servers Discovery Setup Guide
 
+## Network Discovery (Recommended)
+
+When `network_discovery.enabled: true` (or `DISCOVERY_AUTO_SCAN=1`), the agent:
+
+1. **Phase 1: Ping sweep** – Uses the jump server's subnet (e.g. /24) to find all alive hosts. Port-agnostic; finds anything that responds to ping.
+2. **Phase 2: Fingerprint** – Probes common ports (22, 5985, 5432, etc.) to get hostname and OS.
+3. **Phase 3: Full scan** – Runs full inventory (CPU, memory, disk) on Linux/Windows/DBs via SSH/WinRM/SNMP.
+
+Run `python3 discover.py "INGEST_URL" "TOKEN"` on the jump server. No pre-configured server list required.
+
+---
+
+## Legacy: Manual Server List
+
 ## Problem
 When running discovery from a jump server, it only reports the jump server itself, not the other servers accessible via SSH.
 
-## Solution
+## Solution (manual config)
 
 ### Step 1: Get the Discovery Script
 

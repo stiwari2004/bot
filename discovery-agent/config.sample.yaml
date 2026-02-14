@@ -11,6 +11,18 @@ ingest:
 agent:
   enabled: true
 
+# Network discovery: ping sweep (port-agnostic) -> fingerprint -> full scan
+# When enabled, derives subnet from jump server IP and finds all alive hosts
+network_discovery:
+  enabled: true
+  # Optional: explicit subnets (e.g. ["192.168.48.0/24"]). If empty, uses jump server's /24
+  scan_subnets: []
+  prefix_len: 24       # /24 by default
+  ping_timeout: 2      # seconds per host
+  # For Windows (WinRM) fingerprinting; SSH uses current user's keys
+  # winrm_password: "optional"
+  # snmp_community: "public"
+
 # Network devices: routers, switches (SSH and/or SNMP)
 network:
   enabled: false

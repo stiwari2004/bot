@@ -137,6 +137,118 @@ def _auto_discover_local_servers() -> list:
     return servers
 
 
+def _run_network_discovery(nd_cfg: dict, config: dict, run_agent_self_fn) -> list:
+    """
+    Phase 1: Ping sweep (port-agnostic). Phase 2: Fingerprint. Phase 3: Full scan.
+    Returns list of assets.
+    """
+    import getpass
+    from scanners.network_discovery import discover_alive_hosts, get_jump_server_ip
+    from scanners.fingerprint import fingerprint_alive_hosts
+
+    scan_subnets = nd_cfg.get("scan_subnets") or []
+    prefix_len = int(nd_cfg.get("prefix_len", 24))
+    timeout = int(nd_cfg.get("ping_timeout", 2))
+    remote_cfg = config.get("remote_servers") or {}
+    username = remote_cfg.get("default_username") or getpass.getuser()
+    use_keys = remote_cfg.get("use_keys", True)
+    winrm_password = remote_cfg.get("default_winrm_password") or nd_cfg.get("winrm_password")
+    snmp_community = (config.get("network") or {}).get("snmp_community") or nd_cfg.get("snmp_community") or "public"
+
+    print("Phase 1: Ping sweep (port-agnostic)...", file=sys.stderr)
+    alive = discover_alive_hosts(scan_subnets=scan_subnets, prefix_len=prefix_len, timeout=timeout)
+    self_ip = get_jump_server_ip()
+    if self_ip and self_ip in alive:
+        alive = [ip for ip in alive if ip != self_ip]
+    print(f"  Found {len(alive)} alive hosts", file=sys.stderr)
+    if not alive:
+        return []
+
+    print("Phase 2: Fingerprinting (hostname, OS)...", file=sys.stderr)
+    targets = fingerprint_alive_hosts(
+        alive,
+        self_ip=self_ip,
+        username=username,
+        use_keys=use_keys,
+        key_file=remote_cfg.get("key_file"),
+        winrm_password=winrm_password,
+        snmp_community=snmp_community,
+    )
+
+    all_assets = []
+    remote_targets = []
+    snmp_targets = []
+    unknown_targets = []
+
+    for t in targets:
+        ot = (t.get("os_type") or "unknown").lower()
+        if ot in ("linux", "unix", "ubuntu", "centos", "rhel", "debian", "windows", "win", "winrm"):
+            remote_targets.append(t)
+        elif ot in ("postgresql", "mysql", "mssql", "mongodb") or t.get("db_type"):
+            remote_targets.append(t)
+        elif ot == "snmp":
+            snmp_targets.append({"host": t["host"], "snmp_only": True, "snmp_community": snmp_community})
+        elif ot == "unknown":
+            if t.get("open_ports") and 22 in t.get("open_ports", {}):
+                # Port 22 open, try SSH
+                t["os_type"] = "linux"
+                remote_targets.append(t)
+            else:
+                # No open ports or no SSH - report as alive
+                unknown_targets.append(t)
+        elif ot == "synology":
+            unknown_targets.append(t)
+        else:
+            unknown_targets.append(t)
+
+    # Full scan: remote servers (Linux, Windows, DBs)
+    if remote_targets:
+        try:
+            from scanners.remote_servers import scan_remote_servers
+            print(f"Phase 3: Full inventory of {len(remote_targets)} hosts...", file=sys.stderr)
+            remote_assets = scan_remote_servers(
+                servers=remote_targets,
+                jump_config=remote_cfg.get("jump_server"),
+                timeout=int(remote_cfg.get("timeout", 30)),
+            )
+            all_assets.extend(remote_assets)
+            print(f"  Discovered {len(remote_assets)}/{len(remote_targets)} servers", file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: remote scan failed: {e}", file=sys.stderr)
+
+    # SNMP devices
+    if snmp_targets:
+        try:
+            from scanners.network import scan_network_devices
+            net_assets = scan_network_devices(snmp_targets, snmp_community=snmp_community, prefer_ssh=False)
+            all_assets.extend(net_assets)
+            print(f"  Discovered {len(net_assets)} SNMP devices", file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: SNMP scan failed: {e}", file=sys.stderr)
+
+    # Minimal assets for hosts we couldn't full-scan (synology, unknown)
+    for t in unknown_targets:
+        tags = {"discovered": "alive"}
+        if t.get("os_type") == "synology":
+            tags["type"] = "synology_dsm"
+            tags["port"] = "5001"
+        elif t.get("open_ports"):
+            tags["open_ports"] = str(list(t["open_ports"].keys()))
+        else:
+            tags["note"] = "no common ports open"
+        all_assets.append({
+            "source": "network_discovery",
+            "source_native_id": f"{t['host']}:{t.get('os_type', 'alive')}",
+            "fingerprint": t.get("hostname", t["host"]),
+            "name": t.get("hostname", t["host"]) or t["host"],
+            "primary_ip": t["host"],
+            "ips": [t["host"]],
+            "tags": tags,
+        })
+
+    return all_assets
+
+
 def run_agent_self() -> dict:
     """Build the single host asset (same as discovery_agent.py)."""
     import platform
@@ -201,6 +313,17 @@ def main() -> int:
     if config.get("agent", {}).get("enabled", True) if config else True:
         all_assets.append(run_agent_self())
 
+    # Network discovery: ping sweep (port-agnostic) -> fingerprint -> full scan
+    nd_cfg = config.get("network_discovery") or {}
+    auto_scan = os.environ.get("DISCOVERY_AUTO_SCAN", "").lower() in ("1", "true", "yes")
+    ran_network_discovery = False
+    if nd_cfg.get("enabled") or auto_scan:
+        if not nd_cfg.get("enabled"):
+            nd_cfg = {**nd_cfg, "enabled": True}
+        _assets = _run_network_discovery(nd_cfg, config, run_agent_self)
+        all_assets.extend(_assets)
+        ran_network_discovery = True
+
     # Network devices
     net_cfg = config.get("network") or {}
     if net_cfg.get("enabled") and net_cfg.get("devices"):
@@ -224,8 +347,8 @@ def main() -> int:
     auto_scan = os.environ.get("DISCOVERY_AUTO_SCAN", "").lower() in ("1", "true", "yes")
     servers_to_scan = list(remote_cfg.get("servers") or [])
     
-    # Auto-discover from /etc/hosts and ~/.ssh/known_hosts when on Linux and auto_scan or no servers in config
-    if (auto_scan or not servers_to_scan):
+    # Auto-discover from /etc/hosts and ~/.ssh/known_hosts when on Linux (skip if network_discovery already ran)
+    if not ran_network_discovery and (auto_scan or not servers_to_scan):
         import platform
         if platform.system() == "Linux":
             discovered = _auto_discover_local_servers()
