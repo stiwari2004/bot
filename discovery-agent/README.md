@@ -2,6 +2,8 @@
 
 **One command** discovers this host, network devices (routers, switches), and storage (SAN/NAS), and sends everything to Resolvify. Works on **Windows**, **Linux**, and **macOS**. No config file. No separate install.
 
+**Customer delivery:** Ship a **Docker image**; dependencies are installed at build time, so at runtime the container only runs discovery (no pip or venv). See [REMOTE_SERVERS_SETUP.md](REMOTE_SERVERS_SETUP.md#customer-docker-image-production) for build and run. Bootstrap scripts (below) are for non-Docker environments (e.g. your own jump server).
+
 ---
 
 ## One step
@@ -23,7 +25,7 @@ That command fetches the scanner, installs dependencies, and runs full discovery
 - **Storage / SAN / NAS** if you add `storage.targets` in config
 - **Remote servers** (Linux/Windows servers, databases) via SSH/WinRM from a jump server if you add `remote_servers.servers` in config
 
-By default the one command reports this host. For network, storage, and remote servers, copy the discovery-agent folder, add a `config.yaml` with devices/targets/servers, and run **`python3 discover.py`** from that folder (or `python3 discover.py "https://.../ingest" YOUR_TOKEN` with no config). On Debian/Ubuntu use `discover.py` so dependencies install into a venv and you avoid the "externally-managed-environment" error—do not run `sudo pip3 install`.
+By default the one command reports this host. For **jump-server discovery** (network + remote servers), use the **bootstrap** script so you don’t have to copy the folder: **Linux/macOS** run `bash bootstrap.sh "https://.../ingest" YOUR_TOKEN`; **Windows** run `.\bootstrap.ps1 -IngestUrl "https://.../ingest" -Token YOUR_TOKEN`. See `REMOTE_SERVERS_SETUP.md` for details. If you already have the discovery-agent folder, run **`python3 discover.py`** (or `python3 discover.py "https://.../ingest" YOUR_TOKEN`); `discover.py` creates a venv and installs deps—on Debian/Ubuntu do not run `sudo pip3 install`.
 
 ---
 

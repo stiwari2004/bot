@@ -12,6 +12,69 @@ Run `python3 discover.py "INGEST_URL" "TOKEN"` on the jump server. No pre-config
 
 ---
 
+## Customer Docker image (production)
+
+For customers you ship a **Docker image**. The image has all dependencies installed at **build time**; at runtime the container only runs discovery. No bootstrap, no pip install, no venv inside the container. License activation is handled by your backend when the agent reports in.
+
+**Build the image:**
+```bash
+# From repo root:
+docker build -f discovery-agent/Dockerfile -t resolvify-discovery-agent discovery-agent
+
+# Or from discovery-agent directory:
+cd discovery-agent && docker build -t resolvify-discovery-agent .
+```
+
+**Run (customer passes ingest URL and token via env):**
+```bash
+docker run --rm \
+  -e DISCOVERY_INGEST_URL=https://your-app.example.com/api/v1/tenant-admin/discovery/ingest \
+  -e DISCOVERY_TOKEN=YOUR_TOKEN \
+  resolvify-discovery-agent
+```
+
+**Run from a jump server (network discovery):** So the container can ping and reach the same network as the host, use host network on Linux:
+```bash
+docker run --rm --network host \
+  -e DISCOVERY_INGEST_URL=https://.../ingest \
+  -e DISCOVERY_TOKEN=YOUR_TOKEN \
+  resolvify-discovery-agent
+```
+On Windows/macOS use port publishing and ensure the container can reach the target subnet; for full ping sweep from a jump server, running the agent directly on the host (bootstrap or discover.py) may be simpler.
+
+**Optional:** Mount a custom `config.yaml` for remote_servers/network/storage:
+```bash
+docker run --rm -v /path/to/config.yaml:/app/config.yaml -e DISCOVERY_INGEST_URL=... -e DISCOVERY_TOKEN=... resolvify-discovery-agent
+```
+Mount SSH keys if needed: `-v ~/.ssh:/root/.ssh:ro` (adjust user as needed).
+
+---
+
+## Production one-command install (bootstrap)
+
+For **controlled environments** (e.g. your own jump server) where you don’t use the Docker image: use the bootstrap script so the agent is downloaded, dependencies installed (venv), and discovery run in one go.
+
+**Linux / macOS (bash):**
+```bash
+# With script from repo (after copying bootstrap.sh to the server):
+bash bootstrap.sh "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+
+# Or one-liner if your app serves the script (replace URL with your Resolvify base):
+curl -sSL "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/bootstrap.sh" | bash -s -- "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+```
+Installs to `~/.resolvify-discovery` (or `$RESOLVIFY_DISCOVERY_DIR`). Requires: `curl`, `unzip`, `python3`.
+
+**Windows (PowerShell):**
+```powershell
+# After copying bootstrap.ps1 to the server (or downloading it):
+.\bootstrap.ps1 -IngestUrl "https://dev.resolvify.tech/api/v1/tenant-admin/discovery/ingest" -Token "YOUR_TOKEN"
+```
+Installs to `%USERPROFILE%\.resolvify-discovery` (or `$env:RESOLVIFY_DISCOVERY_DIR`). Requires: PowerShell 5+, Python in PATH.
+
+If the server cannot download `agent.zip` (e.g. Docker returns HTML), the script tells you to copy the `discovery-agent` folder manually and run `python3 discover.py "INGEST_URL" "TOKEN"` (see Legacy: Manual Server List below).
+
+---
+
 ## Legacy: Manual Server List
 
 ## Problem

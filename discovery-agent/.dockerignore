@@ -1,0 +1,16 @@
+# Avoid copying venv and caches into the image
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.git
+.gitignore
+
+# Local config and secrets (customer can mount config.yaml if needed)
+config.yaml
+.env
+
+# Optional: keep docs if you want them in image
+# TROUBLESHOOTING.md
+# REMOTE_SERVERS_SETUP.md

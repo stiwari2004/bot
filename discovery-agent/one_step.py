@@ -7,8 +7,8 @@ One-step discovery: run with your ingest URL and token. Installs deps, runs full
   python one_step.py "https://..." "TOKEN"   # Windows
 
 When run from inside the discovery-agent folder: writes config.yaml and runs run.py.
-When run from elsewhere (e.g. after curl): tries to download the scanner from the same
-app (INGEST_URL base + /api/v1/tenant-admin/discovery/agent.zip), then runs it.
+When run from elsewhere (e.g. after curl): downloads agent.zip from the same app, extracts
+it with Python's zipfile (no shell unzip needed), then runs discover.py for venv + deps, or run.py.
 """
 import os
 import sys
@@ -115,14 +115,22 @@ def _download_and_run(ingest_url, token):
             return _report_this_host_only(ingest_url, token)
         _write_config(agent_dir, ingest_url, token)
         import subprocess
-        reqs = os.path.join(agent_dir, "requirements.txt")
-        if os.path.isfile(reqs):
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
+        # Prefer discover.py so a venv is created (avoids externally-managed-environment on Debian/Ubuntu)
+        discover_py = os.path.join(agent_dir, "discover.py")
+        if os.path.isfile(discover_py):
+            code = subprocess.run(
+                [sys.executable, discover_py, ingest_url, token],
                 cwd=agent_dir,
-                check=False,
-            )
-        code = subprocess.run([sys.executable, "run.py"], cwd=agent_dir).returncode
+            ).returncode
+        else:
+            reqs = os.path.join(agent_dir, "requirements.txt")
+            if os.path.isfile(reqs):
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
+                    cwd=agent_dir,
+                    check=False,
+                )
+            code = subprocess.run([sys.executable, "run.py"], cwd=agent_dir).returncode
         return 0 if code == 0 else 1
     except Exception as e:
         print("Setup failed: %s" % e, file=sys.stderr)

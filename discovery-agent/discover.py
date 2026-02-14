@@ -14,8 +14,13 @@ def main():
     os.chdir(script_dir)
     
     venv_dir = os.path.join(script_dir, ".venv")
-    python = os.path.join(venv_dir, "bin", "python")
-    pip = os.path.join(venv_dir, "bin", "pip")
+    # Windows: venv uses Scripts/, Linux/macOS: bin/
+    if sys.platform == "win32":
+        python = os.path.join(venv_dir, "Scripts", "python.exe")
+        pip = os.path.join(venv_dir, "Scripts", "pip.exe")
+    else:
+        python = os.path.join(venv_dir, "bin", "python")
+        pip = os.path.join(venv_dir, "bin", "pip")
     
     # Create venv if missing
     if not os.path.isfile(python):
