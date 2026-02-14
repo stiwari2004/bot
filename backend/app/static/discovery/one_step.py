@@ -41,12 +41,19 @@ storage:
         f.write(content)
 
 def _run_from_here(ingest_url, token):
-    """We're in discovery-agent folder: write config and run run.py"""
+    """We're in discovery-agent folder: use discover.py (venv) to avoid system pip / externally-managed-environment."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.isfile(os.path.join(script_dir, "run_discovery.py")):
         return False
-    _write_config(script_dir, ingest_url, token)
     import subprocess
+    discover_py = os.path.join(script_dir, "discover.py")
+    if os.path.isfile(discover_py):
+        code = subprocess.run(
+            [sys.executable, discover_py, ingest_url, token],
+            cwd=script_dir,
+        ).returncode
+        return None if code != 0 else True
+    _write_config(script_dir, ingest_url, token)
     reqs = os.path.join(script_dir, "requirements.txt")
     if os.path.isfile(reqs):
         subprocess.run(

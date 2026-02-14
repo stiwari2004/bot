@@ -334,7 +334,7 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
               <strong>Select your OS</strong> — Choose Linux/macOS or Windows. The command below will match your choice.
             </li>
             <li>
-              <strong>Generate a token</strong> — Click the button below. The command will update with your token so you can copy it as-is.
+              <strong>Generate a token</strong> — If this is your first time, click &quot;Generate token&quot;. If you already have a token, click &quot;Rotate token&quot; to get a new one. The command below will then include the token so you can copy and run it as-is.
             </li>
             <li>
               <strong>Copy the command</strong> — Use the Copy button. The full line is ready to run (no need to replace anything).
@@ -373,11 +373,13 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
 
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Step 2 & 3: Generate token, then copy this command
+                Step 2 & 3: Generate or rotate token, then copy this command
               </label>
               {!scriptToken && (
                 <p className="text-xs text-amber-700 mb-2">
-                  Generate a token first — the command will then include your token so you can copy and run it directly.
+                  {tokenStatus?.configured
+                    ? 'Click “Rotate token” below to insert a new token into the command. Or copy the command and replace YOUR_TOKEN with your existing discovery token.'
+                    : 'Click “Generate token” below. The command will then include your token so you can copy and run it directly.'}
                 </p>
               )}
               <div className="flex gap-2">
