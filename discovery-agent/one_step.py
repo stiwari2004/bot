@@ -104,13 +104,17 @@ def _find_agent_dir(tmp):
         return sub
     return None
 
+def _install_dir():
+    """Fixed directory for extracted agent (so phase-2 command is predictable)."""
+    return os.environ.get("RESOLVIFY_DISCOVERY_DIR") or os.path.join(os.path.expanduser("~"), ".resolvify-discovery")
+
 def _download_and_run(ingest_url, token):
-    """Download agent.tar.gz (or agent.zip) from app, extract, write config, run."""
+    """Download agent.tar.gz (or agent.zip) from app, extract, write config, run (or install-only if env set)."""
     base = _ingest_url_base(ingest_url)
-    tmp = tempfile.mkdtemp()
+    install_dir = _install_dir()
+    os.makedirs(install_dir, exist_ok=True)
     archive_path = None
     try:
-        # Prefer tar.gz (Python tarfile; no zip tool); fallback to zip
         tar_url = base + "/api/v1/tenant-admin/discovery/agent.tar.gz"
         zip_url = base + "/api/v1/tenant-admin/discovery/agent.zip"
         for package_url, use_tar in [(tar_url, True), (zip_url, False)]:
@@ -121,10 +125,10 @@ def _download_and_run(ingest_url, token):
                 _download_url_to_file(package_url, archive_path)
                 if use_tar:
                     with tarfile.open(archive_path, "r:gz") as tf:
-                        tf.extractall(tmp)
+                        tf.extractall(install_dir)
                 else:
                     with zipfile.ZipFile(archive_path, "r") as z:
-                        z.extractall(tmp)
+                        z.extractall(install_dir)
                 break
             except Exception as e:
                 if archive_path and os.path.isfile(archive_path):
@@ -143,14 +147,19 @@ def _download_and_run(ingest_url, token):
                 os.unlink(archive_path)
             except Exception:
                 pass
-        agent_dir = _find_agent_dir(tmp)
+        agent_dir = _find_agent_dir(install_dir)
         if not agent_dir:
             print("Package layout unexpected, reporting this host only.", file=sys.stderr)
             return _report_this_host_only(ingest_url, token)
         _write_config(agent_dir, ingest_url, token)
+        # Two-phase mode for low-memory systems: only install, then user runs second command
+        if os.environ.get("RESOLVIFY_DISCOVERY_INSTALL_ONLY"):
+            discover_path = os.path.join(agent_dir, "discover.py")
+            print("Install complete. Run this command to perform discovery (use same URL and token):", file=sys.stderr)
+            print('  python3 "%s" "%s" "%s"' % (discover_path, ingest_url, token), file=sys.stderr)
+            return 0
         discover_py = os.path.join(agent_dir, "discover.py")
         if os.path.isfile(discover_py):
-            # Replace this process with discover.py to free memory (avoids OOM on small systems)
             os.chdir(agent_dir)
             os.execv(sys.executable, [sys.executable, "discover.py", ingest_url, token])
         import subprocess

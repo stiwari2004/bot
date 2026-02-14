@@ -27,13 +27,13 @@ def main():
         print("Creating virtual environment...")
         subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True)
     
-    # Install deps into venv (no sudo). --no-cache-dir reduces memory use on small systems.
-    reqs = os.path.join(script_dir, "requirements.txt")
-    if os.path.isfile(reqs):
-        env = os.environ.copy()
-        env["PIP_NO_CACHE_DIR"] = "1"
+    # Install deps one at a time to reduce peak memory (pip -r can use a lot on small systems).
+    env = os.environ.copy()
+    env["PIP_NO_CACHE_DIR"] = "1"
+    packages = ["paramiko", "PyYAML", "netmiko", "pywinrm"]
+    for pkg in packages:
         subprocess.run(
-            [pip, "install", "-q", "--no-cache-dir", "-r", reqs],
+            [pip, "install", "-q", "--no-cache-dir", pkg],
             check=False,
             env=env,
         )

@@ -41,13 +41,30 @@ The Linux OOM (out-of-memory) killer is terminating the process. Creating a venv
 - The one-step script **replaces itself** with `discover.py` (no second Python process).
 - `pip install` is run with `--no-cache-dir` and `PIP_NO_CACHE_DIR=1`.
 
-### If it still gets killed
-1. **Run from your home directory**, not from inside `discovery-agent`:  
-   `cd ~` then run the curl one-liner. That way the script downloads the agent to a temp dir and runs there (single process after exec).
+### If it still gets killed: use two-phase (install, then run)
+On very small systems (e.g. 512MB–1GB RAM), run **two separate commands** so the first process exits before the second (venv + pip) runs:
+
+**Phase 1 — install only (download and extract; then exit):**
+```bash
+cd ~
+curl -sSL "https://YOUR_APP/api/v1/tenant-admin/discovery/run" -o run.py
+RESOLVIFY_DISCOVERY_INSTALL_ONLY=1 python3 run.py "https://YOUR_APP/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+```
+This downloads the agent to `~/.resolvify-discovery` and prints a second command. The process exits and frees memory.
+
+**Phase 2 — run discovery** (copy the command printed by phase 1; it will look like):
+```bash
+python3 "/home/labadmin/.resolvify-discovery/discovery-agent/discover.py" "https://YOUR_APP/api/v1/tenant-admin/discovery/ingest" "YOUR_TOKEN"
+```
+Run that in the same terminal. Discovery (venv + pip + scan) runs in a fresh process.
+
+### Other options if it still gets killed
+1. **Run from your home directory**, not from inside `discovery-agent`: `cd ~` then run the one-liner.
 2. **Increase memory** for the jump server (e.g. 2GB RAM) if possible.
-3. **Pre-create a venv and install deps once**, then run discovery without creating a new venv:  
-   `cd ~/discovery-agent && python3 -m venv .venv && .venv/bin/pip install --no-cache-dir -r requirements.txt`  
-   Then run: `.venv/bin/python run.py` with `DISCOVERY_INGEST_URL` and `DISCOVERY_TOKEN` set.
+3. **Pre-create a venv** in the installed dir, then run:  
+   `python3 -m venv ~/.resolvify-discovery/discovery-agent/.venv`  
+   `~/.resolvify-discovery/discovery-agent/.venv/bin/pip install --no-cache-dir paramiko PyYAML netmiko pywinrm`  
+   Then run: `~/.resolvify-discovery/discovery-agent/.venv/bin/python run.py` with `DISCOVERY_INGEST_URL` and `DISCOVERY_TOKEN` set.
 
 ---
 
