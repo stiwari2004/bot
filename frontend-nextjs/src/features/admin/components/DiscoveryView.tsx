@@ -62,7 +62,8 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
   const [newToken, setNewToken] = useState<string | null>(null);
   /** Token embedded in the displayed command; set when user generates or rotates token. */
   const [scriptToken, setScriptToken] = useState<string | null>(null);
-  const [osType, setOsType] = useState<'unix' | 'windows'>('unix');
+  /** No selection initially; user must pick OS first. */
+  const [osType, setOsType] = useState<'unix' | 'windows' | null>(null);
   const [runs, setRuns] = useState<DiscoveryRun[]>([]);
   const [current, setCurrent] = useState<DiscoveryCurrent | null>(null);
   const [assets, setAssets] = useState<DiscoveryAsset[]>([]);
@@ -78,7 +79,7 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
   const tokenForCommand = scriptToken ?? 'YOUR_TOKEN';
   const oneCommandUnix = `curl -sSL "${runScriptUrl}" -o run.py && python3 run.py "${ingestUrl}" "${tokenForCommand}"`;
   const oneCommandWindows = `powershell -Command "Invoke-WebRequest -Uri '${runScriptUrl}' -OutFile run.py; python run.py '${ingestUrl}' '${tokenForCommand}'"`;
-  const displayCommand = osType === 'unix' ? oneCommandUnix : oneCommandWindows;
+  const displayCommand = osType === 'windows' ? oneCommandWindows : oneCommandUnix;
 
   const fetchTokenStatus = useCallback(async () => {
     if (!token) return;
@@ -329,24 +330,10 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
             Run discovery from your server
           </h2>
 
-          <ol className="list-decimal list-inside space-y-3 text-sm text-neutral-700 mb-6 pl-1">
-            <li>
-              <strong>Select your OS</strong> — Choose Linux/macOS or Windows. The command below will match your choice.
-            </li>
-            <li>
-              <strong>Generate a token</strong> — If this is your first time, click &quot;Generate token&quot;. If you already have a token, click &quot;Rotate token&quot; to get a new one. The command below will then include the token so you can copy and run it as-is.
-            </li>
-            <li>
-              <strong>Copy the command</strong> — Use the Copy button. The full line is ready to run (no need to replace anything).
-            </li>
-            <li>
-              <strong>Run on your server</strong> — Paste and run the command in a terminal on the machine or jump server where you want to discover assets. It will download the agent, install dependencies in a virtual environment, and run discovery.
-            </li>
-          </ol>
-
-          <div className="space-y-4">
+          <div className="space-y-6">
+            {/* Step 1: OS selection — always shown; nothing selected by default */}
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">Step 1: Select OS</label>
+              <p className="text-sm font-medium text-neutral-700 mb-2">Step 1: Select your OS</p>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -369,74 +356,82 @@ export function DiscoveryView({ token, standalone = false, backHref = '/tenant-a
                   <span>Windows (PowerShell)</span>
                 </label>
               </div>
+              {osType === null && (
+                <p className="text-sm text-amber-700 mt-2">Please select an option from the list above.</p>
+              )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Step 2 & 3: Generate or rotate token, then copy this command
-              </label>
-              {!scriptToken && (
-                <p className="text-xs text-amber-700 mb-2">
-                  {tokenStatus?.configured
-                    ? 'Click “Rotate token” below to insert a new token into the command. Or copy the command and replace YOUR_TOKEN with your existing discovery token.'
-                    : 'Click “Generate token” below. The command will then include your token so you can copy and run it directly.'}
+            {/* Step 2: Token — shown only after OS is selected */}
+            {osType !== null && (
+              <div>
+                <p className="text-sm font-medium text-neutral-700 mb-2">Step 2: Get a token</p>
+                <p className="text-sm text-neutral-600 mb-3">
+                  Click the button below to generate a token (or rotate if you already have one). The command in the next step will include it.
                 </p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={displayCommand}
-                  className="flex-1 px-3 py-2 border border-neutral-300 rounded-lg bg-neutral-50 text-sm font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(displayCommand)}
-                  className="px-3 py-2 border border-neutral-300 rounded-lg hover:bg-neutral-50 flex items-center gap-1 shrink-0"
-                >
-                  <ClipboardDocumentIcon className="h-4 w-4" /> Copy
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-800">
+                    Token: {tokenStatus?.configured ? 'Configured' : 'Not set'}
+                  </span>
+                  {!tokenStatus?.configured ? (
+                    <button
+                      onClick={handleGenerateToken}
+                      disabled={!!actionLoading}
+                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {actionLoading === 'generate' ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : null}
+                      Generate token
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleRotateToken}
+                      disabled={!!actionLoading}
+                      className="px-4 py-2 border border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {actionLoading === 'rotate' ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : null}
+                      Rotate token
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-800">
-                Token: {tokenStatus?.configured ? 'Configured' : 'Not set'}
-              </span>
-              {!tokenStatus?.configured ? (
-                <button
-                  onClick={handleGenerateToken}
-                  disabled={!!actionLoading}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {actionLoading === 'generate' ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : null}
-                  Generate token
-                </button>
-              ) : (
-                <button
-                  onClick={handleRotateToken}
-                  disabled={!!actionLoading}
-                  className="px-4 py-2 border border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {actionLoading === 'rotate' ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : null}
-                  Rotate token
-                </button>
-              )}
-            </div>
-
-            {newToken && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm font-medium text-amber-900 mb-2">Your token (already in the command above; copy the command to run it):</p>
+            {/* Step 3: Script — shown only after token has been generated/rotated in this session */}
+            {osType !== null && scriptToken !== null && (
+              <div>
+                <p className="text-sm font-medium text-neutral-700 mb-2">Step 3: Copy and run the command</p>
+                <p className="text-sm text-neutral-600 mb-3">
+                  Copy the command below, then paste and run it in a terminal on your server. It will download the agent, install dependencies in a virtual environment, and run discovery.
+                </p>
                 <div className="flex gap-2">
-                  <code className="flex-1 break-all text-sm bg-white px-2 py-1 border rounded">{newToken}</code>
+                  <input
+                    type="text"
+                    readOnly
+                    value={displayCommand}
+                    className="flex-1 px-3 py-2 border border-neutral-300 rounded-lg bg-neutral-50 text-sm font-mono"
+                  />
                   <button
                     type="button"
-                    onClick={() => copyToClipboard(newToken)}
-                    className="px-3 py-1 border border-amber-300 rounded hover:bg-amber-100 flex items-center gap-1 shrink-0"
+                    onClick={() => copyToClipboard(displayCommand)}
+                    className="px-3 py-2 border border-neutral-300 rounded-lg hover:bg-neutral-50 flex items-center gap-1 shrink-0"
                   >
-                    <ClipboardDocumentIcon className="h-4 w-4" /> Copy token
+                    <ClipboardDocumentIcon className="h-4 w-4" /> Copy
                   </button>
                 </div>
+                {newToken && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg mt-3">
+                    <p className="text-sm font-medium text-amber-900 mb-2">Your token (already in the command above):</p>
+                    <div className="flex gap-2">
+                      <code className="flex-1 break-all text-sm bg-white px-2 py-1 border rounded">{newToken}</code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(newToken)}
+                        className="px-3 py-1 border border-amber-300 rounded hover:bg-amber-100 flex items-center gap-1 shrink-0"
+                      >
+                        <ClipboardDocumentIcon className="h-4 w-4" /> Copy token
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

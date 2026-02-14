@@ -190,17 +190,23 @@ def _report_this_host_only(ingest_url, token):
         return 1
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python3 one_step.py INGEST_URL TOKEN", file=sys.stderr)
-        print("   or: python3 discover.py INGEST_URL TOKEN   (recommended on jump server)", file=sys.stderr)
-        print("Example: python3 discover.py \"https://app.example.com/api/v1/tenant-admin/discovery/ingest\" \"your-token\"", file=sys.stderr)
-        print("(Quote the URL and token so the shell does not split them.)", file=sys.stderr)
-        print("\nOn a jump server, use: python3 discover.py INGEST_URL TOKEN", file=sys.stderr)
-        return 1
-    ingest_url = sys.argv[1].strip()
-    token = sys.argv[2].strip()
+    # Prefer command-line args; fall back to env (e.g. if shell strips args)
+    if len(sys.argv) >= 3:
+        ingest_url = sys.argv[1].strip()
+        token = sys.argv[2].strip()
+    else:
+        ingest_url = os.environ.get("DISCOVERY_INGEST_URL", "").strip()
+        token = os.environ.get("DISCOVERY_TOKEN", "").strip()
+        if len(sys.argv) > 1:
+            print("Received %d argument(s); expected 2 (INGEST_URL TOKEN). Check quoting." % (len(sys.argv) - 1), file=sys.stderr)
     if not ingest_url or not token:
-        print("INGEST_URL and TOKEN required.", file=sys.stderr)
+        if not (ingest_url or token):
+            print("Usage: python3 one_step.py INGEST_URL TOKEN", file=sys.stderr)
+            print("   or: set DISCOVERY_INGEST_URL and DISCOVERY_TOKEN and run: python3 one_step.py", file=sys.stderr)
+            print("Example: python3 run.py \"https://app.example.com/api/v1/tenant-admin/discovery/ingest\" \"your-token\"", file=sys.stderr)
+            print("(Quote the URL and token so the shell does not split them.)", file=sys.stderr)
+        else:
+            print("INGEST_URL and TOKEN required (from args or DISCOVERY_INGEST_URL / DISCOVERY_TOKEN).", file=sys.stderr)
         return 1
     # 1) If we're inside discovery-agent, use it
     result = _run_from_here(ingest_url, token)
