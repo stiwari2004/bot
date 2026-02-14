@@ -6,6 +6,7 @@ import io
 import json
 import os
 import secrets
+import tarfile
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -353,6 +354,29 @@ async def get_run_script():
     raise HTTPException(status_code=404, detail="Discovery run script not available. Please download agent.zip or use manual setup.")
 
 
+def _get_discovery_agent_dir() -> Path:
+    """Return discovery-agent directory path; raises HTTPException if not found."""
+    this_file = Path(__file__).resolve()
+    paths_to_try = []
+    backend = this_file.parent.parent.parent.parent.parent
+    repo_root = backend.parent
+    paths_to_try.append(repo_root / "discovery-agent")
+    app_dir = this_file.parent.parent.parent.parent
+    paths_to_try.append(app_dir.parent.parent / "discovery-agent")
+    cwd = Path(os.getcwd())
+    paths_to_try.append(cwd / "discovery-agent")
+    paths_to_try.append(cwd.parent / "discovery-agent")
+    if os.environ.get("DISCOVERY_AGENT_DIR"):
+        paths_to_try.insert(0, Path(os.environ["DISCOVERY_AGENT_DIR"]))
+    for path in paths_to_try:
+        if path.is_dir() and (path / "run_discovery.py").is_file():
+            return path
+    raise HTTPException(
+        status_code=404,
+        detail="Discovery agent package not available. Please ensure discovery-agent folder exists."
+    )
+
+
 @router.get("/agent.zip", response_class=Response)
 async def get_agent_zip():
     """
@@ -361,46 +385,9 @@ async def get_agent_zip():
     """
     from app.core.logging import get_logger
     logger = get_logger(__name__)
-    
-    agent_dir = None
     try:
-        this_file = Path(__file__).resolve()
-        # Try multiple path resolution strategies
-        paths_to_try = []
-        
-        # Strategy 1: Relative to backend (local dev)
-        backend = this_file.parent.parent.parent.parent.parent
-        repo_root = backend.parent
-        paths_to_try.append(repo_root / "discovery-agent")
-        
-        # Strategy 2: Relative to app directory (Docker)
-        app_dir = this_file.parent.parent.parent.parent  # endpoints -> v1 -> api -> app
-        paths_to_try.append(app_dir.parent.parent / "discovery-agent")  # Go up to repo root
-        
-        # Strategy 3: Current working directory
-        import os
-        cwd = Path(os.getcwd())
-        paths_to_try.append(cwd / "discovery-agent")
-        paths_to_try.append(cwd.parent / "discovery-agent")
-        
-        # Strategy 4: Absolute path from environment (if set)
-        if os.environ.get("DISCOVERY_AGENT_DIR"):
-            paths_to_try.append(Path(os.environ["DISCOVERY_AGENT_DIR"]))
-        
-        # Find first existing directory
-        for path in paths_to_try:
-            if path.is_dir() and (path / "run_discovery.py").is_file():
-                agent_dir = path
-                logger.info(f"Found discovery-agent at: {agent_dir}")
-                break
-        
-        if not agent_dir:
-            logger.error("Discovery agent directory not found. Tried paths: %s", [str(p) for p in paths_to_try])
-            raise HTTPException(
-                status_code=404,
-                detail="Discovery agent package not available. Please ensure discovery-agent folder exists."
-            )
-        
+        agent_dir = _get_discovery_agent_dir()
+        logger.info("Found discovery-agent at: %s", agent_dir)
         # Create zip in memory
         buf = io.BytesIO()
         files_added = 0
@@ -434,7 +421,6 @@ async def get_agent_zip():
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=discovery-agent.zip"}
         )
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -443,6 +429,47 @@ async def get_agent_zip():
             status_code=500,
             detail=f"Failed to create discovery agent package: {str(e)}"
         )
+
+
+@router.get("/agent.tar.gz", response_class=Response)
+async def get_agent_tarball():
+    """
+    Returns discovery-agent as .tar.gz so one_step.py can download and extract
+    with Python's tarfile (no zip tool required). Prefer this over agent.zip.
+    """
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    try:
+        agent_dir = _get_discovery_agent_dir()
+        logger.info("Found discovery-agent at: %s", agent_dir)
+        buf = io.BytesIO()
+        files_added = 0
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            for f in agent_dir.rglob("*"):
+                if f.is_file():
+                    if any(part.startswith(".") and part not in [".yaml", ".yml"] for part in f.parts):
+                        continue
+                    if ".git" in f.parts or "__pycache__" in f.parts or ".pyc" in f.name:
+                        continue
+                    try:
+                        arcname = f.relative_to(agent_dir.parent)
+                        tf.add(f, arcname=arcname)
+                        files_added += 1
+                    except Exception as e:
+                        logger.warning("Failed to add %s: %s", f, e)
+        if files_added == 0:
+            raise HTTPException(status_code=500, detail="Failed to create discovery agent package")
+        buf.seek(0)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/gzip",
+            headers={"Content-Disposition": "attachment; filename=discovery-agent.tar.gz"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error creating agent.tar.gz: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create discovery agent package")
 
 
 # --- Ingest (token-only; agent calls this, no session) ---

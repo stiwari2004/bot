@@ -7,12 +7,14 @@ One-step discovery: run with your ingest URL and token. Installs deps, runs full
   python one_step.py "https://..." "TOKEN"   # Windows
 
 When run from inside the discovery-agent folder: writes config.yaml and runs run.py.
-When run from elsewhere (e.g. after curl): downloads agent.zip from the same app, extracts
-it with Python's zipfile (no shell unzip needed), then runs discover.py for venv + deps, or run.py.
+When run from elsewhere (e.g. after curl): downloads agent.tar.gz (or agent.zip) from the same app,
+extracts with Python's tarfile/zipfile, then runs discover.py for venv + deps, or run.py.
+Uses a 60s timeout so the download does not hang.
 """
 import os
 import sys
 import tempfile
+import tarfile
 import zipfile
 import urllib.request
 import urllib.error
@@ -83,39 +85,71 @@ def _run_from_here(ingest_url, token):
     code = subprocess.run([sys.executable, "run.py"], cwd=script_dir).returncode
     return None if code != 0 else True  # True = success
 
+DOWNLOAD_TIMEOUT = 60  # seconds; avoid hanging forever
+
+def _download_url_to_file(url, path, timeout=DOWNLOAD_TIMEOUT):
+    """Download url to path with timeout. Raises on failure."""
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with open(path, "wb") as out:
+            out.write(resp.read())
+
+def _find_agent_dir(tmp):
+    """Return path to discovery-agent dir inside tmp, or None."""
+    for name in os.listdir(tmp):
+        p = os.path.join(tmp, name)
+        if os.path.isdir(p) and os.path.isfile(os.path.join(p, "run_discovery.py")):
+            return p
+    sub = os.path.join(tmp, "discovery-agent")
+    if os.path.isdir(sub) and os.path.isfile(os.path.join(sub, "run_discovery.py")):
+        return sub
+    return None
+
 def _download_and_run(ingest_url, token):
-    """Download agent.zip from app, extract, write config, run"""
+    """Download agent.tar.gz (or agent.zip) from app, extract, write config, run."""
     base = _ingest_url_base(ingest_url)
-    package_url = base + "/api/v1/tenant-admin/discovery/agent.zip"
+    tmp = tempfile.mkdtemp()
+    archive_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
-            urllib.request.urlretrieve(package_url, f.name)
-            zip_path = f.name
-    except Exception as e:
-        print("Download failed (%s), reporting this host only." % e, file=sys.stderr)
-        return _report_this_host_only(ingest_url, token)
-    try:
-        tmp = tempfile.mkdtemp()
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(tmp)
-        os.unlink(zip_path)
-        # Find discovery-agent folder (top-level or inside repo folder)
-        agent_dir = None
-        for name in os.listdir(tmp):
-            p = os.path.join(tmp, name)
-            if os.path.isdir(p) and os.path.isfile(os.path.join(p, "run_discovery.py")):
-                agent_dir = p
+        # Prefer tar.gz (Python tarfile; no zip tool); fallback to zip
+        tar_url = base + "/api/v1/tenant-admin/discovery/agent.tar.gz"
+        zip_url = base + "/api/v1/tenant-admin/discovery/agent.zip"
+        for package_url, use_tar in [(tar_url, True), (zip_url, False)]:
+            try:
+                suffix = ".tar.gz" if use_tar else ".zip"
+                fd, archive_path = tempfile.mkstemp(suffix=suffix)
+                os.close(fd)
+                _download_url_to_file(package_url, archive_path)
+                if use_tar:
+                    with tarfile.open(archive_path, "r:gz") as tf:
+                        tf.extractall(tmp)
+                else:
+                    with zipfile.ZipFile(archive_path, "r") as z:
+                        z.extractall(tmp)
                 break
-        if not agent_dir:
-            sub = os.path.join(tmp, "discovery-agent")
-            if os.path.isdir(sub) and os.path.isfile(os.path.join(sub, "run_discovery.py")):
-                agent_dir = sub
+            except Exception as e:
+                if archive_path and os.path.isfile(archive_path):
+                    try:
+                        os.unlink(archive_path)
+                    except Exception:
+                        pass
+                    archive_path = None
+                if use_tar:
+                    print("Tar download failed (%s), trying zip..." % e, file=sys.stderr)
+                else:
+                    print("Download failed (%s), reporting this host only." % e, file=sys.stderr)
+                    return _report_this_host_only(ingest_url, token)
+        if archive_path and os.path.isfile(archive_path):
+            try:
+                os.unlink(archive_path)
+            except Exception:
+                pass
+        agent_dir = _find_agent_dir(tmp)
         if not agent_dir:
             print("Package layout unexpected, reporting this host only.", file=sys.stderr)
             return _report_this_host_only(ingest_url, token)
         _write_config(agent_dir, ingest_url, token)
         import subprocess
-        # Prefer discover.py so a venv is created (avoids externally-managed-environment on Debian/Ubuntu)
         discover_py = os.path.join(agent_dir, "discover.py")
         if os.path.isfile(discover_py):
             code = subprocess.run(
