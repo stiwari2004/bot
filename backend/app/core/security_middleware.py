@@ -29,33 +29,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         
-        # Content Security Policy
-        if self.environment == "production":
-            # Strict CSP for production
-            csp = (
-                "default-src 'self'; "
-                "base-uri 'self'; "
-                "form-action 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # Allow inline for Next.js
-                "style-src 'self' 'unsafe-inline'; "  # Allow inline styles
-                "img-src 'self' data: https:; "
-                "font-src 'self' data:; "
-                "connect-src 'self' https:; "
-                "frame-ancestors 'none';"
-            )
-        else:
-            # More permissive for development
-            csp = (
-                "default-src 'self'; "
-                "base-uri 'self'; "
-                "form-action 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: https: http:; "
-                "font-src 'self' data:; "
-                "connect-src 'self' https: http: ws: wss:; "
-                "frame-ancestors 'none';"
-            )
+        # Content Security Policy (API responses - no scripts/styles; tight img/connect)
+        csp = (
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data: blob:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
         
         response.headers["Content-Security-Policy"] = csp
         

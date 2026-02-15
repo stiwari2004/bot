@@ -20,25 +20,11 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH && process.env.NEXT_PUBLIC_BA
   : '';
 
 // Security headers (OWASP ZAP recommendations)
-// Note: script-src/style-src unsafe-inline/unsafe-eval required for Next.js; ZAP will still flag.
+// CSP is set by middleware.ts with nonce (no unsafe-inline/unsafe-eval). These apply to all routes.
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  {
-    key: 'Content-Security-Policy',
-    value: [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: https: http:",
-      "font-src 'self' data:",
-      "connect-src 'self' https: http: ws: wss:",
-      "frame-ancestors 'none'",
-    ].join('; '),
-  },
   {
     key: 'Permissions-Policy',
     value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',

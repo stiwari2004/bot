@@ -24,19 +24,28 @@ This document records the fixes applied based on the OWASP ZAP scan reports (pro
 
 **Fix:** Backend `security_middleware.py` adds HSTS for all HTTPS requests (dev.resolvify.tech, prod, etc.), not only when `ENVIRONMENT=production`.
 
-## Items ZAP Will Still Flag (Accepted / Mitigated)
+## Round 3 – CSP Nonce & Wildcard Fixes
 
 ### CSP: script-src unsafe-eval, unsafe-inline — Medium
-
-**Reason:** Next.js/React and tooling require these for development and many production builds. Removing them typically requires CSP nonces and build changes. Accepted risk; CSP still provides defense in depth.
-
 ### CSP: style-src unsafe-inline — Medium
-
-**Reason:** Same as above; many React/component libraries rely on inline styles.
-
 ### CSP: Wildcard Directive (img-src, connect-src) — Medium
 
-**Reason:** `img-src 'self' data: https: http:` and `connect-src 'self' https: http: ws: wss:` allow broad sources. Tightening to specific domains would require knowing all external APIs, CDNs, and image hosts; risks breaking functionality.
+**Fix:** Implemented nonce-based CSP via `middleware.ts`:
+
+- **script-src:** `'self' 'nonce-${nonce}' 'strict-dynamic'` (production) — no unsafe-inline, no unsafe-eval
+- **style-src:** `'self' 'nonce-${nonce}'` (production)
+- **img-src:** `'self' data: blob:` (no https:/http: wildcard)
+- **connect-src:** `'self'` (API/WebSocket are same-origin)
+
+Development mode still uses `'unsafe-eval'` and `'unsafe-inline'` for Turbopack HMR. Backend CSP tightened to `connect-src 'self'` and `img-src 'self' data: blob:`.
+
+**If CSP violations occur** (e.g. next-route-announcer inline styles): add `'unsafe-inline'` to style-src in middleware as fallback.
+
+---
+
+## Items ZAP May Still Flag (Edge Cases)
+
+- **robots.txt, sitemap.xml:** Matcher excludes them; no CSP from middleware. Lower priority.
 
 ### Dangerous JS Functions — Low (10110)
 
