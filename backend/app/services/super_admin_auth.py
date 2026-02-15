@@ -8,6 +8,7 @@ from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError, InterfaceError
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -368,6 +369,12 @@ def authenticate_super_admin(db: Session, email: str, password: str) -> Optional
         
         logger.info(f"Super admin {email} authenticated successfully")
         return super_admin
+    except (OperationalError, InterfaceError) as e:
+        logger.error(f"Database error during super admin auth for {email}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database temporarily unavailable. Please try again.",
+        ) from e
     except Exception as e:
         logger.error(f"Error authenticating super admin {email}: {e}", exc_info=True)
         return None

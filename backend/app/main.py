@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, engine
 from app.core.logging import setup_logging, get_logger
 from app.middleware.request_id import RequestIDMiddleware
 from app.api.v1.api import api_router
@@ -318,6 +318,23 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "version": "1.0.0"}
+
+
+@app.get("/health/db")
+async def health_check_db():
+    """Health check that verifies database connectivity. Returns 503 if DB is unreachable."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "ok"}
+    except Exception as e:
+        logger.warning(f"Database health check failed: {e}")
+        return Response(
+            content='{"status":"unhealthy","database":"error","detail":"Database temporarily unavailable"}',
+            status_code=503,
+            media_type="application/json",
+        )
 
 
 @app.get("/metrics")
