@@ -34,6 +34,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # Strict CSP for production
             csp = (
                 "default-src 'self'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # Allow inline for Next.js
                 "style-src 'self' 'unsafe-inline'; "  # Allow inline styles
                 "img-src 'self' data: https:; "
@@ -45,6 +47,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # More permissive for development
             csp = (
                 "default-src 'self'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: https: http:; "
@@ -55,8 +59,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         response.headers["Content-Security-Policy"] = csp
         
-        # HSTS (only for HTTPS)
-        if request.url.scheme == "https" and self.environment == "production":
+        # HSTS for any HTTPS request (dev.resolvify.tech, prod, etc.)
+        if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
         # Remove server header (security through obscurity)

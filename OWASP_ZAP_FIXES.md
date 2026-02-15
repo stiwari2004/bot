@@ -1,68 +1,86 @@
 # OWASP ZAP Security Fixes
 
-This document records the fixes applied based on the OWASP ZAP scan report (prod-app-report.html, Feb 2026).
+This document records the fixes applied based on the OWASP ZAP scan reports (prod-app-report.html, Feb 2026).
 
-## Summary of Findings (Before Fix)
+## Round 2 – Remaining Findings (Post-Round 1)
 
 | Risk        | Count | Status  |
 |------------|-------|---------|
-| High       | 0     | N/A     |
-| Medium     | 2     | Fixed   |
-| Low        | 8     | Mostly fixed |
+| Medium     | 5     | Partially fixed |
+| Low        | 5     | Partially fixed |
 | Informational | 5  | N/A     |
 
-## Fixes Applied
+## Round 2 Fixes Applied
 
-### 1. Content Security Policy (CSP) Header Not Set — Medium (10038)
+### 1. CSP: Failure to Define Directive with No Fallback — Medium (10055)
 
-**Fix:** Added CSP header in `frontend-nextjs/next.config.js` via `headers()`:
+**Fix:** Added `form-action 'self'` and `base-uri 'self'` to CSP in Next.js and backend. These directives do not fall back to `default-src`.
 
-- `default-src 'self'`
-- `script-src 'self' 'unsafe-inline' 'unsafe-eval'` (needed for Next.js/tooling)
-- `style-src 'self' 'unsafe-inline'`
-- `img-src 'self' data: https: http:`
-- `font-src 'self' data:`
-- `connect-src 'self' https: http: ws: wss:`
-- `frame-ancestors 'none'`
+### 2. Strict-Transport-Security Header Not Set — Low (10035)
 
-### 2. Missing Anti-clickjacking Header — Medium (10020)
+**Fix:** Added `Strict-Transport-Security: max-age=31536000; includeSubDomains` in Next.js headers. Backend now adds HSTS for any HTTPS request (not just production).
 
-**Fix:** Added `X-Frame-Options: DENY` in `next.config.js` (and `frame-ancestors 'none'` in CSP). Backend already had it in `security_middleware.py`.
+### 3. Backend HSTS
 
-### 3. Permissions Policy Header Not Set — Low (10063)
+**Fix:** Backend `security_middleware.py` adds HSTS for all HTTPS requests (dev.resolvify.tech, prod, etc.), not only when `ENVIRONMENT=production`.
 
-**Fix:** Added `Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()` in both Next.js and backend.
+## Items ZAP Will Still Flag (Accepted / Mitigated)
 
-### 4. Insufficient Site Isolation Against Spectre — Low (90004)
+### CSP: script-src unsafe-eval, unsafe-inline — Medium
 
-**Fix:** Added `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Resource-Policy: same-origin` in Next.js and backend.
+**Reason:** Next.js/React and tooling require these for development and many production builds. Removing them typically requires CSP nonces and build changes. Accepted risk; CSP still provides defense in depth.
 
-### 5. Server Leaks Information via X-Powered-By — Low (10037)
+### CSP: style-src unsafe-inline — Medium
 
-**Fix:**
+**Reason:** Same as above; many React/component libraries rely on inline styles.
 
-- `poweredByHeader: false` in `frontend-nextjs/next.config.js`
-- `proxy_hide_header X-Powered-By` in nginx for frontend locations
+### CSP: Wildcard Directive (img-src, connect-src) — Medium
 
-### 6. Server Leaks Version Information via Server Header — Low (10036)
-
-**Fix:** Added `server_tokens off` in nginx configs. This changes `Server: nginx/1.24.0 (Ubuntu)` to `Server: nginx` (no version). To completely remove the Server header, you would need `ngx_headers_more` or similar.
-
-**Files updated:** `nginx/dev.resolvify.tech.conf`, `nginx/resolvify-tech-dev.conf`, `proxy/conf.d/resolvify.conf`
-
-## Items Not Fully Fixable (or Acceptable Risk)
+**Reason:** `img-src 'self' data: https: http:` and `connect-src 'self' https: http: ws: wss:` allow broad sources. Tightening to specific domains would require knowing all external APIs, CDNs, and image hosts; risks breaking functionality.
 
 ### Dangerous JS Functions — Low (10110)
 
-**Finding:** `eval()` in `turbopack-_62cebc78._.js` (Next.js dev/build chunk).
+**Reason:** `eval()` in Next.js/turbopack chunks is from framework tooling, not app code. Mitigated by CSP.
 
-**Reason:** This is from Next.js/React tooling, not application code. Mitigated by CSP and other headers. Production build may differ.
+### Insufficient Site Isolation Against Spectre — Low (90004)
 
-### Storable and Cacheable Responses, DEBUG Comments — Informational
+**Status:** `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` are set. Full Spectre mitigation may require `Cross-Origin-Embedder-Policy`, which can break cross-origin resources.
 
-**Finding:** Informational alerts about cacheability and debug strings in bundled JS.
+### Server Leaks Version — Low (10036)
 
-**Reason:** Low risk; debug strings are often from third-party dependencies. Cache headers can be tuned per resource if needed.
+**Status:** `server_tokens off` in nginx reduces to `Server: nginx`. Fully removing the header needs `ngx_headers_more` or similar.
+
+### Timestamp Disclosure — Low (10096)
+
+**Reason:** Unix timestamps in API/data responses. Generally acceptable; removing would require design changes.
+
+---
+
+## Round 1 Fixes (Original)
+
+### Content Security Policy (CSP) Header — Medium (10038)
+
+**Fix:** Added CSP in `frontend-nextjs/next.config.js` with `form-action`, `base-uri`, and other directives.
+
+### Missing Anti-clickjacking Header — Medium (10020)
+
+**Fix:** `X-Frame-Options: DENY` and `frame-ancestors 'none'` in CSP.
+
+### Permissions Policy — Low (10063)
+
+**Fix:** `Permissions-Policy` in Next.js and backend.
+
+### Spectre Isolation — Low (90004)
+
+**Fix:** `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
+
+### X-Powered-By Leak — Low (10037)
+
+**Fix:** `poweredByHeader: false` and `proxy_hide_header X-Powered-By` in nginx.
+
+### Server Version Leak — Low (10036)
+
+**Fix:** `server_tokens off` in nginx configs.
 
 ## Deployment Steps
 
