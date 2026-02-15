@@ -19,6 +19,22 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _parse_connection_meta_safe(raw) -> Dict[str, Any]:
+    """Parse connection meta_data to a dict; never raise. Handles None, empty string, 'null', invalid JSON."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Invalid ticketing connection meta_data JSON in poller, using empty dict")
+        return {}
+
+
 class TicketingPoller:
     """Background service for polling ticketing tools"""
     
@@ -148,7 +164,7 @@ class TicketingPoller:
         original_meta_data = None
         
         try:
-            meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+            meta_data = _parse_connection_meta_safe(connection.meta_data)
             # Store original to detect if tokens changed
             original_meta_data = json.dumps(meta_data) if meta_data else None
             

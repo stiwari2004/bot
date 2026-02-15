@@ -27,6 +27,22 @@ oauth_service = ZohoOAuthService()
 _poller_instance: Optional[TicketingPoller] = None
 
 
+def _parse_meta_data_safe(raw: Any) -> Dict[str, Any]:
+    """Parse connection meta_data to a dict; never raise. Handles None, empty string, 'null', invalid JSON."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Invalid ticketing connection meta_data JSON, using empty dict")
+        return {}
+
+
 @router.get("/ticketing-tools")
 async def list_ticketing_tools():
     """List available ticketing tools that can be connected"""
@@ -205,7 +221,7 @@ async def list_ticketing_connections(
         
         result = []
         for c in connections:
-            meta_data = json.loads(c.meta_data) if c.meta_data else {}
+            meta_data = _parse_meta_data_safe(c.meta_data)
             oauth_authorized = False
             if c.tool_name == "zoho":
                 # Zoho is authorized if access_token exists (stored after OAuth callback)
@@ -263,7 +279,7 @@ async def get_ticketing_connection(
         if not connection:
             raise HTTPException(status_code=404, detail="Connection not found")
         
-        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+        meta_data = _parse_meta_data_safe(connection.meta_data)
         oauth_authorized = False
         if connection.tool_name == "zoho":
             oauth_authorized = bool(meta_data.get("access_token"))
@@ -338,13 +354,13 @@ async def update_ticketing_connection(
         # Get or create existing_meta for ServiceNow sync
         existing_meta = None
         if connection.tool_name == "servicenow" and (connection_update.api_username is not None or connection_update.api_password is not None):
-            existing_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+            existing_meta = _parse_meta_data_safe(connection.meta_data)
         
         # Update meta_data if provided
         if connection_update.meta_data is not None:
             # Merge with existing meta_data
             if existing_meta is None:
-                existing_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+                existing_meta = _parse_meta_data_safe(connection.meta_data)
             existing_meta.update(connection_update.meta_data)
             connection.meta_data = json.dumps(existing_meta)
             logger.info(f"Updated meta_data for {connection.tool_name} connection {connection.id}. Keys: {list(existing_meta.keys())}")
@@ -352,7 +368,7 @@ async def update_ticketing_connection(
         # For ServiceNow, also sync api_username/api_password to meta_data (if not already in meta_data from above)
         if connection.tool_name == "servicenow":
             if existing_meta is None:
-                existing_meta = json.loads(connection.meta_data) if connection.meta_data else {}
+                existing_meta = _parse_meta_data_safe(connection.meta_data)
             updated = False
             if connection_update.api_username is not None:
                 existing_meta["username"] = connection_update.api_username
@@ -432,7 +448,7 @@ async def test_ticketing_connection(
         if not connection:
             raise HTTPException(status_code=404, detail="Connection not found")
         
-        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+        meta_data = _parse_meta_data_safe(connection.meta_data)
         
         # For Zoho and ManageEngine, check if OAuth is needed
         if connection.tool_name in ("zoho", "manageengine"):
@@ -611,7 +627,7 @@ async def authorize_ticketing_connection(
         if connection.tool_name not in ("zoho", "manageengine"):
             raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
         
-        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+        meta_data = _parse_meta_data_safe(connection.meta_data)
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
         redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
@@ -685,7 +701,7 @@ async def oauth_callback(
         if connection.tool_name not in ("zoho", "manageengine"):
             raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
         
-        meta_data = json.loads(connection.meta_data) if connection.meta_data else {}
+        meta_data = _parse_meta_data_safe(connection.meta_data)
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
         redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
