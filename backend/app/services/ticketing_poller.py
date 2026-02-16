@@ -214,6 +214,21 @@ class TicketingPoller:
                 status_filter = ["1", "2", "3"]  # New, In Progress, On Hold
                 logger.info(f"Fetching ServiceNow tickets: status_filter={status_filter}, limit=100 (excluding resolved/closed/canceled)")
                 logger.debug(f"ServiceNow meta_data keys: {list(meta_data.keys())}")
+                
+                # Sync credentials from connection fields to meta_data if missing (for backward compatibility)
+                synced = False
+                if not meta_data.get("username") and connection.api_username:
+                    meta_data["username"] = connection.api_username
+                    synced = True
+                if not meta_data.get("password") and connection.api_password:
+                    meta_data["password"] = connection.api_password
+                    synced = True
+                # If we synced, save it back to DB
+                if synced:
+                    connection.meta_data = json.dumps(meta_data)
+                    db.commit()
+                    logger.info(f"Synced ServiceNow credentials from connection fields to meta_data for connection {connection.id}")
+                
                 # Credentials can be in meta_data OR in connection.api_username/api_password
                 # Check both locations
                 username = meta_data.get("username") or connection.api_username
@@ -223,6 +238,18 @@ class TicketingPoller:
                     logger.debug(f"ServiceNow username (first 5 chars): {username[:5]}... (length: {len(username)})")
                 if password:
                     logger.debug(f"ServiceNow password length: {len(password)} chars")
+                
+                if not username or not password:
+                    error_msg = (
+                        f"ServiceNow connection {connection.id} missing credentials. "
+                        f"api_username: {'set' if connection.api_username else 'missing'}, "
+                        f"api_password: {'set' if connection.api_password else 'missing'}, "
+                        f"meta_data.username: {'set' if meta_data.get('username') else 'missing'}, "
+                        f"meta_data.password: {'set' if meta_data.get('password') else 'missing'}"
+                    )
+                    logger.error(error_msg)
+                    raise ValueError("ServiceNow credentials (username/password) are required for Basic Auth. Please update the connection with valid credentials.")
+                
                 tickets = await self.servicenow_fetcher.fetch_tickets(
                     api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                     connection_meta=meta_data,

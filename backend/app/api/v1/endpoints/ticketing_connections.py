@@ -43,6 +43,27 @@ def _parse_meta_data_safe(raw: Any) -> Dict[str, Any]:
         return {}
 
 
+def _sync_servicenow_credentials(connection: TicketingToolConnection, meta_data: Dict[str, Any], db: Session) -> bool:
+    """Sync ServiceNow credentials from api_username/api_password to meta_data if missing. Returns True if synced."""
+    if connection.tool_name != "servicenow":
+        return False
+    
+    synced = False
+    if not meta_data.get("username") and connection.api_username:
+        meta_data["username"] = connection.api_username
+        synced = True
+    if not meta_data.get("password") and connection.api_password:
+        meta_data["password"] = connection.api_password
+        synced = True
+    
+    if synced:
+        connection.meta_data = json.dumps(meta_data)
+        db.commit()
+        logger.info(f"Synced ServiceNow credentials from connection fields to meta_data for connection {connection.id}")
+    
+    return synced
+
+
 @router.get("/ticketing-tools")
 async def list_ticketing_tools():
     """List available ticketing tools that can be connected"""
@@ -501,20 +522,8 @@ async def test_ticketing_connection(
                 fetcher = ServiceNowTicketFetcher()
                 try:
                     # ServiceNow supports OAuth 2.0 or Basic Auth
-                    # Credentials can be in meta_data OR in connection.api_username/api_password
                     # Sync credentials from connection fields to meta_data if missing (for backward compatibility)
-                    synced = False
-                    if not meta_data.get("username") and connection.api_username:
-                        meta_data["username"] = connection.api_username
-                        synced = True
-                    if not meta_data.get("password") and connection.api_password:
-                        meta_data["password"] = connection.api_password
-                        synced = True
-                    # If we synced, save it back to DB
-                    if synced:
-                        connection.meta_data = json.dumps(meta_data)
-                        db.commit()
-                        logger.info(f"Synced ServiceNow credentials from connection fields to meta_data for connection {connection.id}")
+                    _sync_servicenow_credentials(connection, meta_data, db)
                     
                     username = meta_data.get("username") or connection.api_username
                     password = meta_data.get("password") or connection.api_password
