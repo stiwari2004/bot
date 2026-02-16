@@ -54,8 +54,14 @@ async def record_event(
         envelope["hash"] = digest
 
         line = json.dumps(envelope, sort_keys=True)
-        await asyncio.to_thread(_append_line, line)
-        await _replicate_async(line, digest)
+        try:
+            await asyncio.to_thread(_append_line, line)
+        except Exception as e:
+            logger.warning(f"Audit log write failed (non-critical): {e}")
+        try:
+            await _replicate_async(line, digest)
+        except Exception as e:
+            logger.warning(f"Audit log replication failed (non-critical): {e}")
 
         _last_hash = digest
 
@@ -92,6 +98,7 @@ async def _load_last_hash() -> Optional[str]:
 
 
 def _append_line(line: str) -> None:
+    """Append audit log line. Non-blocking - failures are logged but don't raise exceptions."""
     path = Path(settings.AUDIT_LOG_PATH)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,11 +110,11 @@ def _append_line(line: str) -> None:
             fallback_path.parent.mkdir(parents=True, exist_ok=True)
             path = fallback_path
         except Exception as e:
-            logger.error(f"Failed to create audit log directory at fallback location: {e}. Audit logging disabled for this request.")
-            raise
+            logger.warning(f"Failed to create audit log directory at fallback location: {e}. Audit logging skipped for this request.")
+            return  # Don't raise - audit logging is non-critical
     except Exception as e:
-        logger.error(f"Failed to create audit log directory: {e}. Audit logging disabled for this request.")
-        raise
+        logger.warning(f"Failed to create audit log directory: {e}. Audit logging skipped for this request.")
+        return  # Don't raise - audit logging is non-critical
     
     is_new_file = not path.exists()
     try:
@@ -115,10 +122,16 @@ def _append_line(line: str) -> None:
             f.write(line)
             f.write("\n")
         if is_new_file:
-            os.chmod(path, 0o600)
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass  # chmod failure is non-critical
     except PermissionError:
-        logger.error(f"Permission denied writing to audit log {path}. Audit logging disabled.")
-        raise
+        logger.warning(f"Permission denied writing to audit log {path}. Audit logging skipped.")
+        return  # Don't raise - audit logging is non-critical
+    except Exception as e:
+        logger.warning(f"Failed to write audit log: {e}. Audit logging skipped.")
+        return  # Don't raise - audit logging is non-critical
 
 
 async def _replicate_async(line: str, digest: str) -> None:
