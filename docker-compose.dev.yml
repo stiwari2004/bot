@@ -1,6 +1,5 @@
-version: '3.8'
-
 # CRITICAL: Always use project name to isolate from production
+# (version is obsolete in Compose V2 and is ignored)
 # Usage: docker-compose -f docker-compose.dev.yml -p bot-dev <command>
 # This prevents affecting production containers
 # Example: docker-compose -f docker-compose.dev.yml -p bot-dev up -d
