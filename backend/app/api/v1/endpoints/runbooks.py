@@ -136,7 +136,16 @@ async def generate_agent_runbook(
             raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
     except Exception as e:
         logger.error(f"Error generating agent runbook: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to generate agent runbook: {str(e)}")
+        err = str(e).lower()
+        # Helpful hint when LLM is unreachable (common in dev without GEMINI_API_KEY)
+        if "connection" in err or "refused" in err or "failed to fetch models" in err or "connect" in err:
+            detail = (
+                "Runbook generation failed: LLM is unreachable. "
+                "In dev, set GEMINI_API_KEY in backend/.env or set LLAMACPP_BASE_URL to a reachable LLM (e.g. host.docker.internal:11434)."
+            )
+        else:
+            detail = f"Failed to generate agent runbook: {str(e)}"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/demo/detect-os")

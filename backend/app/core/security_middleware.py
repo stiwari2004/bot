@@ -18,8 +18,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         self.environment = settings.ENVIRONMENT.lower()
     
     async def dispatch(self, request: Request, call_next):
+        # Do not add security headers to WebSocket upgrade response (breaks WS connection)
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
+
         response = await call_next(request)
-        
+
+        # Only modify response if it has headers (skip streaming/WS edge cases)
+        if not getattr(response, "headers", None):
+            return response
+
         # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -28,7 +36,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
-        
+
         # Content Security Policy (API responses - no scripts/styles; tight img/connect)
         csp = (
             "default-src 'self'; "
@@ -41,17 +49,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "connect-src 'self'; "
             "frame-ancestors 'none';"
         )
-        
         response.headers["Content-Security-Policy"] = csp
-        
+
         # HSTS for any HTTPS request (dev.resolvify.tech, prod, etc.)
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        
+
         # Remove server header (security through obscurity)
         if "server" in response.headers:
             del response.headers["server"]
-        
+
         return response
 
 
