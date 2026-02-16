@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     WORKER_ORCHESTRATION_ENABLED: bool = True
     IDEMPOTENCY_TTL_SECONDS: int = 86_400
     AUDIT_LOG_ENABLED: bool = True
-    AUDIT_LOG_PATH: str = "logs/audit.log"
+    AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", "uploads/logs/audit.log")  # Default to writable uploads directory
     AUDIT_LOG_S3_BUCKET: Optional[str] = None
     AUDIT_LOG_S3_PREFIX: str = "audit-log/"
     

@@ -95,17 +95,21 @@ class RunbookController(BaseController):
                     }
                 )
             
-            await audit_log.record_event(
-                session_id=0,
-                event_type="runbook_generation_started",
-                payload={
-                    "runbook_id": None,
-                    "ticket_id": ticket_id,
-                    "issue_description_preview": (issue_description or "")[:200],
-                    "tenant_id": self.tenant_id,
-                },
-                tenant_id=self.tenant_id,
-            )
+            # Audit log (non-blocking - don't fail request if audit logging fails)
+            try:
+                await audit_log.record_event(
+                    session_id=0,
+                    event_type="runbook_generation_started",
+                    payload={
+                        "runbook_id": None,
+                        "ticket_id": ticket_id,
+                        "issue_description_preview": (issue_description or "")[:200],
+                        "tenant_id": self.tenant_id,
+                    },
+                    tenant_id=self.tenant_id,
+                )
+            except Exception as audit_err:
+                logger.warning(f"Audit logging failed (non-critical): {audit_err}")
             operational_context = self._build_operational_context(ticket_id)
             # Generate runbook
             runbook = await self.generator.generate_agent_runbook(
@@ -144,17 +148,21 @@ class RunbookController(BaseController):
                     logger.warning(f"Failed to store ticket_id in meta_data: {e}")
                     # Don't fail the request - this is not critical
             
-            await audit_log.record_event(
-                session_id=0,
-                event_type="runbook_generation_completed",
-                payload={
-                    "runbook_id": runbook.id,
-                    "ticket_id": ticket_id,
-                    "tenant_id": self.tenant_id,
-                    "status": "success",
-                },
-                tenant_id=self.tenant_id,
-            )
+            # Audit log success (non-blocking)
+            try:
+                await audit_log.record_event(
+                    session_id=0,
+                    event_type="runbook_generation_completed",
+                    payload={
+                        "runbook_id": runbook.id,
+                        "ticket_id": ticket_id,
+                        "tenant_id": self.tenant_id,
+                        "status": "success",
+                    },
+                    tenant_id=self.tenant_id,
+                )
+            except Exception as audit_err:
+                logger.warning(f"Audit logging failed (non-critical): {audit_err}")
             return runbook
             
         except HTTPException:
@@ -162,6 +170,7 @@ class RunbookController(BaseController):
         except Exception as e:
             import traceback
             error_detail = str(e) if str(e) else f"{type(e).__name__}: {repr(e)}"
+            # Audit log failure (non-blocking - don't fail if audit logging itself fails)
             try:
                 await audit_log.record_event(
                     session_id=0,

@@ -93,13 +93,32 @@ async def _load_last_hash() -> Optional[str]:
 
 def _append_line(line: str) -> None:
     path = Path(settings.AUDIT_LOG_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        # If we can't create the directory, try using /app/uploads/logs/ as fallback
+        logger.warning(f"Permission denied creating audit log directory {path.parent}, trying fallback location")
+        fallback_path = Path("/app/uploads/logs/audit.log")
+        try:
+            fallback_path.parent.mkdir(parents=True, exist_ok=True)
+            path = fallback_path
+        except Exception as e:
+            logger.error(f"Failed to create audit log directory at fallback location: {e}. Audit logging disabled for this request.")
+            raise
+    except Exception as e:
+        logger.error(f"Failed to create audit log directory: {e}. Audit logging disabled for this request.")
+        raise
+    
     is_new_file = not path.exists()
-    with path.open("a", encoding="utf-8") as f:
-        f.write(line)
-        f.write("\n")
-    if is_new_file:
-        os.chmod(path, 0o600)
+    try:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line)
+            f.write("\n")
+        if is_new_file:
+            os.chmod(path, 0o600)
+    except PermissionError:
+        logger.error(f"Permission denied writing to audit log {path}. Audit logging disabled.")
+        raise
 
 
 async def _replicate_async(line: str, digest: str) -> None:
