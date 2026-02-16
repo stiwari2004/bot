@@ -18,16 +18,26 @@ class ServiceNowTicketFetcher:
     def __init__(self):
         # Enable event hooks to log actual HTTP requests being sent
         async def log_request(request):
-            logger.info(f"httpx REQUEST: {request.method} {request.url}")
-            logger.info(f"httpx REQUEST HEADERS: {dict(request.headers)}")
+            logger.info(f"🔵 httpx REQUEST: {request.method} {request.url}")
+            logger.info(f"🔵 httpx REQUEST HEADERS: {dict(request.headers)}")
             if 'Authorization' in request.headers:
                 auth_val = request.headers['Authorization']
-                logger.info(f"httpx Authorization header in request: {auth_val[:30]}...")
+                logger.info(f"🔵 httpx Authorization header in request: {auth_val[:50]}... (length: {len(auth_val)})")
+                # Verify the header can be decoded
+                try:
+                    if auth_val.startswith("Basic "):
+                        encoded_part = auth_val[6:]
+                        decoded = base64.b64decode(encoded_part).decode('utf-8')
+                        username_part, password_part = decoded.split(':', 1)
+                        logger.info(f"🔵 Decoded from httpx request - username: {username_part}, password length: {len(password_part)}")
+                except Exception as e:
+                    logger.warning(f"Could not decode Authorization from httpx request: {e}")
             else:
-                logger.error("CRITICAL: Authorization header MISSING in httpx request!")
+                logger.error("❌ CRITICAL: Authorization header MISSING in httpx request!")
         
         self.client = httpx.AsyncClient(
             timeout=30.0,
+            event_hooks={'request': [log_request]},
             event_hooks={'request': [log_request]}
         )
     
@@ -74,12 +84,13 @@ class ServiceNowTicketFetcher:
             final_client_id = client_id if client_id and client_id.strip() else connection_meta.get("client_id")
             final_client_secret = client_secret if client_secret and client_secret.strip() else connection_meta.get("client_secret")
             
-            logger.info(f"ServiceNow fetch_tickets - final credentials: username={'present' if final_username else 'missing'}, password={'present' if final_password else 'missing'}")
-            logger.info(f"ServiceNow connection_meta keys: {list(connection_meta.keys())}")
+            logger.info(f"🔍 ServiceNow fetch_tickets - INPUT: username param={'present' if username else 'missing'}, password param={'present' if password else 'missing'}")
+            logger.info(f"🔍 ServiceNow fetch_tickets - INPUT: connection_meta keys: {list(connection_meta.keys())}")
+            logger.info(f"🔍 ServiceNow fetch_tickets - FINAL: username={'present' if final_username else 'missing'}, password={'present' if final_password else 'missing'}")
             if final_username:
-                logger.info(f"ServiceNow username value: {final_username[:10]}... (length: {len(final_username)})")
+                logger.info(f"🔍 ServiceNow username value: {final_username[:10]}... (length: {len(final_username)})")
             if final_password:
-                logger.info(f"ServiceNow password length: {len(final_password)} chars, first 5 chars: {final_password[:5]}...")
+                logger.info(f"🔍 ServiceNow password length: {len(final_password)} chars, first 5 chars: {final_password[:5]}...")
             
             # Get Basic Auth credentials - use the FINAL credentials directly
             basic_auth_username = None
@@ -88,7 +99,7 @@ class ServiceNowTicketFetcher:
             if final_username and final_password and final_username.strip() and final_password.strip():
                 basic_auth_username = final_username.strip()
                 basic_auth_password = final_password.strip()
-                logger.info(f"✅ Using credentials from parameters: username length={len(basic_auth_username)}, password length={len(basic_auth_password)}")
+                logger.info(f"✅ Using credentials from parameters: username='{basic_auth_username}', password length={len(basic_auth_password)} chars")
             elif connection_meta.get("username") and connection_meta.get("password"):
                 meta_user = connection_meta.get("username")
                 meta_pass = connection_meta.get("password")
@@ -186,11 +197,23 @@ class ServiceNowTicketFetcher:
                 if 'Authorization' in headers:
                     auth_header_value = headers['Authorization']
                     logger.info(f"Authorization header value: {auth_header_value[:30]}... (length: {len(auth_header_value)})")
+                    # Decode to verify it's correct
+                    try:
+                        if auth_header_value.startswith("Basic "):
+                            encoded_part = auth_header_value[6:]  # Remove "Basic "
+                            decoded = base64.b64decode(encoded_part).decode('utf-8')
+                            username_part, password_part = decoded.split(':', 1)
+                            logger.info(f"Decoded Authorization - username: {username_part}, password length: {len(password_part)} chars")
+                    except Exception as e:
+                        logger.warning(f"Could not decode Authorization header for verification: {e}")
                 else:
                     logger.error("CRITICAL: Authorization header is MISSING from headers dict!")
+                    raise ValueError("Authorization header is missing - cannot make request without credentials")
                 
                 # Use ONLY manual header (exactly like Postman)
                 # Don't use httpx BasicAuth - it might conflict or not work correctly
+                logger.info(f"Making GET request to: {api_url}")
+                logger.info(f"Request headers (sanitized): {dict((k, v[:50] + '...' if len(str(v)) > 50 else v) for k, v in headers.items())}")
                 response = await self.client.get(
                     api_url,
                     headers=headers,
@@ -202,6 +225,9 @@ class ServiceNowTicketFetcher:
                 if response.status_code == 401:
                     logger.error(f"401 Response body: {response.text[:200]}")
                     logger.error(f"Response headers: {dict(response.headers)}")
+                    # Log what we sent for comparison
+                    logger.error(f"Request URL: {api_url}")
+                    logger.error(f"Request headers sent: {dict((k, v[:50] + '...' if len(str(v)) > 50 else v) for k, v in headers.items())}")
                 logger.debug(f"ServiceNow API response status: {response.status_code}")
                 
                 # Check Content-Type header
