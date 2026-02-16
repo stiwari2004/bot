@@ -210,31 +210,29 @@ class Settings(BaseSettings):
 
 
 # Create settings instance
-# Gracefully handle .env file permission errors (file is optional - all critical vars come from environment)
-try:
+# Use .env only if the file exists and is readable (avoids permission warning when running in Docker with mounted .env)
+def _env_file_readable() -> bool:
+    path = os.path.join(os.getcwd(), ".env")
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r") as f:
+            f.read(1)
+        return True
+    except (PermissionError, OSError):
+        return False
+
+
+if _env_file_readable():
     settings = Settings()
-except PermissionError as e:
-    # If .env file has permission issues, create Settings without it
-    # All critical vars (DATABASE_URL, SECRET_KEY, etc.) should be set via environment variables anyway
-    import warnings
-    import os
-    env_file_path = os.path.join(os.getcwd(), ".env")
-    warnings.warn(
-        f"Permission denied reading .env file '{env_file_path}'. "
-        "Continuing with environment variables only. "
-        "This is OK if all required settings (DATABASE_URL, SECRET_KEY, etc.) are set via environment variables.",
-        UserWarning
-    )
-    # Create Settings class with env_file disabled
-    class SettingsWithoutEnvFile(Settings):
+else:
+    # .env missing or not readable (e.g. Docker mount permissions); load from environment only
+    class _SettingsEnvOnly(Settings):
         class Config:
-            env_file = None  # Disable .env file
+            env_file = None
             case_sensitive = True
             extra = "allow"
-    settings = SettingsWithoutEnvFile()
-except Exception as e:
-    # Re-raise other exceptions (like missing required env vars)
-    raise
+    settings = _SettingsEnvOnly()
 
 # Ensure upload directory exists
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

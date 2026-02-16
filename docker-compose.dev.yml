@@ -67,6 +67,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/troubleshooting_ai_dev
       - REDIS_URL=redis://redis:6379/0
+      # SECRET_KEY required for JWT/login; use env from .env if set, else dev default (so login works when .env is not readable in container)
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-me-min-32-chars-for-jwt}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=true
       - ENVIRONMENT=development

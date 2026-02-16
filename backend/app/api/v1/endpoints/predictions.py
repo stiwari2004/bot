@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.database import get_db
 from app.services.auth import get_current_user
@@ -350,10 +350,16 @@ async def get_patterns(
         logger.error(f"Error getting patterns: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class TrainModelRequest(BaseModel):
+    """Request body for /train-model; model_config avoids Pydantic protected namespace warning for model_type."""
+    model_config = ConfigDict(protected_namespaces=())
+    model_type: str
+    days_back: int = Field(default=30, ge=7, le=90)
+
+
 @router.post("/train-model")
 async def train_model(
-    model_type: str = Body(..., description="Model type: short_term, medium_term, or long_term"),
-    days_back: int = Body(default=30, ge=7, le=90),
+    body: TrainModelRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -361,6 +367,7 @@ async def train_model(
     try:
         from app.services.prediction.model_training_service import ModelTrainingService
         
+        model_type = body.model_type
         if model_type not in ["short_term", "medium_term", "long_term"]:
             raise HTTPException(status_code=400, detail="model_type must be one of: short_term, medium_term, long_term")
         
@@ -368,7 +375,7 @@ async def train_model(
         result = await training_service.train_model(
             tenant_id=current_user.tenant_id,
             model_type=model_type,
-            days_back=days_back,
+            days_back=body.days_back,
             db=db
         )
         
