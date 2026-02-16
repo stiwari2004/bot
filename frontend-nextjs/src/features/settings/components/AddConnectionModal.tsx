@@ -17,6 +17,18 @@ interface AddConnectionModalProps {
 export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddConnectionModalProps) {
   const [selectedTool, setSelectedTool] = useState('');
   const [connectionType, setConnectionType] = useState('webhook');
+  
+  // Reset connection type when tool changes (some tools only support specific types)
+  useEffect(() => {
+    if (selectedTool) {
+      const toolInfo = availableTools.find(t => t.name === selectedTool);
+      if (toolInfo && !toolInfo.connection_types.includes(connectionType)) {
+        // If current connection type not supported, switch to first available type
+        setConnectionType(toolInfo.connection_types[0] || 'webhook');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTool]);
   const [webhookUrl, setWebhookUrl] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -132,7 +144,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                 </select>
               </div>
 
-              {selectedToolInfo && (
+              {selectedToolInfo ? (
                 <div>
                   <label className="block text-sm font-semibold text-neutral-700 mb-2">
                     Connection Type *
@@ -150,7 +162,11 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                     ))}
                   </select>
                 </div>
-              )}
+              ) : selectedTool ? (
+                <div className="text-sm text-neutral-500">
+                  Loading connection types...
+                </div>
+              ) : null}
 
               {connectionType === 'webhook' && (
                 <div>
@@ -184,7 +200,15 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                       type="text"
                       value={apiBaseUrl}
                       onChange={(e) => setApiBaseUrl(e.target.value)}
-                      placeholder={selectedTool === 'manageengine' ? 'https://sdpondemand.manageengine.in' : 'https://your-instance.service-now.com'}
+                      placeholder={
+                        selectedTool === 'manageengine' 
+                          ? 'https://sdpondemand.manageengine.in' 
+                          : selectedTool === 'zendesk'
+                          ? 'https://your-subdomain.zendesk.com'
+                          : selectedTool === 'jira'
+                          ? 'https://your-domain.atlassian.net'
+                          : 'https://your-instance.service-now.com'
+                      }
                       className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                       required
                     />
@@ -239,28 +263,98 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                     </>
                   ) : (
                     <>
-                      <div>
-                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                          API Key / Username
-                        </label>
-                        <input
-                          type="text"
-                          value={apiUsername}
-                          onChange={(e) => setApiUsername(e.target.value)}
-                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                          API Password / Token
-                        </label>
-                        <input
-                          type="password"
-                          value={apiPassword}
-                          onChange={(e) => setApiPassword(e.target.value)}
-                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
-                        />
-                      </div>
+                      {selectedTool === 'zendesk' ? (
+                        <>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              Zendesk Email / API Token
+                            </label>
+                            <input
+                              type="text"
+                              value={apiUsername}
+                              onChange={(e) => setApiUsername(e.target.value)}
+                              placeholder="your-email@example.com/api_token"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                              required
+                            />
+                            <p className="text-xs text-neutral-500 mt-1">
+                              Format: email@domain.com/token (get API token from Zendesk Admin → API → Token Access)
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              API Token
+                            </label>
+                            <input
+                              type="password"
+                              value={apiPassword}
+                              onChange={(e) => setApiPassword(e.target.value)}
+                              placeholder="Your Zendesk API token"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                              required
+                            />
+                          </div>
+                        </>
+                      ) : selectedTool === 'jira' ? (
+                        <>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              Jira Email / Username
+                            </label>
+                            <input
+                              type="text"
+                              value={apiUsername}
+                              onChange={(e) => setApiUsername(e.target.value)}
+                              placeholder="your-email@example.com"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              API Token
+                            </label>
+                            <input
+                              type="password"
+                              value={apiPassword}
+                              onChange={(e) => setApiPassword(e.target.value)}
+                              placeholder="Your Jira API token"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                              required
+                            />
+                            <p className="text-xs text-neutral-500 mt-1">
+                              Get API token from Atlassian Account Settings → Security → API tokens
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              API Key / Username
+                            </label>
+                            <input
+                              type="text"
+                              value={apiUsername}
+                              onChange={(e) => setApiUsername(e.target.value)}
+                              placeholder={selectedTool === 'servicenow' ? 'ServiceNow username' : 'API username or key'}
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              API Password / Token
+                            </label>
+                            <input
+                              type="password"
+                              value={apiPassword}
+                              onChange={(e) => setApiPassword(e.target.value)}
+                              placeholder={selectedTool === 'servicenow' ? 'ServiceNow password' : 'API password or token'}
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                            />
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                 </>

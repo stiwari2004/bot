@@ -502,8 +502,27 @@ async def test_ticketing_connection(
                 try:
                     # ServiceNow supports OAuth 2.0 or Basic Auth
                     # Credentials can be in meta_data OR in connection.api_username/api_password
+                    # Sync credentials from connection fields to meta_data if missing (for backward compatibility)
+                    synced = False
+                    if not meta_data.get("username") and connection.api_username:
+                        meta_data["username"] = connection.api_username
+                        synced = True
+                    if not meta_data.get("password") and connection.api_password:
+                        meta_data["password"] = connection.api_password
+                        synced = True
+                    # If we synced, save it back to DB
+                    if synced:
+                        connection.meta_data = json.dumps(meta_data)
+                        db.commit()
+                        logger.info(f"Synced ServiceNow credentials from connection fields to meta_data for connection {connection.id}")
+                    
                     username = meta_data.get("username") or connection.api_username
                     password = meta_data.get("password") or connection.api_password
+                    
+                    logger.info(f"ServiceNow test - username: {'present' if username else 'missing'}, password: {'present' if password else 'missing'}")
+                    if not username or not password:
+                        raise ValueError("ServiceNow credentials (username/password) are required for Basic Auth")
+                    
                     tickets = await fetcher.fetch_tickets(
                         api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                         connection_meta=meta_data,
