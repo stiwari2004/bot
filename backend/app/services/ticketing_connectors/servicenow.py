@@ -69,6 +69,11 @@ class ServiceNowTicketFetcher:
         Returns:
             List of normalized ticket dictionaries
         """
+        logger.error("🚀 ServiceNow fetch_tickets CALLED - START")
+        logger.error(f"🚀 api_base_url: {api_base_url}")
+        logger.error(f"🚀 username param: {'present' if username else 'missing'}")
+        logger.error(f"🚀 password param: {'present' if password else 'missing'}")
+        logger.error(f"🚀 connection_meta keys: {list(connection_meta.keys())}")
         try:
             # Normalize API base URL
             if not api_base_url.startswith("http"):
@@ -98,6 +103,7 @@ class ServiceNowTicketFetcher:
             if final_username and final_password and final_username.strip() and final_password.strip():
                 basic_auth_username = final_username.strip()
                 basic_auth_password = final_password.strip()
+                logger.error(f"✅ Using credentials from parameters: username='{basic_auth_username}', password length={len(basic_auth_password)} chars")
                 logger.info(f"✅ Using credentials from parameters: username='{basic_auth_username}', password length={len(basic_auth_password)} chars")
             elif connection_meta.get("username") and connection_meta.get("password"):
                 meta_user = connection_meta.get("username")
@@ -126,6 +132,7 @@ class ServiceNowTicketFetcher:
                 encoded = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
                 auth_header = f"Basic {encoded}"
                 headers["Authorization"] = auth_header
+                logger.error(f"✅ Authorization header SET: {auth_header[:50]}... (full length: {len(auth_header)})")
                 logger.info(f"Authorization header (base64 encoded): {auth_header[:50]}... (full length: {len(auth_header)})")
                 logger.info(f"Username: {basic_auth_username}, Password length: {len(basic_auth_password)} chars")
                 logger.info(f"Base64 encoded value: {encoded[:50]}... (full length: {len(encoded)})")
