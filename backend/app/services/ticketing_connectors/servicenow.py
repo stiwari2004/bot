@@ -37,7 +37,6 @@ class ServiceNowTicketFetcher:
         
         self.client = httpx.AsyncClient(
             timeout=30.0,
-            event_hooks={'request': [log_request]},
             event_hooks={'request': [log_request]}
         )
     
