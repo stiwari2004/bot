@@ -523,14 +523,28 @@ async def test_ticketing_connection(
                 try:
                     # ServiceNow supports OAuth 2.0 or Basic Auth
                     # Sync credentials from connection fields to meta_data if missing (for backward compatibility)
-                    _sync_servicenow_credentials(connection, meta_data, db)
+                    synced = _sync_servicenow_credentials(connection, meta_data, db)
+                    if synced:
+                        # Re-parse meta_data after sync (it was updated in DB)
+                        db.refresh(connection)  # Refresh to get updated meta_data
+                        meta_data = _parse_meta_data_safe(connection.meta_data)
                     
                     username = meta_data.get("username") or connection.api_username
                     password = meta_data.get("password") or connection.api_password
                     
                     logger.info(f"ServiceNow test - username: {'present' if username else 'missing'}, password: {'present' if password else 'missing'}")
+                    logger.info(f"ServiceNow test - api_username: {'present' if connection.api_username else 'missing'}, api_password: {'present' if connection.api_password else 'missing'}")
+                    logger.info(f"ServiceNow test - meta_data keys: {list(meta_data.keys())}")
                     if not username or not password:
-                        raise ValueError("ServiceNow credentials (username/password) are required for Basic Auth")
+                        error_detail = (
+                            f"ServiceNow connection {connection.id} missing credentials. "
+                            f"api_username: {'set' if connection.api_username else 'missing'}, "
+                            f"api_password: {'set' if connection.api_password else 'missing'}, "
+                            f"meta_data.username: {'set' if meta_data.get('username') else 'missing'}, "
+                            f"meta_data.password: {'set' if meta_data.get('password') else 'missing'}"
+                        )
+                        logger.error(error_detail)
+                        raise ValueError("ServiceNow credentials (username/password) are required for Basic Auth. Please update the connection with valid credentials.")
                     
                     tickets = await fetcher.fetch_tickets(
                         api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),

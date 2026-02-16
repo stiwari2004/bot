@@ -233,11 +233,13 @@ class TicketingPoller:
                 # Check both locations
                 username = meta_data.get("username") or connection.api_username
                 password = meta_data.get("password") or connection.api_password
-                logger.debug(f"ServiceNow credentials: username={'present' if username else 'missing'}, password={'present' if password else 'missing'}")
+                logger.info(f"ServiceNow poller - credentials check: username={'present' if username else 'missing'}, password={'present' if password else 'missing'}")
+                logger.info(f"ServiceNow poller - api_username: {'present' if connection.api_username else 'missing'}, api_password: {'present' if connection.api_password else 'missing'}")
+                logger.info(f"ServiceNow poller - meta_data keys: {list(meta_data.keys())}")
                 if username:
-                    logger.debug(f"ServiceNow username (first 5 chars): {username[:5]}... (length: {len(username)})")
+                    logger.info(f"ServiceNow username (first 5 chars): {username[:5]}... (length: {len(username)})")
                 if password:
-                    logger.debug(f"ServiceNow password length: {len(password)} chars")
+                    logger.info(f"ServiceNow password length: {len(password)} chars")
                 
                 if not username or not password:
                     error_msg = (
@@ -247,7 +249,7 @@ class TicketingPoller:
                         f"meta_data.username: {'set' if meta_data.get('username') else 'missing'}, "
                         f"meta_data.password: {'set' if meta_data.get('password') else 'missing'}"
                     )
-                    logger.error(error_msg)
+                    logger.error(f"❌ {error_msg}")
                     raise ValueError("ServiceNow credentials (username/password) are required for Basic Auth. Please update the connection with valid credentials.")
                 
                 tickets = await self.servicenow_fetcher.fetch_tickets(

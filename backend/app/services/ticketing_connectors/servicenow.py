@@ -75,6 +75,7 @@ class ServiceNowTicketFetcher:
             final_client_secret = client_secret if client_secret and client_secret.strip() else connection_meta.get("client_secret")
             
             logger.info(f"ServiceNow fetch_tickets - final credentials: username={'present' if final_username else 'missing'}, password={'present' if final_password else 'missing'}")
+            logger.info(f"ServiceNow connection_meta keys: {list(connection_meta.keys())}")
             if final_username:
                 logger.info(f"ServiceNow username value: {final_username[:10]}... (length: {len(final_username)})")
             if final_password:
@@ -87,14 +88,19 @@ class ServiceNowTicketFetcher:
             if final_username and final_password and final_username.strip() and final_password.strip():
                 basic_auth_username = final_username.strip()
                 basic_auth_password = final_password.strip()
-                logger.info(f"Using credentials from parameters: username length={len(basic_auth_username)}, password length={len(basic_auth_password)}")
+                logger.info(f"✅ Using credentials from parameters: username length={len(basic_auth_username)}, password length={len(basic_auth_password)}")
             elif connection_meta.get("username") and connection_meta.get("password"):
                 meta_user = connection_meta.get("username")
                 meta_pass = connection_meta.get("password")
+                logger.info(f"Found credentials in meta_data: username type={type(meta_user).__name__}, password type={type(meta_pass).__name__}")
                 if isinstance(meta_user, str) and isinstance(meta_pass, str) and meta_user.strip() and meta_pass.strip():
                     basic_auth_username = meta_user.strip()
                     basic_auth_password = meta_pass.strip()
-                    logger.info(f"Using credentials from meta_data: username length={len(basic_auth_username)}, password length={len(basic_auth_password)}")
+                    logger.info(f"✅ Using credentials from meta_data: username length={len(basic_auth_username)}, password length={len(basic_auth_password)}")
+                else:
+                    logger.warning(f"⚠️ Meta credentials exist but invalid: username is_str={isinstance(meta_user, str)}, password is_str={isinstance(meta_pass, str)}, username empty={not meta_user.strip() if isinstance(meta_user, str) else 'N/A'}, password empty={not meta_pass.strip() if isinstance(meta_pass, str) else 'N/A'}")
+            else:
+                logger.warning(f"⚠️ No credentials in connection_meta: username={'present' if connection_meta.get('username') else 'missing'}, password={'present' if connection_meta.get('password') else 'missing'}")
             
             if basic_auth_username and basic_auth_password:
                 # Build headers from scratch - don't use _get_auth_headers which might have issues
@@ -115,12 +121,20 @@ class ServiceNowTicketFetcher:
                 logger.info(f"Base64 encoded value: {encoded[:50]}... (full length: {len(encoded)})")
                 auth = None  # Don't use httpx BasicAuth - using manual header
             else:
-                logger.error(f"CRITICAL: No credentials found! Username: {bool(basic_auth_username)}, Password: {bool(basic_auth_password)}")
+                logger.error(f"❌ CRITICAL: No credentials found! Username: {bool(basic_auth_username)}, Password: {bool(basic_auth_password)}")
+                logger.error(f"   final_username: {bool(final_username)}, final_password: {bool(final_password)}")
+                logger.error(f"   connection_meta.username: {bool(connection_meta.get('username'))}, connection_meta.password: {bool(connection_meta.get('password'))}")
+                logger.error(f"   This connection needs username/password set via API or UI")
                 auth = None
                 headers = {
                     "Content-Type": "application/json",
                     "Accept": "application/json"
                 }
+                # Don't make request without credentials - raise immediately
+                raise ValueError(
+                    "ServiceNow credentials (username/password) are required for Basic Auth. "
+                    "Please update the connection with valid ServiceNow username and password."
+                )
             
             # ServiceNow API endpoint for incidents
             api_url = f"{api_base_url}/api/now/table/incident"
