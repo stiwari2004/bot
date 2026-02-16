@@ -216,7 +216,9 @@ except ImportError:  # pragma: no cover - optional dependency
     Inquiry = None
 
 if Inquiry:
-    __all__.append("Inquiry")# Super Admin model
+    __all__.append("Inquiry")
+
+# Super Admin model
 try:
     from app.models.super_admin import SuperAdmin
 except ImportError:

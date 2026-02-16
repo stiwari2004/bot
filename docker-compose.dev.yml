@@ -14,10 +14,9 @@ services:
       POSTGRES_DB: troubleshooting_ai_dev
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_change_me}
-    # Postgres is only needed by backend/worker inside the Docker network.
-    # Remove host port exposure to avoid conflicts with any host Postgres.
-    # ports:
-    #   - "5433:5432"
+    # Expose for pgAdmin / local tools. Use 5433 to avoid conflict with host Postgres on 5432.
+    ports:
+      - "5433:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
       - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
