@@ -523,12 +523,7 @@ async def test_ticketing_connection(
                 try:
                     # ServiceNow supports OAuth 2.0 or Basic Auth
                     # Sync credentials from connection fields to meta_data if missing (for backward compatibility)
-                    synced = _sync_servicenow_credentials(connection, meta_data, db)
-                    if synced:
-                        # Re-parse meta_data after sync (it was updated in DB)
-                        db.refresh(connection)  # Refresh to get updated meta_data
-                        meta_data = _parse_meta_data_safe(connection.meta_data)
-                    
+                    _sync_servicenow_credentials(connection, meta_data, db)
                     username = meta_data.get("username") or connection.api_username
                     password = meta_data.get("password") or connection.api_password
                     

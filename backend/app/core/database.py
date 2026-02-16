@@ -33,13 +33,10 @@ def _debug_log(location, message, data=None, hypothesis_id=None):
     except Exception:
         pass  # Fail silently if logging fails
 
-# SQL echo logs every statement (CREATE TABLE, SELECT, etc.) and floods logs when DEBUG=true.
-# Keep echo off by default; set SQL_ECHO=true in env only when tracing SQL.
-_sql_echo = os.getenv("SQL_ECHO", "false").lower() in ("true", "1", "yes")
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    echo=_sql_echo,
+    echo=settings.DEBUG,
 )
 
 # Create session factory

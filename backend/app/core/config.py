@@ -210,23 +210,18 @@ class Settings(BaseSettings):
 
 
 # Create settings instance
-# Use .env only if the file exists and is readable (avoids permission warning when running in Docker with mounted .env)
-def _env_file_readable() -> bool:
-    path = os.path.join(os.getcwd(), ".env")
-    if not os.path.isfile(path):
-        return False
-    try:
-        with open(path, "r") as f:
-            f.read(1)
-        return True
-    except (PermissionError, OSError):
-        return False
-
-
-if _env_file_readable():
+# Gracefully handle .env file permission errors (file is optional - all critical vars come from environment)
+try:
     settings = Settings()
-else:
-    # .env missing or not readable (e.g. Docker mount permissions); load from environment only
+except PermissionError:
+    import warnings
+    env_file_path = os.path.join(os.getcwd(), ".env")
+    warnings.warn(
+        f"Permission denied reading .env file '{env_file_path}'. "
+        "Continuing with environment variables only. "
+        "This is OK if all required settings (DATABASE_URL, SECRET_KEY, etc.) are set via environment variables.",
+        UserWarning,
+    )
     class _SettingsEnvOnly(Settings):
         class Config:
             env_file = None
