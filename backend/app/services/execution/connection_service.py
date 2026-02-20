@@ -19,19 +19,65 @@ logger = get_logger(__name__)
 DEFAULT_SSH_PORT = 22
 
 
-def _text_candidates(text: str) -> List[str]:
-    """Extract server name / IP candidates from ticket or issue text."""
+# Max length for a single node identifier (name or IP); never use full description as candidate
+_MAX_NODE_ID_LEN = 64
+# Words that are not hostnames (skip when picking generic tokens)
+_SKIP_HOSTNAME_TOKENS = frozenset({
+    "lab", "node", "nodes", "job", "linux", "service", "alert", "alerts", "firing",
+    "unreachable", "reporting", "down", "exporter", "instance", "link", "irm", "grafana",
+})
+
+
+def _ordered_candidates_from_text(text: str) -> List[str]:
+    """
+    Extract node name/IP candidates from issue/ticket text in priority order.
+    Never returns the full description—only short tokens suitable for node lookup.
+    """
     if not text or not text.strip():
         return []
-    candidates: List[str] = []
+    seen: set = set()
+    out: List[str] = []
+
+    def add(s: Optional[str]) -> None:
+        if not s or len(s) > _MAX_NODE_ID_LEN:
+            return
+        s = s.strip()
+        if s and s not in seen and len(s) >= 2:
+            seen.add(s)
+            out.append(s)
+
+    # 1) Title-like: first token on first line (e.g. "jump01" from "jump01 (lab)")
+    first_line = text.split("\n")[0].strip()
+    if first_line:
+        # First word, or part before " (" or " "
+        m = re.match(r"^([a-zA-Z0-9][a-zA-Z0-9_.-]*)\s*(?:\s|\(|$)", first_line)
+        if m:
+            add(m.group(1))
+
+    # 2) Alert: <name> (Grafana-style)
+    for m in re.finditer(r"\bAlert\s*:\s*([a-zA-Z0-9_.-]+)\b", text, re.IGNORECASE):
+        add(m.group(1))
+
+    # 3) instance=IP or instance=IP:port (extract IP only)
+    for m in re.finditer(r"\binstance\s*=\s*([0-9.]+)(?::[0-9]+)?\b", text, re.IGNORECASE):
+        add(m.group(1))
+
+    # 4) IPs
     for m in re.finditer(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
-        candidates.append(m.group(0))
+        add(m.group(0))
+
+    # 5) host/server/node/ci/machine/target : value
     for prefix in ("host", "server", "node", "ci", "machine", "target"):
         for m in re.finditer(rf"\b{prefix}\s*[:\-=]\s*([a-zA-Z0-9_.-]+)\b", text, re.IGNORECASE):
-            candidates.append(m.group(1).strip())
+            add(m.group(1).strip())
+
+    # 6) Hostname-like tokens (skip common non-hostname words)
     for m in re.finditer(r"\b([a-z0-9][a-z0-9_.-]{2,})\b", text, re.IGNORECASE):
-        candidates.append(m.group(1))
-    return candidates
+        tok = m.group(1)
+        if tok.lower() not in _SKIP_HOSTNAME_TOKENS and not re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", tok):
+            add(tok)
+
+    return out
 
 
 def resolve_target_connection_for_assignment(
@@ -91,37 +137,44 @@ def resolve_target_connection_for_assignment(
 
     search_text = " ".join(search_text_parts).strip()
 
-    # 4) Extract from ticket/issue text when we still have no name or IP
-    if not server_name and not host_ip and search_text:
-        for c in _text_candidates(search_text):
-            if not c or len(c) < 2:
-                continue
-            if re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", c):
-                host_ip = c
-                break
-        for c in _text_candidates(search_text):
-            if not c or len(c) < 2 or re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", c):
-                continue
-            server_name = c
-            break
-        if not host_ip and server_name and re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", str(server_name)):
-            host_ip, server_name = server_name, None
+    # 4) Build ordered list of candidates: from metadata/ticket first, then from text (never full description)
+    candidates: List[str] = []
+    if server_name and str(server_name).strip() and len(str(server_name)) <= _MAX_NODE_ID_LEN:
+        candidates.append(str(server_name).strip())
+    if host_ip and str(host_ip).strip() and len(str(host_ip)) <= _MAX_NODE_ID_LEN:
+        c = str(host_ip).strip()
+        if c not in candidates:
+            candidates.append(c)
+    for c in _ordered_candidates_from_text(search_text):
+        if c and c not in candidates:
+            candidates.append(c)
 
-    # 5) Validate: affected node must be in the nodes list (no execution otherwise)
+    # 5) Resolve: first candidate that exists in the nodes list wins (never use full description)
     node = None
-    affected = server_name or host_ip
-    if not affected or not str(affected).strip():
+    affected: Optional[str] = None
+    for c in candidates:
+        if not c or len(c) < 2:
+            continue
+        c = str(c).strip()
+        if len(c) > _MAX_NODE_ID_LEN:
+            continue
+        node = CIExtractionService.find_infrastructure_connection(db, c, tenant_id)
+        if node:
+            affected = c
+            break
+
+    if not node or not affected:
+        first_tried = (candidates[0] if candidates else None) or "unknown"
+        if candidates:
+            raise ValueError(
+                f"The affected node '{first_tried}' is not in your connected nodes list. "
+                "Add this node in Settings → Infrastructure Connections (Nodes) to run execution. "
+                "Billing is node-based; execution is only allowed for nodes in your list."
+            )
         raise ValueError(
             "Could not determine the affected node from the ticket. "
-            "The ticket (or issue description) should mention the server name or IP. "
+            "The ticket (or issue description) should mention the server name (e.g. Alert: jump01) or IP (e.g. instance=192.168.48.10:9100). "
             "Execution is only allowed for nodes that are in your connected nodes list (Settings → Nodes)."
-        )
-    node = CIExtractionService.find_infrastructure_connection(db, str(affected).strip(), tenant_id)
-    if not node:
-        raise ValueError(
-            f"The affected node '{affected}' is not in your connected nodes list. "
-            "Add this node in Settings → Infrastructure Connections (Nodes) to run execution. "
-            "Billing is node-based; execution is only allowed for nodes in your list."
         )
     logger.info("Affected node from ticket validated in nodes list: %s -> %s (%s)", affected, node.name, node.target_host)
 
