@@ -12,6 +12,7 @@ from app.services.execution import ExecutionEngine
 from app.services.execution.queue_service import QueueService
 from app.services.execution.event_service import EventService
 from app.services.execution.metadata_service import MetadataService
+from app.services.execution.connection_service import resolve_target_connection_for_assignment
 from app.services.agent_worker_manager import agent_worker_manager
 from app.services.policy import validate_sandbox_profile
 from app.services.queue_client import RedisQueueClient, queue_client
@@ -87,11 +88,20 @@ class ExecutionOrchestrator:
         session.sandbox_profile = session.sandbox_profile or "default"
         db.add(session)
         
-        # Prepare metadata
+        # Resolve target host from connected nodes list (execution only runs on nodes in Settings → Nodes)
         request_metadata = metadata or {}
         if request_metadata:
             session.issue_description = session.issue_description or request_metadata.get("issue_description")
-        
+        try:
+            connection = resolve_target_connection_for_assignment(
+                db, tenant_id, ticket_id, request_metadata
+            )
+            request_metadata = dict(request_metadata)
+            request_metadata["connection"] = connection
+        except ValueError as e:
+            logger.warning("Target host resolution failed: %s", e)
+            raise
+
         prepared_metadata = self.metadata_service.prepare_metadata(
             db=db,
             tenant_id=tenant_id,

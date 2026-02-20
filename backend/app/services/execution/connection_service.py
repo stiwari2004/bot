@@ -1,8 +1,9 @@
 """
 Connection configuration service - CLEAN REWRITE
-Simple service for getting connection config for execution steps
+Simple service for getting connection config for execution steps.
+Execution only runs against nodes in the connected nodes list (infrastructure_connections).
 """
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.models.ticket import Ticket
@@ -13,6 +14,99 @@ from app.core.logging import get_logger
 import json
 
 logger = get_logger(__name__)
+
+# Default SSH port when node has no port
+DEFAULT_SSH_PORT = 22
+
+
+def resolve_target_connection_for_assignment(
+    db: Session,
+    tenant_id: int,
+    ticket_id: Optional[int],
+    request_metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Resolve the target host from the connected nodes list (infrastructure_connections).
+    Used when building assignment payload so the worker receives metadata.connection.host.
+    Only nodes added in Settings → Nodes can be used; raises if target is not in the list.
+
+    Returns a connection dict suitable for assignment metadata (host, port, type, etc.).
+    """
+    request_metadata = request_metadata or {}
+    server_name: Optional[str] = None
+    host_ip: Optional[str] = None
+
+    # 1) From request metadata (e.g. frontend sent server_name/host_ip)
+    conn_in = request_metadata.get("connection") or {}
+    if conn_in.get("host"):
+        server_name = conn_in.get("host")
+    server_name = server_name or request_metadata.get("server_name")
+    host_ip = host_ip or request_metadata.get("host_ip")
+
+    # 2) From ticket extracted_inputs (from runbook input extraction)
+    if ticket_id and (not server_name and not host_ip):
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first() if ticket_id else None
+        if ticket and getattr(ticket, "meta_data", None) and isinstance(ticket.meta_data, dict):
+            extracted = ticket.meta_data.get("extracted_inputs") or {}
+            if not server_name:
+                server_name = extracted.get("server_name")
+            if not host_ip:
+                host_ip = extracted.get("host_ip")
+
+    # 3) From ticket description/title via CI extraction (fallback)
+    if ticket_id and not server_name and not host_ip:
+        ticket = ticket or db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if ticket:
+            ticket_dict = {
+                "id": ticket.id,
+                "meta_data": ticket.meta_data,
+                "description": ticket.description,
+                "service": ticket.service,
+                "title": ticket.title,
+            }
+            ci = CIExtractionService.extract_ci_from_ticket(ticket_dict)
+            if ci:
+                server_name = server_name or ci
+
+    # Try to find a node by server_name first, then by host_ip
+    node = None
+    for candidate in (server_name, host_ip):
+        if not candidate or not str(candidate).strip():
+            continue
+        node = CIExtractionService.find_infrastructure_connection(db, str(candidate).strip(), tenant_id)
+        if node:
+            logger.info("Resolved target from nodes list: %s -> %s (%s)", candidate, node.name, node.target_host)
+            break
+
+    if not node:
+        hint = server_name or host_ip or "unknown"
+        raise ValueError(
+            f"Target server '{hint}' is not in the connected nodes list. "
+            "Execution only runs on nodes added in Settings → Nodes. "
+            "Add the node (with name or IP) in Settings → Infrastructure Connections, then try again."
+        )
+
+    if not node.is_active:
+        raise ValueError(
+            f"Node '{node.name}' is inactive. Activate it in Settings → Infrastructure Connections."
+        )
+
+    # Build connection block for worker (must include host so worker gets target_host)
+    port = node.target_port if node.target_port is not None else (DEFAULT_SSH_PORT if (node.connection_type or "").lower() in ("ssh", "") else None)
+    connection = {
+        "host": node.target_host,
+        "port": port,
+        "type": node.connection_type or "ssh",
+        "connector_type": (node.connection_type or "ssh").lower(),
+        "target_host": node.target_host,
+        "server_name": node.name,
+        "environment": node.environment,
+    }
+    if node.credential_id:
+        credential = db.query(Credential).filter(Credential.id == node.credential_id).first()
+        if credential and credential.name:
+            connection["credential_source"] = f"alias:{credential.name}"
+    return connection
 
 
 class ConnectionService:

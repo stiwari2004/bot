@@ -127,6 +127,11 @@ class ExecutionController(BaseController):
             if idempotency_key and not reservation_committed:
                 await idempotency_manager.release("session", idempotency_key)
             raise
+        except ValueError as e:
+            if idempotency_key and not reservation_committed:
+                await idempotency_manager.release("session", idempotency_key)
+            self.db.rollback()
+            raise self.bad_request(str(e))
         except Exception as e:
             if idempotency_key and not reservation_committed:
                 await idempotency_manager.release("session", idempotency_key)
