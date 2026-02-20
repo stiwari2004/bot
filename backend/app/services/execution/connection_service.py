@@ -1,9 +1,10 @@
 """
 Connection configuration service - CLEAN REWRITE
-Simple service for getting connection config for execution steps.
-Execution only runs against nodes in the connected nodes list (infrastructure_connections).
+Execution only runs on nodes that are in the connected nodes list (infrastructure_connections).
+Billing is node-based: we never execute against a node that is not in the list.
 """
-from typing import Dict, Any, Optional
+import re
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 from app.models.execution_session import ExecutionSession, ExecutionStep
 from app.models.ticket import Ticket
@@ -15,8 +16,22 @@ import json
 
 logger = get_logger(__name__)
 
-# Default SSH port when node has no port
 DEFAULT_SSH_PORT = 22
+
+
+def _text_candidates(text: str) -> List[str]:
+    """Extract server name / IP candidates from ticket or issue text."""
+    if not text or not text.strip():
+        return []
+    candidates: List[str] = []
+    for m in re.finditer(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
+        candidates.append(m.group(0))
+    for prefix in ("host", "server", "node", "ci", "machine", "target"):
+        for m in re.finditer(rf"\b{prefix}\s*[:\-=]\s*([a-zA-Z0-9_.-]+)\b", text, re.IGNORECASE):
+            candidates.append(m.group(1).strip())
+    for m in re.finditer(r"\b([a-z0-9][a-z0-9_.-]{2,})\b", text, re.IGNORECASE):
+        candidates.append(m.group(1))
+    return candidates
 
 
 def resolve_target_connection_for_assignment(
@@ -26,65 +41,89 @@ def resolve_target_connection_for_assignment(
     request_metadata: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
-    Resolve the target host from the connected nodes list (infrastructure_connections).
-    Used when building assignment payload so the worker receives metadata.connection.host.
-    Only nodes added in Settings → Nodes can be used; raises if target is not in the list.
-
-    Returns a connection dict suitable for assignment metadata (host, port, type, etc.).
+    Get the affected node (name or IP) from the ticket, then validate it is in the nodes list.
+    - If the node is in the list → return connection (allow execution).
+    - If the node is not in the list → raise (ask to add the node; billing is node-based).
+    No guessing: we only execute when the ticket's affected node is explicitly in the list.
     """
     request_metadata = request_metadata or {}
     server_name: Optional[str] = None
     host_ip: Optional[str] = None
+    search_text_parts: List[str] = []
 
-    # 1) From request metadata (e.g. frontend sent server_name/host_ip)
+    # 1) Request metadata (server_name / host_ip / issue_description)
     conn_in = request_metadata.get("connection") or {}
     if conn_in.get("host"):
         server_name = conn_in.get("host")
     server_name = server_name or request_metadata.get("server_name")
     host_ip = host_ip or request_metadata.get("host_ip")
+    if request_metadata.get("issue_description"):
+        search_text_parts.append(request_metadata["issue_description"])
 
-    # 2) From ticket extracted_inputs (from runbook input extraction)
-    if ticket_id and (not server_name and not host_ip):
-        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first() if ticket_id else None
-        if ticket and getattr(ticket, "meta_data", None) and isinstance(ticket.meta_data, dict):
-            extracted = ticket.meta_data.get("extracted_inputs") or {}
-            if not server_name:
-                server_name = extracted.get("server_name")
-            if not host_ip:
-                host_ip = extracted.get("host_ip")
-
-    # 3) From ticket description/title via CI extraction (fallback)
-    if ticket_id and not server_name and not host_ip:
-        ticket = ticket or db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    # 2) From ticket: extracted_inputs (from runbook input extraction) and title/description
+    ticket: Optional[Ticket] = None
+    if ticket_id:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if ticket:
-            ticket_dict = {
-                "id": ticket.id,
-                "meta_data": ticket.meta_data,
-                "description": ticket.description,
-                "service": ticket.service,
-                "title": ticket.title,
-            }
-            ci = CIExtractionService.extract_ci_from_ticket(ticket_dict)
-            if ci:
-                server_name = server_name or ci
+            search_text_parts.extend([ticket.title or "", ticket.description or ""])
+            if getattr(ticket, "meta_data", None) and isinstance(ticket.meta_data, dict):
+                extracted = ticket.meta_data.get("extracted_inputs") or {}
+                if not server_name:
+                    server_name = extracted.get("server_name")
+                if not host_ip:
+                    host_ip = extracted.get("host_ip")
+                for v in (ticket.meta_data or {}).values():
+                    if isinstance(v, str):
+                        search_text_parts.append(v)
 
-    # Try to find a node by server_name first, then by host_ip
-    node = None
-    for candidate in (server_name, host_ip):
-        if not candidate or not str(candidate).strip():
-            continue
-        node = CIExtractionService.find_infrastructure_connection(db, str(candidate).strip(), tenant_id)
-        if node:
-            logger.info("Resolved target from nodes list: %s -> %s (%s)", candidate, node.name, node.target_host)
+    # 3) From ticket description/title via CI extraction
+    if ticket and not server_name and not host_ip:
+        ticket_dict = {
+            "id": ticket.id,
+            "meta_data": ticket.meta_data,
+            "description": ticket.description,
+            "service": ticket.service,
+            "title": ticket.title,
+        }
+        ci = CIExtractionService.extract_ci_from_ticket(ticket_dict)
+        if ci:
+            server_name = server_name or ci
+
+    search_text = " ".join(search_text_parts).strip()
+
+    # 4) Extract from ticket/issue text when we still have no name or IP
+    if not server_name and not host_ip and search_text:
+        for c in _text_candidates(search_text):
+            if not c or len(c) < 2:
+                continue
+            if re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", c):
+                host_ip = c
+                break
+        for c in _text_candidates(search_text):
+            if not c or len(c) < 2 or re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", c):
+                continue
+            server_name = c
             break
+        if not host_ip and server_name and re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", str(server_name)):
+            host_ip, server_name = server_name, None
 
-    if not node:
-        hint = server_name or host_ip or "unknown"
+    # 5) Validate: affected node must be in the nodes list (no execution otherwise)
+    node = None
+    affected = server_name or host_ip
+    if not affected or not str(affected).strip():
         raise ValueError(
-            f"Target server '{hint}' is not in the connected nodes list. "
-            "Execution only runs on nodes added in Settings → Nodes. "
-            "Add the node (with name or IP) in Settings → Infrastructure Connections, then try again."
+            "Could not determine the affected node from the ticket. "
+            "The ticket (or issue description) should mention the server name or IP. "
+            "Execution is only allowed for nodes that are in your connected nodes list (Settings → Nodes)."
         )
+    node = CIExtractionService.find_infrastructure_connection(db, str(affected).strip(), tenant_id)
+    if not node:
+        raise ValueError(
+            f"The affected node '{affected}' is not in your connected nodes list. "
+            "Add this node in Settings → Infrastructure Connections (Nodes) to run execution. "
+            "Billing is node-based; execution is only allowed for nodes in your list."
+        )
+    logger.info("Affected node from ticket validated in nodes list: %s -> %s (%s)", affected, node.name, node.target_host)
 
     if not node.is_active:
         raise ValueError(

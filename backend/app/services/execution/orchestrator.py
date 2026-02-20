@@ -89,7 +89,9 @@ class ExecutionOrchestrator:
         db.add(session)
         
         # Resolve target host from connected nodes list (execution only runs on nodes in Settings → Nodes)
-        request_metadata = metadata or {}
+        request_metadata = dict(metadata or {})
+        if issue_description:
+            request_metadata["issue_description"] = issue_description
         if request_metadata:
             session.issue_description = session.issue_description or request_metadata.get("issue_description")
         try:
