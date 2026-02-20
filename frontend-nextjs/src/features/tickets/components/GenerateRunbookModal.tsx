@@ -431,7 +431,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                         ? apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve?ticket_id=${ticket.id}`)
                         : apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve`);
                       
-                      const response = await fetch(approveUrl, {
+                      const response = await authFetch(approveUrl, {
                         method: 'POST',
                       });
                       if (!response.ok) {
