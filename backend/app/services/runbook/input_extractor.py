@@ -1,29 +1,49 @@
 """
-Main input extraction service - orchestrates all extractors
+Main input extraction service - orchestrates all extractors.
+Tool-agnostic: ticket text (title, description) is parsed the same for any source.
 """
+import re
+import yaml
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from app.models.ticket import Ticket
 from app.models.runbook import Runbook
+from app.services.runbook.input_extractors.text_extractor import extract_inputs_from_text
 from app.services.runbook.input_extractors.datadog_extractor import DatadogInputExtractor
 from app.services.runbook.input_extractors.servicenow_extractor import ServiceNowInputExtractor
 from app.services.runbook.input_extractors.pattern_extractor import PatternInputExtractor
 from app.core.logging import get_logger
-import yaml
 
 logger = get_logger(__name__)
 
 
+def _ticket_to_combined_text(ticket: Ticket) -> str:
+    """Build a single text from ticket title, description, and string meta/raw. Tool-agnostic."""
+    parts = [ticket.title or "", ticket.description or ""]
+    meta = ticket.meta_data or {}
+    raw = ticket.raw_payload or {}
+    if isinstance(meta, dict):
+        for v in meta.values():
+            if isinstance(v, str):
+                parts.append(v)
+    if isinstance(raw, dict):
+        for k in ("short_description", "description", "comments", "title"):
+            v = raw.get(k)
+            if isinstance(v, str):
+                parts.append(v)
+    return " ".join(parts)
+
+
 class RunbookInputExtractor:
     """
-    360-degree input extraction with self-learning capabilities.
-    
+    Input extraction for any ticket source (ServiceNow, Zendesk, Jira, ManageEngine, etc.).
+
     Flow:
-    1. Extract from metadata (Datadog/ServiceNow)
-    2. Pattern-based extraction (fallback)
-    3. Return extracted + missing inputs for user input
+    1. Tool-agnostic text extraction from ticket title + description + meta (all sources)
+    2. Source-specific structured extraction (ServiceNow CI/custom fields, Datadog tags only)
+    3. Pattern fallback for any remaining missing inputs
     """
-    
+
     def __init__(self):
         self.datadog_extractor = DatadogInputExtractor()
         self.servicenow_extractor = ServiceNowInputExtractor()
@@ -55,10 +75,7 @@ class RunbookInputExtractor:
         # Parse runbook YAML
         try:
             runbook_spec = yaml.safe_load(runbook.body_md)
-            # Extract YAML from markdown code fence if needed
             if isinstance(runbook_spec, str):
-                # Try to extract YAML from markdown
-                import re
                 yaml_match = re.search(r'```yaml\n(.*?)\n```', runbook_spec, re.DOTALL)
                 if yaml_match:
                     runbook_spec = yaml.safe_load(yaml_match.group(1))
@@ -86,27 +103,40 @@ class RunbookInputExtractor:
                 "error": "Invalid runbook format"
             }
         
-        # Step 1: Source-specific extraction
         extracted = {}
         confidence = {}
-        
+
+        # Step 1: Tool-agnostic text extraction (all sources)
+        combined_text = _ticket_to_combined_text(ticket)
+        text_extracted = extract_inputs_from_text(combined_text, runbook_spec)
+        for key, value in text_extracted.items():
+            if value is not None and value != "":
+                extracted[key] = value
+                confidence[key] = 0.75
+
+        # Step 2: Source-specific structured only (CI, custom fields, tags)
         if ticket.source == "datadog":
-            extracted.update(self.datadog_extractor.extract(ticket, runbook_spec))
+            source_extracted = self.datadog_extractor.extract(ticket, runbook_spec)
+            for key, value in source_extracted.items():
+                if key not in extracted and value:
+                    extracted[key] = value
             confidence.update(self.datadog_extractor.get_confidence(extracted))
         elif ticket.source == "servicenow":
-            extracted.update(self.servicenow_extractor.extract(ticket, runbook_spec))
+            source_extracted = self.servicenow_extractor.extract(ticket, runbook_spec)
+            for key, value in source_extracted.items():
+                if key not in extracted and value:
+                    extracted[key] = value
             confidence.update(self.servicenow_extractor.get_confidence(extracted))
-        
-        # Step 2: Pattern-based extraction (fallback for missing inputs)
+
+        # Step 3: Pattern fallback for still-missing
         pattern_results = self.pattern_extractor.extract(ticket, runbook_spec)
         pattern_confidence = self.pattern_extractor.get_confidence(pattern_results)
-        
         for key, value in pattern_results.items():
-            if key not in extracted:  # Don't override metadata extraction
+            if key not in extracted and value:
                 extracted[key] = value
                 confidence[key] = pattern_confidence.get(key, 0.6)
-        
-        # Step 3: Identify missing required inputs
+
+        # Step 4: Identify missing required inputs
         required_inputs = []
         all_inputs = runbook_spec.get("inputs", [])
         if isinstance(all_inputs, list):

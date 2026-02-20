@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str  # No default - must be set via environment variable
     CREDENTIAL_ENCRYPTION_KEY: Optional[str] = None  # Optional - will be validated in credential_service
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # JWT expiry (minutes). Set ACCESS_TOKEN_EXPIRE_MINUTES=480 (or higher) for long runbook sessions to avoid logout mid-session; execution continues server-side but UI requires valid token to poll status.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     
     # Environment
     ENVIRONMENT: str = "development"  # development, staging, production
