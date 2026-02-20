@@ -67,6 +67,10 @@ class ExecutionController(BaseController):
                 # Check if runbook exists but not approved
                 runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
                 if runbook:
+                    logger.warning(
+                        f"Runbook {runbook_id} exists but not approved. "
+                        f"Status: '{runbook.status}', Tenant ID: {runbook.tenant_id} (expected: {self.tenant_id})"
+                    )
                     raise self.bad_request("Runbook must be approved before execution")
                 raise self.not_found("Runbook", runbook_id)
             

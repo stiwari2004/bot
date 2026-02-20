@@ -93,12 +93,10 @@ class RunbookRepository(BaseRepository[Runbook]):
         # Eager load tenant relationship
         query = query.options(joinedload(Runbook.tenant))
         
-        # Filter by environment if specified (default to production for approved runbooks)
+        # Filter by environment only if explicitly specified
+        # When None, allow approved runbooks from any environment
         if environment:
             query = query.filter(Runbook.environment == environment)
-        else:
-            # Default to production for approved runbooks
-            query = query.filter(Runbook.environment == "production")
         
         return query.first()
     
