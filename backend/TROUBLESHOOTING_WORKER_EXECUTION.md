@@ -42,6 +42,19 @@ If you see **"Connection failed"** with reason **"timed out"** or **"SSH connect
 - **Worker cannot reach host** – The worker runs in a container or on a host that may not have network path to the target (e.g. `192.168.48.10`). Ensure the worker has network access to the target (same VLAN, no firewall blocking port 22, or use a bastion the worker can reach).
 - **Check worker logs** – You should see `SSH connect host:port (connect_timeout=15s)` and then either `SSH connected to host:port, executing command` or a timeout. If you never see "SSH connected", the connect is failing (network, firewall, or auth).
 - **Connect vs command timeout** – Connect uses a short timeout (15s by default); the step timeout applies to the command run after connect. So "timed out" after ~15–30s usually means connect timed out; after 60–300s it usually means the command timed out.
+- **Worker in Docker** – If the worker runs inside Docker (e.g. on your dev machine), the **container** may not have network path to the target host even though your Windows (or host) can SSH to it. Try running the worker with **`network_mode: host`** so it uses the host network and can reach the same IPs as your PowerShell/WinSCP, or run the worker process on the host instead of in a container.
+- **Verify what the worker has** – After the fix, worker logs show one line per assignment: `SSH config session_id=... host=... port=... username_set=... has_password=... has_private_key=...`. Use it to confirm the worker receives host and credentials; if `username_set=False` or both password and key are False, the problem is credential hydration, not network.
+
+---
+
+## Clear pending / queued execution sessions
+
+If many sessions are stuck in **pending** or **queued**, you can mark them as failed so the queue is clear:
+
+1. Run the SELECT in `backend/sql/clear_pending_execution_sessions.sql` to list affected sessions.
+2. Uncomment and run the UPDATE in that file to set `status = 'failed'` and `completed_at = now()` for those sessions.
+
+See the script for optional cleanup of `agent_worker_assignments`.
 
 ---
 

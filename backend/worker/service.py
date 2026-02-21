@@ -260,6 +260,17 @@ class WorkerService:
             connector_type, connection_config = self._resolve_connector(metadata)
             cluster_meta = connection_config.get("cluster") or metadata.get("cluster") or {}
             target_host = connection_config.get("host") or connection_config.get("instance_id")
+            # Debug: log SSH config (no secrets) to verify worker has host and credentials
+            if connector_type == "ssh":
+                logger.info(
+                    "SSH config session_id=%s host=%s port=%s username_set=%s has_password=%s has_private_key=%s",
+                    session_id,
+                    connection_config.get("host"),
+                    connection_config.get("port"),
+                    bool(connection_config.get("username")),
+                    bool(connection_config.get("password")),
+                    bool(connection_config.get("private_key") or connection_config.get("api_key")),
+                )
             sanitized_metadata = self._sanitize_metadata(metadata)
             steps: List[Dict[str, Any]] = payload.get("steps", [])
 
