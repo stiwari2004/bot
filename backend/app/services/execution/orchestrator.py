@@ -22,17 +22,21 @@ from app.services.queue_client import RedisQueueClient, queue_client
 logger = get_logger(__name__)
 
 
-def _run_create_session_in_thread(
+def _run_enqueue_session_in_thread(
     runbook_id: int,
     tenant_id: int,
     ticket_id: Optional[int],
     issue_description: str,
     user_id: Optional[int],
+    metadata: Optional[Dict[str, Any]],
+    idempotency_key: Optional[str],
 ) -> int:
     """
-    Run session creation (sync DB + async extract_inputs) in a dedicated thread
-    so the main event loop is not blocked and auth/me and other requests can run.
-    Returns the new session id.
+    Run the entire enqueue_session (session create + resolve + prepare_metadata +
+    assignment + flush + Redis publish_event/publish_assignment + commit) in a
+    dedicated thread with its own event loop. This keeps all sync DB and async
+    Redis work off the main event loop so auth/me and other requests do not get
+    504. Returns the new session id.
     """
     import asyncio as _asyncio
     db = SessionLocal()
@@ -40,15 +44,20 @@ def _run_create_session_in_thread(
         loop = _asyncio.new_event_loop()
         _asyncio.set_event_loop(loop)
         try:
-            engine = ExecutionEngine()
+            # Use a fresh queue client in this thread so Redis is bound to this loop, not the main one
+            from app.services.queue_client import RedisQueueClient
+            thread_queue = RedisQueueClient()
+            orchestrator = ExecutionOrchestrator(queue=thread_queue)
             session = loop.run_until_complete(
-                engine.create_execution_session(
+                orchestrator._enqueue_session_impl(
                     db=db,
                     runbook_id=runbook_id,
                     tenant_id=tenant_id,
                     ticket_id=ticket_id,
-                    issue_description=issue_description,
+                    issue_description=issue_description or None,
                     user_id=user_id,
+                    metadata=metadata,
+                    idempotency_key=idempotency_key,
                 )
             )
             return session.id
@@ -94,17 +103,19 @@ class ExecutionOrchestrator:
             db.refresh(session)
             return session
         
-        # Create session in a thread pool so sync DB work doesn't block the event loop
-        # (auth/me and other requests would otherwise get 504 while this runs)
+        # Run entire enqueue (session create + resolve + credentials + assignment + Redis) in thread
+        # so the main event loop is never blocked and auth/me etc. do not get 504
         loop = asyncio.get_event_loop()
         session_id = await loop.run_in_executor(
             None,
-            _run_create_session_in_thread,
+            _run_enqueue_session_in_thread,
             runbook_id,
             tenant_id,
             ticket_id,
             issue_description or "",
             user_id,
+            metadata,
+            idempotency_key,
         )
         session = (
             db.query(ExecutionSession)
@@ -113,7 +124,32 @@ class ExecutionOrchestrator:
             .first()
         )
         if not session:
-            raise RuntimeError(f"Session {session_id} not found after create")
+            raise RuntimeError(f"Session {session_id} not found after enqueue")
+        return session
+
+    async def _enqueue_session_impl(
+        self,
+        db: Session,
+        *,
+        runbook_id: int,
+        tenant_id: int,
+        ticket_id: Optional[int] = None,
+        issue_description: Optional[str] = None,
+        user_id: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> ExecutionSession:
+        """Implementation of enqueue_session (used inside thread with its own db and loop)."""
+        # Create session
+        session = await self.engine.create_execution_session(
+            db=db,
+            runbook_id=runbook_id,
+            tenant_id=tenant_id,
+            ticket_id=ticket_id,
+            issue_description=issue_description,
+            user_id=user_id,
+        )
+        db.refresh(session)
         
         # Validate sandbox profile
         policy_info = validate_sandbox_profile(

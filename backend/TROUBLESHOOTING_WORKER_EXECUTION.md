@@ -24,7 +24,7 @@ If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoin
 
 4. **Quick rollback** – To test whether credential resolution is the cause, you can temporarily stop copying `credential_source` in `orchestrator.py` (the two lines that set `request_metadata["credential_source"]` from `connection`). Session create will succeed again but the worker will not receive username/password until the fix is restored and any hang is resolved.
 
-5. **Event loop blocking** – The backend uses sync SQLAlchemy. Session creation (DB + optional input extraction) used to run on the main async event loop and could block it for tens of seconds, causing **all** requests (including GET /auth/me) to get 504. Session creation is now run in a **thread pool** (`orchestrator._run_create_session_in_thread` + `run_in_executor`), so the event loop stays free and other requests can be served while the session is created.
+5. **Event loop blocking** – The backend uses sync SQLAlchemy. The full enqueue (session create, resolve connection, credential hydration, assignment, DB flush, Redis publish) used to run on the main async event loop and could block it for tens of seconds, causing **all** requests (including GET /auth/me) to get 504. The **entire** enqueue is now run in a **thread pool** (`_run_enqueue_session_in_thread` + `run_in_executor`), with a dedicated event loop and DB session in the thread and a separate Redis client so the main event loop stays free and other requests can be served.
 
 ---
 
