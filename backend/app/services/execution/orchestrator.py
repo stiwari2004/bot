@@ -126,6 +126,7 @@ class ExecutionOrchestrator:
             prepared_metadata["idempotency_key"] = idempotency_key
             sanitized_metadata["idempotency_key"] = idempotency_key
         
+        logger.info("Session create: credential hydration done, creating assignment record")
         # Create assignment record
         assignment = AgentWorkerAssignment(
             session_id=session.id,
@@ -136,7 +137,7 @@ class ExecutionOrchestrator:
         )
         db.add(assignment)
         db.flush()
-        
+        logger.info("Session create: assignment record flushed, publishing session.created event")
         # Publish session.created event
         await self.event_service.publish_event(
             db,
@@ -186,13 +187,14 @@ class ExecutionOrchestrator:
         }
         
         assignment_idempotency = f"assignment:{session.id}:{assignment.id}"
+        logger.info("Session create: publishing assignment to Redis (session_id=%s)", session.id)
         assign_stream_id = await self.queue_service.publish_assignment(
             db,
             session,
             assign_payload,
             assignment_idempotency,
         )
-        
+        logger.info("Session create: assignment published, stream_id=%s", assign_stream_id)
         session.last_event_seq = assign_stream_id
         
         # Publish queued event

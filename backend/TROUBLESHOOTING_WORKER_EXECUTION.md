@@ -13,11 +13,16 @@ If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoin
    - Is the **database** reachable from the backend? (Connection pool exhausted or DB down can block all requests.)
    - **Proxy timeout** (e.g. nginx, load balancer) – often 60s; increase if the backend is legitimately slow.
 
-2. **Credential hydration** – Session creation now resolves credentials (alias) for the worker. If that path **hangs** (e.g. DB slow, decrypt slow), the request can hit the gateway timeout. If 504 started after that change:
-   - Check backend logs for errors during session create (e.g. credential not found, decrypt errors).
-   - Credential resolution is now wrapped in try/except so **failures** no longer break the request; only a **hang** (e.g. DB/Redis blocking) would still cause 504.
+2. **Where the request stalls** – Backend logs now include:
+   - `Session create: credential hydration done, creating assignment record`
+   - `Session create: assignment record flushed, publishing session.created event`
+   - `Session create: publishing assignment to Redis (session_id=...)`
+   - `Session create: assignment published, stream_id=...`
+   If you see the first but not the second, the stall is around DB flush or event publish. If you see "publishing assignment to Redis" but not "assignment published", the stall is **Redis** (queue publish). Check Redis connectivity and latency.
 
-3. **Quick rollback** – To test whether credential resolution is the cause, you can temporarily stop copying `credential_source` in `orchestrator.py` (the two lines that set `request_metadata["credential_source"]` from `connection`). Session create will succeed again but the worker will not receive username/password until the fix is restored and any hang is resolved.
+3. **Credential hydration** – If 504 started after the credential_source change: credential resolution is wrapped in try/except so **failures** no longer break the request; only a **hang** (e.g. DB/Redis blocking) would still cause 504.
+
+4. **Quick rollback** – To test whether credential resolution is the cause, you can temporarily stop copying `credential_source` in `orchestrator.py` (the two lines that set `request_metadata["credential_source"]` from `connection`). Session create will succeed again but the worker will not receive username/password until the fix is restored and any hang is resolved.
 
 ---
 
