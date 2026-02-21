@@ -100,6 +100,9 @@ class ExecutionOrchestrator:
             )
             request_metadata = dict(request_metadata)
             request_metadata["connection"] = connection
+            # So prepare_metadata can hydrate credentials, copy credential_source to top level (it lives on connection)
+            if connection.get("credential_source") and not request_metadata.get("credential_source"):
+                request_metadata["credential_source"] = connection["credential_source"]
         except ValueError as e:
             logger.warning("Target host resolution failed: %s", e)
             raise

@@ -46,3 +46,14 @@ SELECT
   is_active
 FROM credentials
 WHERE id = 1;
+
+-- 4) Tenant match: app only decrypts credential when credential.tenant_id = session.tenant_id. If these differ, username won't be added to config.
+SELECT
+  c.id AS cred_id,
+  c.tenant_id AS cred_tenant_id,
+  ic.tenant_id AS connection_tenant_id,
+  CASE WHEN c.tenant_id = ic.tenant_id THEN 'match' ELSE 'MISMATCH' END AS tenant_match,
+  c.username
+FROM credentials c
+JOIN infrastructure_connections ic ON ic.credential_id = c.id
+WHERE c.id = 1;
