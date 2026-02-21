@@ -840,7 +840,7 @@ class WorkerService:
             result = await connector.execute_command(
                 command,
                 connection_config,
-                timeout=timeout or int(os.getenv("WORKER_COMMAND_TIMEOUT", "60")),
+                timeout=timeout or int(os.getenv("WORKER_COMMAND_TIMEOUT", "300")),
             )
         except Exception as exc:
             logger.error(

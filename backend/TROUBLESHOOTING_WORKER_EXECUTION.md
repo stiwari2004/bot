@@ -28,6 +28,15 @@ If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoin
 
 ---
 
+## Step timed out (e.g. "Step 1 failed", "timed out", Duration ~60s)
+
+If a step fails with **"timed out"** and duration around 60s (or 300s), the **command timeout** for that step was exceeded.
+
+- **Default** – The worker uses a default command timeout of **300 seconds** (5 minutes), overridable with env **`WORKER_COMMAND_TIMEOUT`** (seconds). Set it in the worker’s environment (e.g. in Docker or systemd) if steps need longer.
+- **Per-step** – In the runbook YAML you can set **`timeout: <seconds>`** on a step (e.g. `timeout: 600`). That value is stored and sent to the worker as `timeout_seconds` for that step.
+
+---
+
 ## 1. See the error in the UI (event feed)
 
 - Open the **execution session** (runbook execution) in the app.

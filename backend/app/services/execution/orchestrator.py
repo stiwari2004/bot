@@ -239,8 +239,9 @@ class ExecutionOrchestrator:
         )
         
         # Publish assignment
-        steps_payload = [
-            {
+        steps_payload = []
+        for step in session.steps:
+            step_dict = {
                 "step_id": step.id,
                 "step_number": step.step_number,
                 "step_type": step.step_type,
@@ -250,8 +251,14 @@ class ExecutionOrchestrator:
                 "command": step.command,
                 "rollback_command": step.rollback_command,
             }
-            for step in session.steps
-        ]
+            if step.command_payload and isinstance(step.command_payload, dict):
+                to_sec = step.command_payload.get("timeout_seconds")
+                if to_sec is not None:
+                    try:
+                        step_dict["timeout_seconds"] = int(to_sec)
+                    except (TypeError, ValueError):
+                        pass
+            steps_payload.append(step_dict)
         
         assign_payload = {
             "session_id": session.id,

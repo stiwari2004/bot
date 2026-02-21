@@ -49,7 +49,7 @@ class SessionService:
         )
         new_rank = max(session_profile_rank, PROFILE_RANK.get(profile, 0))
         
-        # Store branching information in command_payload JSON field
+        # Store branching and timeout in command_payload JSON field
         command_payload = {}
         if step_data.get("step_number") is not None:
             command_payload["step_number"] = step_data.get("step_number")
@@ -60,6 +60,11 @@ class SessionService:
         elif step_data.get("on_fail") is not None:
             # Support legacy on_fail field
             command_payload["on_failure"] = step_data.get("on_fail")
+        if step_data.get("timeout") is not None:
+            try:
+                command_payload["timeout_seconds"] = int(step_data["timeout"])
+            except (TypeError, ValueError):
+                pass
         
         step = ExecutionStep(
             session_id=session_id,
