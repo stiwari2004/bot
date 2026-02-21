@@ -378,6 +378,7 @@ class ExecutionOrchestrator:
                     "completed": step.completed,
                     "success": step.success,
                     "output": step.output,
+                    "error": step.error,
                     "notes": step.notes,
                     "completed_at": step.completed_at.isoformat() if step.completed_at else None,
                 }

@@ -358,15 +358,33 @@ export const buildTranscriptEntry = (evt: ExecutionEventRecord): TranscriptEntry
   } else if (eventName === 'execution.step.completed') {
     const success = payload.success !== false;
     entry.title = `Step ${stepNumber ?? '—'} ${success ? 'completed' : 'failed'}`;
+    const errorMessage = payload.detail ?? payload.error ?? payload.reason;
     entry.summary = success
       ? `Worker ${payload.worker_id ?? '—'} marked step successful.`
-      : `Worker ${payload.worker_id ?? '—'} reported failure.`;
+      : (errorMessage && typeof errorMessage === 'string'
+          ? errorMessage
+          : `Worker ${payload.worker_id ?? '—'} reported failure.`);
+    if (!success && errorMessage && typeof errorMessage === 'string') {
+      entry.detail = errorMessage;
+    }
     entry.variant = success ? 'success' : 'error';
     entry.icon = success ? CheckCircleIcon : XCircleIcon;
     entry.meta = metaFromPairs([
       ['Worker', payload.worker_id],
       ['Success', success],
       ['Duration (ms)', payload.duration_ms],
+      ...(payload.exit_code != null ? [['Exit code', payload.exit_code]] : []),
+    ]);
+  } else if (eventName === 'agent.connection_failed') {
+    entry.title = 'Connection failed';
+    const reason = payload.reason ?? payload.error ?? payload.detail ?? 'Connector reported failure.';
+    entry.summary = typeof reason === 'string' ? reason : 'Connection to target failed.';
+    entry.detail = typeof reason === 'string' ? reason : undefined;
+    entry.variant = 'error';
+    entry.icon = XCircleIcon;
+    entry.meta = metaFromPairs([
+      ['Worker', payload.worker_id],
+      ['Reason', reason],
     ]);
   } else if (eventName === 'session.command.completed') {
     entry.title = 'Manual command completed';
