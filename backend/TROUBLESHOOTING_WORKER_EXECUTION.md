@@ -11,7 +11,7 @@ If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoin
 1. **Backend / gateway** – The server or reverse proxy is not getting a response in time. Check:
    - Is the **backend container** running and healthy? (`docker ps`, backend logs.)
    - Is the **database** reachable from the backend? (Connection pool exhausted or DB down can block all requests.)
-   - **Proxy timeout** (e.g. nginx, load balancer) – often 60s; increase if the backend is legitimately slow.
+   - **Proxy timeout** (e.g. nginx, load balancer) – dev nginx uses 120s for `/api` (`nginx/dev.resolvify.tech.conf`); increase further if session create or other calls still time out.
 
 2. **Where the request stalls** – Backend logs now include:
    - `Session create: credential hydration done, creating assignment record`
@@ -23,6 +23,8 @@ If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoin
 3. **Credential hydration** – If 504 started after the credential_source change: credential resolution is wrapped in try/except so **failures** no longer break the request; only a **hang** (e.g. DB/Redis blocking) would still cause 504.
 
 4. **Quick rollback** – To test whether credential resolution is the cause, you can temporarily stop copying `credential_source` in `orchestrator.py` (the two lines that set `request_metadata["credential_source"]` from `connection`). Session create will succeed again but the worker will not receive username/password until the fix is restored and any hang is resolved.
+
+5. **Event loop blocking** – The backend uses sync SQLAlchemy. Session creation (DB + optional input extraction) used to run on the main async event loop and could block it for tens of seconds, causing **all** requests (including GET /auth/me) to get 504. Session creation is now run in a **thread pool** (`orchestrator._run_create_session_in_thread` + `run_in_executor`), so the event loop stays free and other requests can be served while the session is created.
 
 ---
 

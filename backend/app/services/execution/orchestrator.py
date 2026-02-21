@@ -2,10 +2,12 @@
 Execution orchestrator - CLEAN REWRITE
 Coordinates execution session lifecycle and messaging
 """
+import asyncio
 import hashlib
 from typing import Dict, Any, Optional, List
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
+from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.models.execution_session import ExecutionSession, ExecutionStep, AgentWorkerAssignment
 from app.services.execution import ExecutionEngine
@@ -18,6 +20,42 @@ from app.services.policy import validate_sandbox_profile
 from app.services.queue_client import RedisQueueClient, queue_client
 
 logger = get_logger(__name__)
+
+
+def _run_create_session_in_thread(
+    runbook_id: int,
+    tenant_id: int,
+    ticket_id: Optional[int],
+    issue_description: str,
+    user_id: Optional[int],
+) -> int:
+    """
+    Run session creation (sync DB + async extract_inputs) in a dedicated thread
+    so the main event loop is not blocked and auth/me and other requests can run.
+    Returns the new session id.
+    """
+    import asyncio as _asyncio
+    db = SessionLocal()
+    try:
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        try:
+            engine = ExecutionEngine()
+            session = loop.run_until_complete(
+                engine.create_execution_session(
+                    db=db,
+                    runbook_id=runbook_id,
+                    tenant_id=tenant_id,
+                    ticket_id=ticket_id,
+                    issue_description=issue_description,
+                    user_id=user_id,
+                )
+            )
+            return session.id
+        finally:
+            loop.close()
+    finally:
+        db.close()
 
 
 class ExecutionOrchestrator:
@@ -56,16 +94,26 @@ class ExecutionOrchestrator:
             db.refresh(session)
             return session
         
-        # Create session
-        session = await self.engine.create_execution_session(
-            db=db,
-            runbook_id=runbook_id,
-            tenant_id=tenant_id,
-            ticket_id=ticket_id,
-            issue_description=issue_description,
-            user_id=user_id,
+        # Create session in a thread pool so sync DB work doesn't block the event loop
+        # (auth/me and other requests would otherwise get 504 while this runs)
+        loop = asyncio.get_event_loop()
+        session_id = await loop.run_in_executor(
+            None,
+            _run_create_session_in_thread,
+            runbook_id,
+            tenant_id,
+            ticket_id,
+            issue_description or "",
+            user_id,
         )
-        db.refresh(session)
+        session = (
+            db.query(ExecutionSession)
+            .options(joinedload(ExecutionSession.steps))
+            .filter(ExecutionSession.id == session_id)
+            .first()
+        )
+        if not session:
+            raise RuntimeError(f"Session {session_id} not found after create")
         
         # Validate sandbox profile
         policy_info = validate_sandbox_profile(

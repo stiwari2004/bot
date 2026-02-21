@@ -116,7 +116,11 @@ export function RunbookExecutionViewer({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start execution session');
+        const msg =
+          response.status === 504
+            ? 'The server took too long to respond. If this persists, ask your admin to check backend and gateway timeouts.'
+            : 'Failed to start execution session';
+        throw new Error(msg);
       }
 
       const data = await response.json();
