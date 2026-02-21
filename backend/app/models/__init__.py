@@ -48,6 +48,7 @@ from app.models.execution_session import (
     ExecutionEvent,
     AgentWorkerAssignment,
 )
+from app.models.execution_command_learning import ExecutionCommandLearning
 from app.models.execution_pattern import ExecutionPattern
 from app.models.parameter_tuning import ParameterTuning
 from app.models.approval_audit import ApprovalAudit
@@ -213,9 +214,7 @@ if ScheduledReport:
 try:
     from app.models.inquiry import Inquiry
 except ImportError:  # pragma: no cover - optional dependency
-    Inquiry = None
-
-if Inquiry:
+    Inquiry = Noneif Inquiry:
     __all__.append("Inquiry")
 
 # Super Admin model

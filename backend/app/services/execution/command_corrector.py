@@ -1,66 +1,74 @@
 """
 Command corrector service for post-execution command correction.
-Uses rule-based corrections first, then Perplexity web search as fallback.
+Uses DB learnings first (no hardcoded rules), then Perplexity web search with OS-aware prompts.
 """
 import json
 import re
 from typing import Dict, Any, Optional
+from sqlalchemy.orm import Session
+
 from app.core.logging import get_logger
-from app.services.execution.command_rules import correct_command_with_rules
+from app.services.execution.command_learning_service import CommandLearningService
+from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 from app.services.llm_service import get_llm_service
 
 logger = get_logger(__name__)
 
 
+def _detect_os_from_connector(connector_type: str) -> str:
+    """Detect os_type from connector."""
+    if connector_type in ("azure_bastion", "local", "winrm"):
+        return "windows"
+    elif connector_type in ("ssh", "gcp_iap"):
+        return "linux"
+    return "windows"
+
+
 class CommandCorrector:
-    """Corrects failed commands using hybrid approach (rules + LLM)"""
-    
+    """Corrects failed commands using DB learnings + Perplexity (no hardcoded rules)."""
+
     def __init__(self, llm_service_instance=None):
-        """Initialize corrector with optional LLM service (Perplexity for web search)"""
+        """Initialize corrector with optional LLM service (Perplexity for web search)."""
+        self.learning_service = CommandLearningService()
         if llm_service_instance:
             self.llm_service = llm_service_instance
         else:
             try:
                 llm_service = get_llm_service()
-                # Check if it's Perplexity (has online model capability)
-                if hasattr(llm_service, 'model') and 'online' in getattr(llm_service, 'model', '').lower():
+                if hasattr(llm_service, "model") and "online" in getattr(llm_service, "model", "").lower():
                     self.llm_service = llm_service
                 else:
-                    # Try to get Perplexity service specifically
                     from app.services.llm_service import PerplexityLLMService
                     import os
                     perplexity_key = os.getenv("PERPLEXITY_API_KEY")
                     if perplexity_key:
                         self.llm_service = PerplexityLLMService(api_key=perplexity_key)
                     else:
-                        self.llm_service = llm_service  # Fallback to whatever is available
+                        self.llm_service = llm_service
             except Exception as e:
                 logger.warning(f"Could not initialize LLM service: {e}")
                 self.llm_service = None
-    
+
     async def correct_command(
         self,
         command: str,
         error_text: str,
         step_type: str = "main",
         connector_type: str = "local",
-        connection_config: Optional[Dict[str, Any]] = None
+        connection_config: Optional[Dict[str, Any]] = None,
+        db: Optional[Session] = None,
+        tenant_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Correct command using hybrid approach (rules first, Perplexity web search fallback).
-        
-        Args:
-            command: Original command that failed
-            error_text: Error message from execution
-            step_type: Type of step (precheck, main, postcheck)
-            connector_type: Connector type to detect OS (azure_bastion=Windows, ssh=Linux)
-            
+        Correct command using DB learnings first, then Perplexity (OS-aware, no hardcoded rules).
+
         Returns:
             {
-                "corrected_command": str,
-                "correction_method": "rule"|"perplexity",
+                "corrected_command": str | None,
+                "correction_method": "db_learning" | "perplexity" | "none",
                 "confidence": float,
-                "explanation": str
+                "explanation": str,
+                "learning_id": int | None  # For updating on success
             }
         """
         if not command or not error_text:
@@ -69,177 +77,171 @@ class CommandCorrector:
                 "correction_method": "none",
                 "confidence": 0.0,
                 "explanation": "Missing command or error text",
+                "learning_id": None,
             }
-        
-        # Detect OS from connector type
-        os_type = "Windows PowerShell" if connector_type in ("azure_bastion", "local") else "Linux/bash"
-        
-        # Strategy 1: Rule-based correction (fast, deterministic, OS-aware)
-        logger.debug(f"Attempting rule-based correction for {os_type}: {command[:100]}...")
-        rule_result = correct_command_with_rules(command, error_text, connector_type, connection_config)
-        
-        if rule_result:
-            corrected_command, rule_name = rule_result
-            logger.info(f"Rule-based correction applied: {rule_name}")
-            return {
-                "corrected_command": corrected_command,
-                "correction_method": "rule",
-                "confidence": 0.9,
-                "explanation": f"Applied rule: {rule_name}",
-            }
-        
-        # Strategy 2: Perplexity web search correction (fallback for unknown patterns)
+
+        # Strip ssh host "cmd" wrapper - we correct the raw command
+        command_raw = strip_ssh_wrapper(command)
+        os_type_str = "Windows PowerShell" if _detect_os_from_connector(connector_type) == "windows" else "Linux/bash"
+
+        # Strategy 1: DB lookup (similar past fixes, no hardcoded rules)
+        if db is not None and tenant_id is not None:
+            similar = self.learning_service.find_similar_fix(
+                db, tenant_id, command_raw, error_text, connector_type
+            )
+            if similar and similar.get("fix_applied"):
+                logger.info(f"DB learning correction applied for {os_type_str}")
+                return {
+                    "corrected_command": similar["fix_applied"],
+                    "correction_method": "db_learning",
+                    "confidence": 0.9 if similar.get("success_after_fix") else 0.75,
+                    "explanation": f"Applied similar past fix (source={similar.get('fix_source', 'db_learning')})",
+                    "learning_id": similar.get("learning_id"),
+                }
+
+        # Strategy 2: Perplexity web search (OS-aware: Linux man pages, Windows Microsoft docs)
         if self.llm_service:
             try:
-                logger.debug(f"Attempting Perplexity-based correction for {os_type}: {command[:100]}...")
-                perplexity_result = await self._apply_perplexity_correction(command, error_text, step_type, os_type)
-                
+                perplexity_result = await self._apply_perplexity_correction(
+                    command_raw, error_text, step_type, connector_type
+                )
                 if perplexity_result.get("corrected_command"):
-                    logger.info("Perplexity-based correction applied")
+                    perplexity_result["learning_id"] = perplexity_result.get("learning_id")
                     return perplexity_result
             except Exception as e:
                 logger.warning(f"Perplexity correction failed: {e}")
-        
-        # No correction found
-        logger.warning(f"Could not correct command: {command[:100]}...")
+
         return {
             "corrected_command": None,
             "correction_method": "none",
             "confidence": 0.0,
-            "explanation": "No correction rules matched and Perplexity correction failed",
+            "explanation": "No DB learning matched and Perplexity correction failed",
+            "learning_id": None,
         }
-    
+
     async def _apply_perplexity_correction(
         self,
         command: str,
         error_text: str,
         step_type: str,
-        os_type: str
+        connector_type: str,
     ) -> Dict[str, Any]:
-        """
-        Correct command using Perplexity web search (grounded in official documentation).
-        
-        Args:
-            command: Original command that failed
-            error_text: Error message from execution
-            step_type: Type of step
-            os_type: OS type (Windows PowerShell or Linux/bash)
-            
-        Returns:
-            Correction result dictionary
-        """
+        """Correct command using Perplexity with OS-aware documentation sources."""
         if not self.llm_service:
             return {
                 "corrected_command": None,
                 "correction_method": "perplexity",
                 "confidence": 0.0,
                 "explanation": "Perplexity service not available",
+                "learning_id": None,
             }
-        
-        prompt = f"""Search Microsoft documentation for this {os_type} command that failed and provide the corrected command.
+
+        is_linux = connector_type in ("ssh", "gcp_iap")
+        if is_linux:
+            doc_instructions = """Search Linux/bash documentation:
+- man pages (man7.org, linux.die.net)
+- systemctl, journalctl, systemd documentation
+- bash syntax (gnu.org)
+- Common Linux commands: top, ps, free, df, systemctl status, journalctl
+- Strip any ssh host "..." wrapper - return the raw command only (connector handles connection)"""
+            system_msg = (
+                "You are a Linux/bash command correction assistant. Search official Linux man pages "
+                "and documentation to provide accurate corrections. Return raw commands without ssh prefixes."
+            )
+        else:
+            doc_instructions = """Search Microsoft documentation (docs.microsoft.com):
+- PowerShell cmdlets: Get-Process, Get-Counter, Get-EventLog, etc.
+- Missing required parameters (e.g., Get-EventLog -LogName System)
+- Invalid property names, syntax errors
+- OS-specific syntax (e.g., ping -n on Windows vs ping -c on Linux)"""
+            system_msg = (
+                "You are a PowerShell command correction assistant. Search official Microsoft documentation "
+                "to provide accurate corrections."
+            )
+
+        prompt = f"""Search official documentation for this command that failed and provide the corrected command.
 
 Original Command: {command}
 Error Message: {error_text}
 
-Search official Microsoft PowerShell documentation (docs.microsoft.com) and provide the corrected command.
-Common issues to check:
-- Missing required parameters (e.g., Get-EventLog needs -LogName System on Windows)
-- Invalid property names
-- OS-specific syntax (e.g., ping -n on Windows vs ping -c on Linux)
-- Syntax errors
-- Parameter typos
+{doc_instructions}
 
 Respond with JSON only:
 {{
-    "corrected_command": "corrected command based on official documentation",
+    "corrected_command": "corrected command based on official documentation (raw command, no ssh wrapper)",
     "explanation": "brief explanation of what was fixed"
 }}
 
 If you cannot determine a correction, set corrected_command to null."""
 
         try:
-            # Use LLM service's chat method (Perplexity with online model)
-            if hasattr(self.llm_service, '_chat_once'):
+            if hasattr(self.llm_service, "_chat_once"):
                 response = await self.llm_service._chat_once(prompt, tenant_id=1)
-            elif hasattr(self.llm_service, '_chat_once_with_system'):
+            elif hasattr(self.llm_service, "_chat_once_with_system"):
                 response = await self.llm_service._chat_once_with_system(
-                    "You are a PowerShell command correction assistant. Search official Microsoft documentation to provide accurate corrections.",
-                    prompt,
-                    tenant_id=1,
+                    system_msg, prompt, tenant_id=1
                 )
             else:
-                logger.warning("LLM service does not have expected chat methods")
                 return {
                     "corrected_command": None,
                     "correction_method": "perplexity",
                     "confidence": 0.0,
                     "explanation": "Perplexity service method not available",
+                    "learning_id": None,
                 }
-            
-            # Parse JSON response
+
             if not response:
-                logger.warning("Perplexity returned empty response")
                 return {
                     "corrected_command": None,
                     "correction_method": "perplexity",
                     "confidence": 0.0,
                     "explanation": "Perplexity returned empty response",
+                    "learning_id": None,
                 }
-            
-            # Extract JSON from response (might be wrapped in markdown code blocks)
+
             response_clean = response.strip()
             if "```json" in response_clean:
-                json_start = response_clean.find("```json") + 7
-                json_end = response_clean.find("```", json_start)
-                if json_end > json_start:
-                    response_clean = response_clean[json_start:json_end].strip()
+                js = response_clean.find("```json") + 7
+                je = response_clean.find("```", js)
+                if je > js:
+                    response_clean = response_clean[js:je].strip()
             elif "```" in response_clean:
-                json_start = response_clean.find("```") + 3
-                json_end = response_clean.find("```", json_start)
-                if json_end > json_start:
-                    response_clean = response_clean[json_start:json_end].strip()
-            
+                js = response_clean.find("```") + 3
+                je = response_clean.find("```", js)
+                if je > js:
+                    response_clean = response_clean[js:je].strip()
+
             try:
                 result = json.loads(response_clean)
             except json.JSONDecodeError:
-                # Try to extract JSON object from text
-                json_match = re.search(r'\{[^{}]*\}', response_clean)
-                if json_match:
-                    result = json.loads(json_match.group(0))
-                else:
-                    logger.warning(f"Could not parse Perplexity response as JSON: {response_clean[:200]}")
-                    return {
-                        "corrected_command": None,
-                        "correction_method": "perplexity",
-                        "confidence": 0.0,
-                        "explanation": "Could not parse Perplexity response",
-                    }
-            
-            # Extract correction result
+                m = re.search(r"\{[^{}]*\}", response_clean)
+                result = json.loads(m.group(0)) if m else {}
             corrected_command = result.get("corrected_command")
-            explanation = result.get("explanation", "Perplexity suggested correction based on official documentation")
-            
+            explanation = result.get("explanation", "Perplexity suggested correction")
+
             if corrected_command:
+                # Ensure no ssh wrapper in correction
+                corrected_command = strip_ssh_wrapper(corrected_command)
                 return {
                     "corrected_command": corrected_command,
                     "correction_method": "perplexity",
-                    "confidence": 0.8,  # Perplexity web search is more reliable than pure LLM
+                    "confidence": 0.8,
                     "explanation": explanation,
+                    "learning_id": None,
                 }
-            else:
-                return {
-                    "corrected_command": None,
-                    "correction_method": "perplexity",
-                    "confidence": 0.0,
-                    "explanation": "Perplexity could not determine correction",
-                }
-            
+            return {
+                "corrected_command": None,
+                "correction_method": "perplexity",
+                "confidence": 0.0,
+                "explanation": "Perplexity could not determine correction",
+                "learning_id": None,
+            }
         except Exception as e:
             logger.error(f"Error in Perplexity correction: {e}", exc_info=True)
             return {
                 "corrected_command": None,
                 "correction_method": "perplexity",
                 "confidence": 0.0,
-                "explanation": f"Perplexity correction error: {str(e)}",
+                "explanation": str(e),
+                "learning_id": None,
             }
-

@@ -145,16 +145,21 @@ class CommandValidator:
                 "suggested_timeout": None,
             }
         
-        prompt = f"""Search Microsoft documentation for this {os_type} command and validate its syntax:
+        is_linux = "Linux" in os_type or "linux" in os_type or "bash" in os_type.lower()
+        if is_linux:
+            doc_hint = "Search Linux man pages (man7.org), bash documentation, systemctl/journalctl docs"
+        else:
+            doc_hint = "Search Microsoft PowerShell documentation (docs.microsoft.com)"
+        prompt = f"""Search official documentation for this {os_type} command and validate its syntax.
 
 Command: {command}
 
-Search official Microsoft PowerShell documentation (docs.microsoft.com) and validate:
-1. Missing required parameters (e.g., Get-EventLog needs -LogName on Windows)
+{doc_hint}. Validate:
+1. Missing required parameters
 2. Invalid parameter names
-3. Invalid property names
+3. Invalid property names / flags
 4. Syntax errors
-5. OS-specific issues (e.g., ping -n on Windows vs ping -c on Linux)
+5. OS-specific issues (e.g., ping -n on Windows vs ping -c on Linux; Linux: top, ps, systemctl, journalctl)
 
 Respond with JSON only:
 {{
@@ -172,8 +177,13 @@ If invalid, provide the corrected command based on official documentation and li
             if hasattr(self.llm_service, '_chat_once'):
                 response = await self.llm_service._chat_once(prompt, tenant_id=1)
             elif hasattr(self.llm_service, '_chat_once_with_system'):
+                sys_msg = (
+                    "You are a Linux/bash command validation assistant. Search man pages and official docs."
+                    if is_linux
+                    else "You are a PowerShell command validation assistant. Search official Microsoft documentation."
+                )
                 response = await self.llm_service._chat_once_with_system(
-                    "You are a PowerShell command validation assistant. Search official Microsoft documentation to validate commands.",
+                    sys_msg,
                     prompt,
                     tenant_id=1,
                 )

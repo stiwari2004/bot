@@ -2,8 +2,8 @@
 """
 Seed dev database with super admin + default tenant and user.
 Usage: python scripts/seed_dev_data.py [super_admin_email] [super_admin_password]
-Defaults: admin@resolvify.tech / Admin123!
-Also creates: tenant "default", user admin@example.com / admin123
+Defaults: admin@dev.resolvify.tech / Admin123!
+Also creates: tenant "default", user stiwari2004@gmail.com / S@ndysango1982
 """
 import sys
 import os

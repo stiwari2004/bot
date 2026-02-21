@@ -5,6 +5,7 @@ import yaml
 import re
 from typing import List, Dict, Any
 import logging
+from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +52,22 @@ class RunbookParser:
         main_steps = []
         postchecks = []
         
-        # Parse prechecks
+        # Parse prechecks (strip ssh host "..." wrapper - connector handles connection)
         if "prechecks" in spec and isinstance(spec["prechecks"], list):
             for item in spec["prechecks"]:
+                cmd = strip_ssh_wrapper(item.get("command", "") or "")
                 prechecks.append({
-                    "command": item.get("command", ""),
+                    "command": cmd,
                     "description": item.get("description", ""),
                     "expected_output": item.get("expected_output", "")
                 })
         
-        # Parse main steps
+        # Parse main steps (strip ssh host "..." wrapper - connector handles connection)
         if "steps" in spec and isinstance(spec["steps"], list):
             for step in spec["steps"]:
+                cmd = strip_ssh_wrapper(step.get("command", "") or "")
                 main_steps.append({
-                    "command": step.get("command", ""),
+                    "command": cmd,
                     "rollback_command": step.get("rollback_command", step.get("rollback", "")),  # Support both formats
                     "description": step.get("description", ""),
                     "name": step.get("name", ""),
@@ -79,11 +82,12 @@ class RunbookParser:
                     "on_fail": step.get("on_fail")  # Legacy support
                 })
         
-        # Parse postchecks
+        # Parse postchecks (strip ssh host "..." wrapper - connector handles connection)
         if "postchecks" in spec and isinstance(spec["postchecks"], list):
             for item in spec["postchecks"]:
+                cmd = strip_ssh_wrapper(item.get("command", "") or "")
                 postchecks.append({
-                    "command": item.get("command", ""),
+                    "command": cmd,
                     "description": item.get("description", ""),
                     "expected_output": item.get("expected_output", "")
                 })

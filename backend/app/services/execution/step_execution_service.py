@@ -21,6 +21,7 @@ from app.services.execution.step_precheck_handler import StepPrecheckHandler
 from app.services.execution.step_session_finalizer import StepSessionFinalizer
 from app.services.ticket_step_tracker import get_ticket_step_tracker
 from app.services.execution.ssh_command_utils import strip_ssh_wrapper
+from app.services.execution.command_learning_service import CommandLearningService
 
 logger = get_logger(__name__)
 
@@ -104,6 +105,7 @@ class StepExecutionService:
         self.event_publisher = StepEventPublisher(event_service)
         self.self_healing = StepSelfHealing()
         self.precheck_handler = StepPrecheckHandler()
+        self.command_learning = CommandLearningService()
         self.session_finalizer = StepSessionFinalizer(
             event_service,
             ticket_status_service,
@@ -405,13 +407,30 @@ class StepExecutionService:
                     )
                     
                     try:
-                        # Attempt command correction (pass connector_type for OS detection and connection_config for server name)
+                        # Save failure to DB for iterative refinement (no hardcoded rules)
+                        learning_id = self.command_learning.save_failure(
+                            db=db,
+                            tenant_id=session.tenant_id,
+                            command=step.command or "",
+                            error_text=error_text,
+                            output_text=step.output,
+                            connector_type=connector_type,
+                            session_id=session.id,
+                            runbook_id=session.runbook_id,
+                            step_number=step.step_number,
+                            step_type=step.step_type,
+                            connection_config=connection_config,
+                            issue_description=session.issue_description,
+                        )
+                        # Attempt command correction (DB first, then Perplexity - OS-aware, no hardcoded rules)
                         correction_result = await self.command_corrector.correct_command(
                             command=step.command or "",
                             error_text=error_text,
                             step_type=step.step_type or "main",
                             connector_type=connector_type,
-                            connection_config=connection_config
+                            connection_config=connection_config,
+                            db=db,
+                            tenant_id=session.tenant_id,
                         )
                         
                         if correction_result.get("corrected_command"):
@@ -493,7 +512,16 @@ class StepExecutionService:
                             logger.info(f"Reattempting step {step.step_number} with corrected command to verify it works...")
                             db.commit()
                             db.refresh(step)
-                            return await self.execute_step(db, session, step)  # Recursive retry - will verify correction works
+                            await self.execute_step(db, session, step)  # Recursive retry - verify correction
+                            db.refresh(step)
+                            # Update our learning record with success_after_fix when retry succeeds
+                            if learning_id and step.success and corrected_command:
+                                self.command_learning.update_with_fix(
+                                    db, learning_id, corrected_command,
+                                    correction_result.get("correction_method", "perplexity"),
+                                    True,
+                                )
+                            return
                         else:
                             logger.warning(f"Self-healing could not correct command for step {step.step_number}")
                     except Exception as correction_error:

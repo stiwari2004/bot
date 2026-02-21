@@ -5,6 +5,7 @@ import re
 from typing import Dict, Any
 from app.config import runbook_structure
 from app.core.logging import get_logger
+from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 
 logger = get_logger(__name__)
 
@@ -39,6 +40,9 @@ class SpecPostProcessor:
         
         # Fix incomplete steps
         spec = self._fix_incomplete_steps(spec)
+        
+        # Strip ssh host "..." wrapper from commands - connector handles connection; stored commands must be raw
+        spec = self._strip_ssh_wrappers_from_commands(spec)
         
         # Ensure required fields with defaults
         if "env" not in spec:
@@ -199,6 +203,20 @@ class SpecPostProcessor:
                 raise ValueError("All steps were removed due to missing commands")
             spec["steps"] = cleaned_steps
         
+        return spec
+    
+    def _strip_ssh_wrappers_from_commands(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Strip 'ssh host "cmd"' / 'ssh {{server_name}} \"cmd\"' from commands. Connector handles connection."""
+        for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
+            if section not in spec or not isinstance(spec[section], list):
+                continue
+            for item in spec[section]:
+                if isinstance(item, dict) and item.get("command"):
+                    cmd = str(item["command"]).strip()
+                    stripped = strip_ssh_wrapper(cmd)
+                    if stripped != cmd:
+                        item["command"] = stripped
+                        logger.info(f"Stripped ssh wrapper from {section} command: ... -> {stripped[:60]}...")
         return spec
     
     def _fix_description_field(self, spec: Dict[str, Any], issue_description: str) -> Dict[str, Any]:
