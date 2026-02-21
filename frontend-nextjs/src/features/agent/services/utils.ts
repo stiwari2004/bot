@@ -373,7 +373,6 @@ export const buildTranscriptEntry = (evt: ExecutionEventRecord): TranscriptEntry
       ['Worker', payload.worker_id],
       ['Success', success],
       ['Duration (ms)', payload.duration_ms],
-      ...(payload.exit_code != null ? [['Exit code', payload.exit_code]] : []),
     ]);
   } else if (eventName === 'agent.connection_failed') {
     entry.title = 'Connection failed';
