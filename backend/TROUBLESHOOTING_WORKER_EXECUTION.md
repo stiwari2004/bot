@@ -53,7 +53,10 @@ Search logs for the **session ID** or **step number** and the **error string** (
 
 | Error / symptom | What to check |
 |-----------------|----------------|
-| **SSH connector requires host and username** | Connection config is missing `host` or `username`. Ensure the **Infrastructure Connection** has `target_host` set and is linked to a **Credential** that has `username` (and password or key). |
+| **SSH connector requires host and username** | Connection config is missing `host` or `username`. You may now see a more specific error instead (see below). Otherwise: ensure the **Infrastructure Connection** has `target_host` set and is linked to a **Credential** that has **username** (and password or key). |
+| **SSH node 'X' has no credential linked** | Edit the node in Settings → Infrastructure Connections and assign a credential (SSH type). |
+| **SSH credential for node 'X' has no username set** | The credential has password but the **Username** field is empty. Edit the credential in Settings → Credentials and set the SSH username. |
+| **SSH credential for node 'X' has no password or private key** | The credential has a username but no secret. Edit the credential and set the password (or paste the private key). |
 | **Authentication failed** | Wrong password, wrong key, or key not in `private_key`/`api_key`. Check credential and that the app passes it (e.g. credential attached to the node, runbook uses that node). |
 | **Node 'X' is not configured in Infrastructure Connections** | The server name (e.g. from runbook input `server_name` or ticket) doesn’t match any **Infrastructure Connection** name or `target_host`. Add a node for that server or fix the name. |
 | **Connection refused** | Target host/port unreachable (firewall, SSH not on 22, wrong IP/hostname). Check `target_host`, `target_port`, and network from the worker/backend to the server. |

@@ -281,7 +281,7 @@ class ConnectionService:
                             "credential_id": credential.id if credential else None,
                         }
                         
-                        # Add credential info if available
+                        # Add credential info from the credentials table (node's credential_id)
                         if credential:
                             from app.services.credential_service import get_credential_service
                             credential_service = get_credential_service()
@@ -293,8 +293,46 @@ class ConnectionService:
                                     "api_key": decrypted.get("api_key"),
                                     "database_name": decrypted.get("database_name")
                                 })
+                                logger.debug(
+                                    "Using credential id=%s (from node id=%s) for host=%s",
+                                    credential.id,
+                                    connection.id,
+                                    connection.target_host,
+                                )
                         
-                        logger.info(f"Using infrastructure connection for CI: {ci_name}")
+                        # For SSH, fail fast with a clear message if host/username/auth are missing
+                        if (connection.connection_type or "").lower() == "ssh":
+                            host_ok = (config.get("host") or "").strip()
+                            username_ok = (config.get("username") or "").strip()
+                            if not credential:
+                                raise ValueError(
+                                    f"SSH node '{ci_name}' (host {connection.target_host or '?'}) has no credential linked. "
+                                    "In Settings → Infrastructure Connections, edit this node and assign a credential (SSH type with username and password)."
+                                )
+                            if not username_ok:
+                                raise ValueError(
+                                    f"SSH credential for node '{ci_name}' has no username set. "
+                                    "Edit the credential in Settings → Credentials and set the SSH username, then ensure this node uses that credential."
+                                )
+                            if not host_ok:
+                                raise ValueError(
+                                    f"SSH node '{ci_name}' has no target host set. "
+                                    "Edit the infrastructure connection and set Target host (IP or hostname)."
+                                )
+                            auth_ok = config.get("password") or config.get("api_key") or config.get("private_key")
+                            if not auth_ok:
+                                raise ValueError(
+                                    f"SSH credential for node '{ci_name}' has no password or private key. "
+                                    "Edit the credential and set the password (or paste the private key), then ensure this node uses that credential."
+                                )
+                        
+                        logger.info(
+                            "Using infrastructure connection for CI: %s (node id=%s, host=%s, credential_id=%s)",
+                            ci_name,
+                            connection.id,
+                            connection.target_host,
+                            connection.credential_id,
+                        )
                         return config
                     
                     # Node not found in InfrastructureConnection - require it to be added first
