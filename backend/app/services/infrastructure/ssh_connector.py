@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class SSHConnector(InfrastructureConnector):
     """SSH connector for Linux/Unix servers"""
 
-    _DEFAULT_CONNECT_TIMEOUT = 10
+    _DEFAULT_CONNECT_TIMEOUT = 15
     _DEFAULT_RETRIES = 3
     _DEFAULT_RETRY_DELAY = 2.0
 
@@ -63,8 +63,10 @@ class SSHConnector(InfrastructureConnector):
         retry_delay = float(connection_config.get("retry_delay_seconds") or self._DEFAULT_RETRY_DELAY)
         command_text = (command or "").strip() or "echo 'No command provided'"
         shell = connection_config.get("shell") or "bash"
+        # Use connect_timeout for TCP/SSH handshake so we fail fast; use step timeout for command only
+        command_timeout = max(10, int(timeout) if timeout else 60)
 
-        deadline = time.monotonic() + max(timeout, connect_timeout)
+        deadline = time.monotonic() + (max_retries * (connect_timeout + retry_delay) + command_timeout)
         attempts = 0
         last_result: Optional[Dict[str, Any]] = None
 
@@ -74,8 +76,6 @@ class SSHConnector(InfrastructureConnector):
             time_left = deadline - time.monotonic()
             if time_left <= 0:
                 break
-            per_attempt_timeout = float(timeout) if timeout else time_left
-            remaining_timeout = max(1.0, min(per_attempt_timeout, time_left))
             result = await self._run_via_paramiko(
                 command_text,
                 host,
@@ -84,8 +84,9 @@ class SSHConnector(InfrastructureConnector):
                 password,
                 private_key,
                 passphrase,
-                remaining_timeout,
-                shell,
+                connect_timeout=connect_timeout,
+                command_timeout=min(command_timeout, max(10, int(time_left))),
+                shell=shell,
             )
 
             result["retry_count"] = attempts - 1
@@ -121,7 +122,8 @@ class SSHConnector(InfrastructureConnector):
         password: Optional[str],
         private_key: Optional[str],
         passphrase: Optional[str],
-        timeout: float,
+        connect_timeout: int,
+        command_timeout: float,
         shell: str,
     ) -> Dict[str, Any]:
         try:
@@ -174,17 +176,25 @@ class SSHConnector(InfrastructureConnector):
             if private_key:
                 pkey = _load_private_key()
             try:
+                logger.info(
+                    "SSH connect %s:%s (connect_timeout=%ss)",
+                    host, port, connect_timeout,
+                )
                 client.connect(
                     hostname=host,
                     port=port,
                     username=username,
                     password=password,
                     pkey=pkey,
-                    timeout=timeout,
-                    banner_timeout=timeout,
-                    auth_timeout=timeout,
+                    timeout=connect_timeout,
+                    banner_timeout=connect_timeout,
+                    auth_timeout=connect_timeout,
                     look_for_keys=False,
                     allow_agent=False,
+                )
+                logger.info(
+                    "SSH connected to %s:%s, executing command (command_timeout=%ss)",
+                    host, port, command_timeout,
                 )
                 shell_lower = (shell or "").lower()
                 if not shell_lower:
@@ -195,7 +205,7 @@ class SSHConnector(InfrastructureConnector):
                     full_command = f"{shell_lower} -lc {shlex.quote(command)}"
                 else:
                     full_command = f"{shell} -c {shlex.quote(command)}"
-                stdin, stdout, stderr = client.exec_command(full_command, timeout=timeout)
+                stdin, stdout, stderr = client.exec_command(full_command, timeout=int(command_timeout))
                 output = stdout.read().decode("utf-8", errors="replace")
                 error_output = stderr.read().decode("utf-8", errors="replace")
                 exit_code = stdout.channel.recv_exit_status()
@@ -207,10 +217,13 @@ class SSHConnector(InfrastructureConnector):
                     "connection_error": False,
                 }
             except (AuthenticationException, NoValidConnectionsError, SSHException) as exc:
+                err_msg = str(exc)
+                if "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
+                    err_msg = f"SSH connection timed out to {host}:{port} (connect_timeout={connect_timeout}s). Check network, firewall, and that the host is reachable."
                 return {
                     "success": False,
                     "output": "",
-                    "error": str(exc),
+                    "error": err_msg,
                     "exit_code": -1,
                     "connection_error": True,
                 }

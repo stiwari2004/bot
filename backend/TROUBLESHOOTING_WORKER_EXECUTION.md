@@ -35,6 +35,14 @@ If a step fails with **"timed out"** and duration around 60s (or 300s), the **co
 - **Default** – The worker uses a default command timeout of **300 seconds** (5 minutes), overridable with env **`WORKER_COMMAND_TIMEOUT`** (seconds). Set it in the worker’s environment (e.g. in Docker or systemd) if steps need longer.
 - **Per-step** – In the runbook YAML you can set **`timeout: <seconds>`** on a step (e.g. `timeout: 600`). That value is stored and sent to the worker as `timeout_seconds` for that step.
 
+## Connection failed / SSH connection timed out
+
+If you see **"Connection failed"** with reason **"timed out"** or **"SSH connection timed out to host:port"**, the failure is at **SSH connect** (TCP/SSH handshake), not at command execution. The SSH connector uses a **connect timeout** (default 15s) so it fails fast if the host is unreachable.
+
+- **Worker cannot reach host** – The worker runs in a container or on a host that may not have network path to the target (e.g. `192.168.48.10`). Ensure the worker has network access to the target (same VLAN, no firewall blocking port 22, or use a bastion the worker can reach).
+- **Check worker logs** – You should see `SSH connect host:port (connect_timeout=15s)` and then either `SSH connected to host:port, executing command` or a timeout. If you never see "SSH connected", the connect is failing (network, firewall, or auth).
+- **Connect vs command timeout** – Connect uses a short timeout (15s by default); the step timeout applies to the command run after connect. So "timed out" after ~15–30s usually means connect timed out; after 60–300s it usually means the command timed out.
+
 ---
 
 ## 1. See the error in the UI (event feed)
