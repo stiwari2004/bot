@@ -158,19 +158,34 @@ class SpecPostProcessor:
         return spec
     
     def _fix_incomplete_steps(self, spec: Dict[str, Any]) -> Dict[str, Any]:
-        """Fix incomplete steps"""
+        """Fix incomplete steps. Use description/name as command fallback before removing."""
         if "steps" in spec and isinstance(spec["steps"], list):
             cleaned_steps = []
             for step in spec["steps"]:
                 if isinstance(step, dict):
                     step_type = step.get("type", "command")
                     command_value = step.get("command")
-                    
-                    if step_type == "command":
-                        if not command_value or (isinstance(command_value, str) and not command_value.strip()):
+                    if isinstance(command_value, str):
+                        command_value = command_value.strip() or None
+                    else:
+                        command_value = None
+
+                    if step_type == "command" and not command_value:
+                        # Fallback: LLM may put command in description or name
+                        desc = (step.get("description") or "").strip()
+                        name = (step.get("name") or "").strip()
+                        if desc and len(desc) > 3 and any(c in desc for c in [" ", "|", "&", ";", "(", "systemctl", "grep", "ssh", "curl", "echo"]):
+                            command_value = desc
+                            step["command"] = desc
+                            logger.info(f"Using description as command for step: {step.get('name', 'N/A')[:50]}")
+                        elif name and len(name) > 3:
+                            command_value = name
+                            step["command"] = name
+                            logger.info(f"Using name as command for step: {name[:50]}")
+                        if not command_value:
                             logger.warning(f"Removing step with missing/empty command: {step.get('name', 'N/A')}")
                             continue
-                    
+
                     if step_type == "command" and command_value and not step.get("expected_output"):
                         step["expected_output"] = "Command executed successfully"
                         logger.warning(f"Added default expected_output to step: {step.get('name', 'N/A')}")
