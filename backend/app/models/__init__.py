@@ -214,7 +214,8 @@ if ScheduledReport:
 try:
     from app.models.inquiry import Inquiry
 except ImportError:  # pragma: no cover - optional dependency
-    Inquiry = Noneif Inquiry:
+    Inquiry = None
+if Inquiry:
     __all__.append("Inquiry")
 
 # Super Admin model
