@@ -183,7 +183,7 @@ def resolve_target_connection_for_assignment(
             f"Node '{node.name}' is inactive. Activate it in Settings → Infrastructure Connections."
         )
 
-    # Build connection block for worker (must include host so worker gets target_host)
+    # Build connection block - use target_host (IP in node table for on-prem) for SSH
     port = node.target_port if node.target_port is not None else (DEFAULT_SSH_PORT if (node.connection_type or "").lower() in ("ssh", "") else None)
     connection = {
         "host": node.target_host,

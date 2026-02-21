@@ -16,6 +16,7 @@ from app.core import metrics
 from app.core.config import settings
 from app.services.queue_client import RedisQueueClient
 from app.services.infrastructure_connectors import get_connector
+from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 from app.services.idempotency import idempotency_manager
 from app.core.tracing import tracing_span
 
@@ -323,6 +324,8 @@ class WorkerService:
                 for step in steps:
                     step_number = step.get("step_number")
                     command_text = (step.get("command") or "").strip()
+                    if connector_type == "ssh":
+                        command_text = strip_ssh_wrapper(command_text)
                     await self._publish_event(
                         session_id,
                         event="execution.step.started",

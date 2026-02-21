@@ -20,6 +20,7 @@ from app.services.execution.step_self_healing import StepSelfHealing
 from app.services.execution.step_precheck_handler import StepPrecheckHandler
 from app.services.execution.step_session_finalizer import StepSessionFinalizer
 from app.services.ticket_step_tracker import get_ticket_step_tracker
+from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 
 logger = get_logger(__name__)
 
@@ -221,10 +222,16 @@ class StepExecutionService:
                 if backup_config:
                     logger.info(f"Backed up network device config before step {step.step_number}")
             
-            # Execute command
-            logger.info(f"Executing command: {step.command[:100] if step.command else 'N/A'}...")
+            # Execute command (SSH connector: strip "ssh host ..." wrapper - connector handles connection)
+            command_to_run = step.command or ""
+            if connector_type == "ssh":
+                stripped = strip_ssh_wrapper(command_to_run)
+                if stripped != command_to_run:
+                    logger.info(f"Step {step.step_number}: Stripped ssh wrapper for SSH connector, running: {stripped[:80]}...")
+                    command_to_run = stripped
+            logger.info(f"Executing command: {command_to_run[:100] if command_to_run else 'N/A'}...")
             result = await connector.execute_command(
-                command=step.command,
+                command=command_to_run,
                 connection_config=connection_config,
                 timeout=timeout,
             )
