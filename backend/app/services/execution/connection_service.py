@@ -221,15 +221,31 @@ class ConnectionService:
         if session.ticket_id:
             ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
             if ticket:
-                # Extract CI/server name from ticket
-                ticket_dict = {
-                    'id': ticket.id,
-                    'meta_data': ticket.meta_data,
-                    'description': ticket.description,
-                    'service': ticket.service,
-                    'title': ticket.title
-                }
-                ci_name = CIExtractionService.extract_ci_from_ticket(ticket_dict)
+                # Prefer runbook-extracted server name (from ticket.meta_data.extracted_inputs)
+                ticket_meta = ticket.meta_data or {}
+                if isinstance(ticket_meta, str):
+                    try:
+                        ticket_meta = json.loads(ticket_meta)
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        ticket_meta = {}
+                extracted_inputs = ticket_meta.get("extracted_inputs") or {}
+                ci_name = (
+                    extracted_inputs.get("server_name")
+                    or extracted_inputs.get("ci_name")
+                    or extracted_inputs.get("hostname")
+                )
+                if ci_name and isinstance(ci_name, str):
+                    ci_name = ci_name.strip() or None
+                # Fallback: extract CI from ticket (meta_data top-level, description, service)
+                if not ci_name:
+                    ticket_dict = {
+                        'id': ticket.id,
+                        'meta_data': ticket.meta_data,
+                        'description': ticket.description,
+                        'service': ticket.service,
+                        'title': ticket.title
+                    }
+                    ci_name = CIExtractionService.extract_ci_from_ticket(ticket_dict)
                 
                 if ci_name:
                     # Try to find matching infrastructure connection
@@ -252,11 +268,14 @@ class ConnectionService:
                                 Credential.id == connection.credential_id
                             ).first()
                         
-                        # Build connection config
+                        # Build connection config (default SSH port to 22 when missing)
+                        port = connection.target_port
+                        if port is None and (connection.connection_type or "").lower() == "ssh":
+                            port = DEFAULT_SSH_PORT
                         config = {
                             "connector_type": connection.connection_type,
                             "host": connection.target_host,
-                            "port": connection.target_port,
+                            "port": port,
                             "ci_name": ci_name,
                             "connection_id": connection.id,
                             "credential_id": credential.id if credential else None,

@@ -55,7 +55,8 @@ class SSHConnector(InfrastructureConnector):
 
         port = int(connection_config.get("port") or 22)
         password = connection_config.get("password")
-        private_key = connection_config.get("private_key")
+        # Support key-based auth: credential may store key in api_key; connector expects private_key
+        private_key = connection_config.get("private_key") or connection_config.get("api_key")
         passphrase = connection_config.get("passphrase") or connection_config.get("private_key_passphrase")
         connect_timeout = int(connection_config.get("connect_timeout") or self._DEFAULT_CONNECT_TIMEOUT)
         max_retries = max(1, int(connection_config.get("retries") or self._DEFAULT_RETRIES))
