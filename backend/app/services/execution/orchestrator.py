@@ -107,11 +107,20 @@ class ExecutionOrchestrator:
             logger.warning("Target host resolution failed: %s", e)
             raise
 
-        prepared_metadata = self.metadata_service.prepare_metadata(
-            db=db,
-            tenant_id=tenant_id,
-            metadata=request_metadata,
-        )
+        try:
+            prepared_metadata = self.metadata_service.prepare_metadata(
+                db=db,
+                tenant_id=tenant_id,
+                metadata=request_metadata,
+            )
+        except Exception as e:
+            logger.warning(
+                "Credential hydration failed (worker may lack username/password): %s",
+                e,
+                exc_info=True,
+            )
+            prepared_metadata = dict(request_metadata)
+
         sanitized_metadata = self.metadata_service.sanitize_metadata(prepared_metadata)
         if idempotency_key:
             prepared_metadata["idempotency_key"] = idempotency_key

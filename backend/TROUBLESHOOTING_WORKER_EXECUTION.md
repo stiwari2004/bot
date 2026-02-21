@@ -4,6 +4,23 @@ When you see **"Worker worker-dev reported failure"** (or any worker) on the fir
 
 ---
 
+## 504 Gateway Timeout (all API calls)
+
+If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoints return **504 Gateway Timeout**:
+
+1. **Backend / gateway** – The server or reverse proxy is not getting a response in time. Check:
+   - Is the **backend container** running and healthy? (`docker ps`, backend logs.)
+   - Is the **database** reachable from the backend? (Connection pool exhausted or DB down can block all requests.)
+   - **Proxy timeout** (e.g. nginx, load balancer) – often 60s; increase if the backend is legitimately slow.
+
+2. **Credential hydration** – Session creation now resolves credentials (alias) for the worker. If that path **hangs** (e.g. DB slow, decrypt slow), the request can hit the gateway timeout. If 504 started after that change:
+   - Check backend logs for errors during session create (e.g. credential not found, decrypt errors).
+   - Credential resolution is now wrapped in try/except so **failures** no longer break the request; only a **hang** (e.g. DB/Redis blocking) would still cause 504.
+
+3. **Quick rollback** – To test whether credential resolution is the cause, you can temporarily stop copying `credential_source` in `orchestrator.py` (the two lines that set `request_metadata["credential_source"]` from `connection`). Session create will succeed again but the worker will not receive username/password until the fix is restored and any hang is resolved.
+
+---
+
 ## 1. See the error in the UI (event feed)
 
 - Open the **execution session** (runbook execution) in the app.
