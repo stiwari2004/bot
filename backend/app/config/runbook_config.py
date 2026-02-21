@@ -16,10 +16,10 @@ class RunbookStructureConfig:
     SECTION_POSTCHECKS: str = "postchecks"
     SECTION_INPUTS: str = "inputs"
     
-    # Required counts
+    # Required counts (5 min max resolution time - keep runbooks light)
     PRECHECKS_COUNT: int = 3
     STEPS_MIN: int = 3  # Minimum for basic issues
-    STEPS_MAX: int = 30  # Increased to support branching scenarios (was 6)
+    STEPS_MAX: int = 10  # Max 10 steps for ~5 min resolution (single command per step)
     POSTCHECKS_COUNT: int = 1
     
     # Remediation requirements (relaxed for iterative troubleshooting)

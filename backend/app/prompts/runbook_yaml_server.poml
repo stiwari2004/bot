@@ -9,9 +9,11 @@ SERVICE-SPECIFIC CONTEXT:
 - Get-Counter format: Get-Counter -Counter '\Processor(_Total)\% Processor Time' (single quotes, single backslashes)
 - Use {{server_name}} placeholder for server names
 
-COMMAND FORMATTING:
-- Windows: Use PowerShell commands (Get-Counter, Get-Process, Stop-Process, Restart-Service, etc.)
-- Linux: Use shell commands (top, ps, free, df, kill, systemctl, etc.)
+COMMAND FORMATTING (single command per step; 5 min max resolution):
+- One command per step. No chaining (no "cmd1 && cmd2"); use separate steps instead.
+- NEVER use ssh in commands. The system connects to the server; you provide only the RAW command (e.g. systemctl status node_exporter, ss -tulpn | grep 9100).
+- Windows: PowerShell (Get-Counter, Get-Process, Stop-Process, Restart-Service, etc.)
+- Linux: Shell (top, ps, free, df, kill, systemctl, journalctl, etc.)
 
 REMEDIATION COMMANDS (Windows):
 - Stop-Process -Id <pid> -Force (kill process)
@@ -43,15 +45,11 @@ THINK:
 3. What's the problem? (high utilization, full, slow, error)
 4. What commands should I use? (Windows: Get-Counter/Get-Process, Linux: top/ps/free/df)
 
-PLAN:
-- Precheck 1: Check the actual metric (e.g., CPU usage for CPU issues)
-- Precheck 2: Validate connectivity or system state
-- Precheck 3: Additional validation
-- Steps: Use iterative troubleshooting pattern (3-30 steps allowed)
-  * Diagnose -> Remediate -> Diagnose -> Remediate -> Verify pattern
-  * Consider branching: if first fix fails, try alternative fix
-  * At least 2 steps must be remediation (40% minimum remediation ratio)
-- Postcheck: Verify same metric is now normal
+PLAN (5 min max resolution; single command per step; keep runbook light):
+- Prechecks: 3 checks, each with ONE command (e.g. systemctl status, ss/grep, ping).
+- Steps: 3-10 steps. Each step has exactly ONE command. Follow diagnose -> remediate -> diagnose -> remediate -> verify. At least 2 remediation steps. Escalate if not fixed within 5 min.
+- Postcheck: 1 check with ONE command to verify fix.
+- Inputs: ONE input only: server_name. Use literals in commands (e.g. grep 9100) for ports.
 
 BRANCHING RECOMMENDATION:
 For complex issues, use branching to try alternative fixes:
@@ -122,7 +120,7 @@ prechecks:
   expected_output: [Expected result]
 
 steps:
-[Generate 3-30 steps following iterative pattern: diagnose -> remediate -> diagnose -> remediate -> verify. Use branching (on_success/on_failure) for alternative fixes if needed.]
+[Generate 3-10 steps. Single command per step (no chaining). Max 5 min resolution. Example: - name: Check node exporter; type: command; command: systemctl status node_exporter; purpose: diagnose. Then remediate (e.g. systemctl restart node_exporter), then verify. Use branching only if needed.]
 
 postchecks:
 - description: [Verify the metric from issue is now normal]

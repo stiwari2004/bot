@@ -62,6 +62,9 @@ class SpecPostProcessor:
         # Auto-fix: Add any missing inputs that are referenced in commands
         spec = self._auto_add_missing_inputs(spec)
         
+        # Server runbooks: keep only server_name input (no node_exporter_port etc.)
+        spec = self._normalize_server_inputs(spec)
+        
         # Auto-fix: Correct step purposes FIRST (based on command keywords)
         # This must run before step ordering so purposes are correct when we reorder
         spec = self._auto_fix_step_purposes(spec)
@@ -175,20 +178,21 @@ class SpecPostProcessor:
                         command_value = None
 
                     if step_type == "command" and not command_value:
-                        # Fallback: LLM may put command in description or name
+                        # Keep the step: use description or name as command fallback so we never drop steps
                         desc = (step.get("description") or "").strip()
                         name = (step.get("name") or "").strip()
-                        if desc and len(desc) > 3 and any(c in desc for c in [" ", "|", "&", ";", "(", "systemctl", "grep", "ssh", "curl", "echo"]):
+                        if desc and len(desc) > 2:
                             command_value = desc
                             step["command"] = desc
                             logger.info(f"Using description as command for step: {step.get('name', 'N/A')[:50]}")
-                        elif name and len(name) > 3:
+                        elif name and len(name) > 2:
                             command_value = name
                             step["command"] = name
                             logger.info(f"Using name as command for step: {name[:50]}")
                         if not command_value:
-                            logger.warning(f"Removing step with missing/empty command: {step.get('name', 'N/A')}")
-                            continue
+                            step["command"] = "echo 'Step placeholder - update command'"
+                            command_value = step["command"]
+                            logger.warning(f"Step had no command/desc/name; set placeholder to keep step: {step.get('name', 'N/A')[:50]}")
 
                     if step_type == "command" and command_value and not step.get("expected_output"):
                         step["expected_output"] = "Command executed successfully"
@@ -282,6 +286,40 @@ class SpecPostProcessor:
                     "description": "Database name (input parameter for execution)"
                 })
         
+        return spec
+    
+    def _normalize_server_inputs(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """For server runbooks: keep only server_name input; replace port/other placeholders in commands with defaults."""
+        service = (spec.get("service") or "").strip().lower()
+        if service != "server" or "inputs" not in spec or not isinstance(spec["inputs"], list):
+            return spec
+        input_names = [inp.get("name") for inp in spec["inputs"] if isinstance(inp, dict) and inp.get("name")]
+        if not input_names:
+            return spec
+        # Allow only server_name (and database_name for DB-related server runbooks - leave that for now)
+        allowed = {"server_name", "database_name"}
+        to_keep = [inp for inp in spec["inputs"] if isinstance(inp, dict) and inp.get("name") in allowed]
+        if not to_keep and "server_name" not in input_names:
+            to_keep = [{"name": "server_name", "type": "string", "required": True, "description": "Target server hostname or IP address"}]
+        elif "server_name" not in [inp.get("name") for inp in to_keep if isinstance(inp, dict)]:
+            to_keep.insert(0, {"name": "server_name", "type": "string", "required": True, "description": "Target server hostname or IP address"})
+        removed = set(input_names) - {inp.get("name") for inp in to_keep if isinstance(inp, dict)}
+        if removed:
+            logger.info(f"Server runbook: normalizing inputs to server_name only; removed: {removed}")
+            spec["inputs"] = to_keep
+        # Replace common port placeholders with default so commands still work with one input
+        defaults = {"node_exporter_port": "9100", "port": "9100"}
+        for section in [runbook_structure.SECTION_PRECHECKS, runbook_structure.SECTION_STEPS, runbook_structure.SECTION_POSTCHECKS]:
+            if section not in spec or not isinstance(spec[section], list):
+                continue
+            for item in spec[section]:
+                if isinstance(item, dict) and item.get("command"):
+                    cmd = str(item["command"])
+                    for ph, val in defaults.items():
+                        if "{{" + ph + "}}" in cmd and ph in removed:
+                            cmd = cmd.replace("{{" + ph + "}}", val)
+                            item["command"] = cmd
+                            logger.debug(f"Replaced {{{ph}}} with {val} in command")
         return spec
     
     def _auto_add_missing_inputs(self, spec: Dict[str, Any]) -> Dict[str, Any]:

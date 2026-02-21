@@ -36,10 +36,10 @@ YAML FIELD FORMATTING:
 - ALL fields must have a colon: field_name: value
 - NEVER write variable names on their own line without a field name
 
-REQUIRED SECTIONS:
+REQUIRED SECTIONS (5 MIN MAX RESOLUTION - keep runbooks light):
 - inputs: parameters only (name, type: string, required, description)
 - prechecks: exactly 3 steps (check the actual metric from issue)
-- steps: 3-30 steps (flexible count for branching scenarios - diagnose -> remediate -> verify pattern)
+- steps: 3-10 steps (single command per step; diagnose -> remediate -> verify; escalate after 5 min)
 - postchecks: exactly 1 step (verify same metric as precheck)
 
 BRANCHING SUPPORT (OPTIONAL BUT RECOMMENDED):
@@ -98,7 +98,7 @@ CRITICAL PURPOSE FIELD RULES:
    - "systemctl status service" -> purpose: diagnose (only checks status)
    - "kill -9 pid" -> purpose: remediate (kills process)
    - "ps aux | grep process" -> purpose: diagnose (only lists processes)
-   - "ip link set dev eth0 down && ip link set dev eth0 up" -> purpose: remediate (restarts interface)
+   - Prefer single command per step (no "cmd1 && cmd2"); use separate steps for clarity and retry. "ip link set dev eth0 down" then next step "ip link set dev eth0 up" -> purpose: remediate (restarts interface)
    - "ping -c 4 host" -> purpose: diagnose (only tests connectivity)
    - "dhclient -r interface && dhclient interface" -> purpose: remediate (renews IP address)
    - "ufw disable" -> purpose: remediate (disables firewall)
