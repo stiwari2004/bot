@@ -4,6 +4,11 @@ import { useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
+/** Required for static export (output: 'export'): no slugs known at build time; SPA fallback serves index.html. */
+export function generateStaticParams() {
+  return [];
+}
+
 /**
  * Dynamic route for customer-specific paths with /c/ prefix
  * Example: /c/customer-name redirects to main app
