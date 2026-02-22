@@ -119,6 +119,12 @@ services:
     networks:
       - app-dev-network
     command: python -m worker.main
+    # If the worker cannot reach on-prem/LAN hosts (e.g. 192.168.48.10) from inside Docker,
+    # use host network so it shares the host's network. Uncomment below and comment out
+    # networks + the default BACKEND_BASE_URL/REDIS_URL above; then set:
+    #   environment: BACKEND_BASE_URL=http://127.0.0.1:8001 REDIS_URL=redis://127.0.0.1:6380/0 ...
+    # and expose Redis: in redis service add ports: ["6380:6379"]
+    # network_mode: host
 
   # Next.js Frontend
   frontend:

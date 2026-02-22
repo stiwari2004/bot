@@ -12,6 +12,8 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Sandbox profile is derived from the highest step severity in the runbook:
+# critical -> prod-critical, high/dangerous -> prod-standard, moderate -> staging-standard, else -> default/dev-flex
 PROFILE_BY_SEVERITY = {
     "critical": ("prod-critical", "high"),
     "high": ("prod-standard", "medium"),

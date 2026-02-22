@@ -103,14 +103,23 @@ def _append_line(line: str) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
     except PermissionError:
-        # If we can't create the directory, try using /app/uploads/logs/ as fallback
+        # If we can't create the directory, try /app/uploads/logs then /tmp
         logger.warning(f"Permission denied creating audit log directory {path.parent}, trying fallback location")
-        fallback_path = Path("/app/uploads/logs/audit.log")
-        try:
-            fallback_path.parent.mkdir(parents=True, exist_ok=True)
-            path = fallback_path
-        except Exception as e:
-            logger.warning(f"Failed to create audit log directory at fallback location: {e}. Audit logging skipped for this request.")
+        for fallback_dir in ["/app/uploads/logs", "/tmp"]:
+            fallback_path = Path(fallback_dir) / "audit.log"
+            try:
+                fallback_path.parent.mkdir(parents=True, exist_ok=True)
+                path = fallback_path
+                break
+            except Exception as e:
+                logger.warning(
+                    "Failed to create audit log at %s: %s. Trying next fallback.",
+                    fallback_dir,
+                    e,
+                )
+                continue
+        else:
+            logger.warning("All audit log fallbacks failed. Audit logging skipped for this request.")
             return  # Don't raise - audit logging is non-critical
     except Exception as e:
         logger.warning(f"Failed to create audit log directory: {e}. Audit logging skipped for this request.")

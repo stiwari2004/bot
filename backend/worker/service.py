@@ -150,30 +150,44 @@ class WorkerService:
         except: pass
         # #endregion
         
-        try:
-            resp = await self._http_client.post("/api/v1/agent/workers/register", json=payload)
-            # #region agent log
+        max_attempts = int(os.getenv("WORKER_REGISTER_RETRIES", "5"))
+        last_exc = None
+        for attempt in range(1, max_attempts + 1):
             try:
-                with open("/app/worker_debug.log", "a") as f:
-                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:93", "message": "Register response received", "data": {"hypothesisId": "C", "status_code": resp.status_code}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
-            except: pass
-            # #endregion
-            resp.raise_for_status()
-            logger.info("Registered worker %s", self.worker_id)
-            # #region agent log
-            try:
-                with open("/app/worker_debug.log", "a") as f:
-                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:97", "message": "Worker registered successfully", "data": {"hypothesisId": "C"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
-            except: pass
-            # #endregion
-        except Exception as e:
-            # #region agent log
-            try:
-                with open("/app/worker_debug.log", "a") as f:
-                    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:101", "message": "Failed to register worker", "data": {"hypothesisId": "C", "error": str(e), "traceback": traceback.format_exc()}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
-            except: pass
-            # #endregion
-            raise
+                resp = await self._http_client.post("/api/v1/agent/workers/register", json=payload)
+                # #region agent log
+                try:
+                    with open("/app/worker_debug.log", "a") as f:
+                        f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:93", "message": "Register response received", "data": {"hypothesisId": "C", "status_code": resp.status_code}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+                except: pass
+                # #endregion
+                resp.raise_for_status()
+                logger.info("Registered worker %s", self.worker_id)
+                # #region agent log
+                try:
+                    with open("/app/worker_debug.log", "a") as f:
+                        f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:97", "message": "Worker registered successfully", "data": {"hypothesisId": "C"}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+                except: pass
+                # #endregion
+                return
+            except Exception as e:
+                last_exc = e
+                # #region agent log
+                try:
+                    with open("/app/worker_debug.log", "a") as f:
+                        f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "worker/service.py:101", "message": "Failed to register worker", "data": {"hypothesisId": "C", "error": str(e), "traceback": traceback.format_exc()}, "sessionId": "debug-session", "runId": "worker-startup"}) + "\n")
+                except: pass
+                # #endregion
+                if attempt < max_attempts:
+                    delay = min(2 ** attempt, 30)
+                    logger.warning(
+                        "Register failed (attempt %s/%s): %s. Retrying in %ss.",
+                        attempt, max_attempts, e, delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error("Register failed after %s attempts.", max_attempts)
+                    raise last_exc
 
     async def _heartbeat_loop(self) -> None:
         while self._running:

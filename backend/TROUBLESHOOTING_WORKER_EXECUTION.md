@@ -39,11 +39,25 @@ If a step fails with **"timed out"** and duration around 60s (or 300s), the **co
 
 If you see **"Connection failed"** with reason **"timed out"** or **"SSH connection timed out to host:port"**, the failure is at **SSH connect** (TCP/SSH handshake), not at command execution. The SSH connector uses a **connect timeout** (default 15s) so it fails fast if the host is unreachable.
 
-- **Worker cannot reach host** – The worker runs in a container or on a host that may not have network path to the target (e.g. `192.168.48.10`). Ensure the worker has network access to the target (same VLAN, no firewall blocking port 22, or use a bastion the worker can reach).
-- **Check worker logs** – You should see `SSH connect host:port (connect_timeout=15s)` and then either `SSH connected to host:port, executing command` or a timeout. If you never see "SSH connected", the connect is failing (network, firewall, or auth).
+### Interpreting worker SSH config lines
+
+Worker logs show one line per assignment:  
+`SSH config session_id=... host=... port=... username_set=... has_password=... has_private_key=...`
+
+- **`host=None` or `username_set=False has_password=False`** – The assignment payload did not include a resolved connection or credentials. Common for older sessions created before credential hydration was fixed, or when the runbook/ticket has no infrastructure connection or credential. New sessions should have connection + credentials; if they don’t, check that the runbook’s target node has an infrastructure connection with a credential and that the backend is copying `credential_source` into request metadata before `prepare_metadata`.
+- **`host=192.168.x.x port=22 username_set=True has_password=True`** but then **`SSH execution error: timed out`** – Credentials are present; the failure is **network**: the worker process cannot reach the target IP (e.g. the worker container has no route to `192.168.48.10`). Fix by giving the worker a network path to the target (see below).
+
+### Fixing “credentials OK but connect times out”
+
+- **Worker in Docker** – The **container** often cannot reach LAN IPs (e.g. `192.168.48.10`) even though the host can. Two options:
+  1. **Run the worker with host network** so it shares the host’s network and can reach the same IPs. Example for dev: add to the worker service in `docker-compose.dev.yml`: `network_mode: host`, and set `BACKEND_BASE_URL=http://127.0.0.1:8001` and expose Redis (e.g. `ports: ["6380:6379"]`) with `REDIS_URL=redis://127.0.0.1:6380`. Then the worker talks to backend/Redis on localhost and can reach LAN hosts.
+  2. **Run the worker on the host** (not in Docker), with `BACKEND_BASE_URL` and `REDIS_URL` pointing at your backend and Redis (e.g. over the host IP or tunnel).
+- **Firewall / VLAN** – Ensure the machine running the worker can reach the target on port 22 (same VLAN, no firewall blocking, or use a bastion the worker can reach).
+
+### Other checks
+
 - **Connect vs command timeout** – Connect uses a short timeout (15s by default); the step timeout applies to the command run after connect. So "timed out" after ~15–30s usually means connect timed out; after 60–300s it usually means the command timed out.
-- **Worker in Docker** – If the worker runs inside Docker (e.g. on your dev machine), the **container** may not have network path to the target host even though your Windows (or host) can SSH to it. Try running the worker with **`network_mode: host`** so it uses the host network and can reach the same IPs as your PowerShell/WinSCP, or run the worker process on the host instead of in a container.
-- **Verify what the worker has** – After the fix, worker logs show one line per assignment: `SSH config session_id=... host=... port=... username_set=... has_password=... has_private_key=...`. Use it to confirm the worker receives host and credentials; if `username_set=False` or both password and key are False, the problem is credential hydration, not network.
+- **Worker register at startup** – If worker logs show `httpx.ConnectError: All connection attempts failed` when POSTing to `/api/v1/agent/workers/register`, the worker could not reach the backend (e.g. backend not ready yet). The worker now retries registration (see `WORKER_REGISTER_RETRIES`, default 5) with backoff; ensure the backend is up and reachable at `BACKEND_BASE_URL`.
 
 ---
 
@@ -55,6 +69,16 @@ If many sessions are stuck in **pending** or **queued**, you can mark them as fa
 2. Uncomment and run the UPDATE in that file to set `status = 'failed'` and `completed_at = now()` for those sessions.
 
 See the script for optional cleanup of `agent_worker_assignments`.
+
+---
+
+## Audit log: "Permission denied creating audit log directory"
+
+If backend logs show **"Permission denied creating audit log directory uploads/logs"** and **"Failed to create audit log directory at fallback location"**:
+
+- **Cause** – The process (e.g. in Docker as `appuser`) cannot create or write to `uploads/logs` or `/app/uploads/logs`. With dev compose, `./uploads-dev:/app/uploads` mounts a host directory; if it is not writable by the container user (UID 1000), both the default path and `/app/uploads/logs` fail.
+- **Automatic fallback** – The audit log service now tries **`/tmp/audit.log`** after the first two paths. So audit logging continues; logs under `/tmp` may not survive container restarts.
+- **Permanent fix** – On the host, create the directory and make it writable by the container user, e.g. `mkdir -p uploads-dev/logs && chmod 777 uploads-dev/logs` (or `chown 1000:1000 uploads-dev` so UID 1000 can write). Restart the backend so it uses the writable path.
 
 ---
 
