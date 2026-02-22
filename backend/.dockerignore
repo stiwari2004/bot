@@ -1,0 +1,62 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.pyo
+.venv
+venv
+env
+.env
+.env.*
+*.egg-info
+.eggs
+dist
+build
+
+# Testing and quality
+.pytest_cache
+.coverage
+htmlcov
+tests
+*.md
+!README.md
+
+# IDE and OS
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs and local data
+*.log
+uploads
+uploads-dev
+logs
+
+# Docs and scripts not needed at runtime
+docs
+scripts
+TODO_LIST.md
+ADD_KEYS_HERE.md
+*_COMPLETED.md
+*_SUMMARY.md
+*_FIX*.md
+*_PLAN*.md
+CODE_REVIEW*.md
+CONFIGURATION_*.md
+CLEANUP_*.md
+P1_*.md
+PROD_*.md
+FIX_*.md
+DEBUG_*.md
+CHECK_*.md
+DOCKER_*.md
+PRIORITY_*.md
+TROUBLESHOOTING_*.md

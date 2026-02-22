@@ -142,6 +142,9 @@ class WorkerService:
             "max_concurrency": int(os.getenv("WORKER_MAX_CONCURRENCY", "1")),
             "metadata": {"hostname": os.getenv("HOSTNAME")},
         }
+        activation_token = os.getenv("ACTIVATION_TOKEN")
+        if activation_token:
+            payload["activation_token"] = activation_token
         
         # #region agent log
         try:
@@ -780,6 +783,11 @@ class WorkerService:
             connection.get("bastion_host")
             or connection.get("bastion_resource_id")
         )
+        bastion_creds = (
+            connection.get("bastion_credentials")
+            or metadata.get("bastion_credentials")
+            or {}
+        )
         target_host = connection.get("target_host") or connection.get("host") or host
         
         # Azure credentials (Service Principal)
@@ -823,6 +831,11 @@ class WorkerService:
             "resource_id": resource_id,
             "target_resource_id": resource_id,
             "bastion_host": bastion_host,
+            "bastion_port": connection.get("bastion_port") or bastion_creds.get("port"),
+            "bastion_username": connection.get("bastion_username") or bastion_creds.get("username"),
+            "bastion_password": connection.get("bastion_password") or bastion_creds.get("password"),
+            "bastion_private_key": connection.get("bastion_private_key") or bastion_creds.get("private_key") or bastion_creds.get("api_key"),
+            "bastion_passphrase": connection.get("bastion_passphrase") or bastion_creds.get("passphrase") or bastion_creds.get("private_key_passphrase"),
             "target_host": target_host,
             # Azure credentials
             "tenant_id": tenant_id,

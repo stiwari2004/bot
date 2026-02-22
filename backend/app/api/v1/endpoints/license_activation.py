@@ -41,7 +41,7 @@ class LicenseStatusResponse(BaseModel):
     server_info: Optional[dict] = None
 
 
-@router.post("/activate", response_model=LicenseActivationResponse)
+@router.post("/activate-server", response_model=LicenseActivationResponse)
 async def activate_license(
     request: LicenseActivationRequest,
     db: Session = Depends(get_db)

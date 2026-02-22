@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Backend cruft
+backend/.venv
+backend/venv
+backend/__pycache__
+backend/.pytest_cache
+backend/tests
+backend/uploads
+backend/uploads-dev
+backend/*.log
+backend/*.md
+backend/docs
+backend/scripts
+
+# Frontend cruft
+frontend-nextjs/node_modules
+frontend-nextjs/.next
+frontend-nextjs/out
+frontend-nextjs/.turbo
+frontend-nextjs/*.log
+frontend-nextjs/*.md
+
+# Other
+discovery-agent
+.env
+.env.*

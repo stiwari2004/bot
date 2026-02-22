@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ class WorkerRegistrationRequest(BaseModel):
     environment: Optional[str] = None
     max_concurrency: int = Field(default=1, ge=1)
     metadata: Optional[Dict[str, Any]] = None
+    activation_token: Optional[str] = None
 
 
 class WorkerStateResponse(BaseModel):
@@ -67,8 +68,11 @@ class WorkerEventResponse(BaseModel):
 
 
 @router.post("/register", response_model=WorkerStateResponse)
-async def register_worker(payload: WorkerRegistrationRequest) -> WorkerStateResponse:
-    """Register a worker and record initial heartbeat."""
+async def register_worker(
+    payload: WorkerRegistrationRequest,
+    db: Session = Depends(get_db),
+) -> WorkerStateResponse:
+    """Register a worker and record initial heartbeat. If activation_token is provided, validate before allowing registration."""
     result = controller.register_worker(
         worker_id=payload.worker_id,
         capabilities=payload.capabilities,
@@ -76,6 +80,8 @@ async def register_worker(payload: WorkerRegistrationRequest) -> WorkerStateResp
         environment=payload.environment,
         max_concurrency=payload.max_concurrency,
         metadata=payload.metadata,
+        activation_token=payload.activation_token,
+        db=db,
     )
     return WorkerStateResponse(**result)
 

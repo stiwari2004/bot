@@ -4,6 +4,58 @@ When you see **"Worker worker-dev reported failure"** (or any worker) on the fir
 
 ---
 
+## On-Prem Worker Deployment
+
+For **PaaS** or **on-prem** deployments where the worker runs on a customer jump server, use the same backend image with an overridden command. The worker does not need database access; it connects to the backend API and Redis.
+
+### Build
+
+```bash
+# From the project root
+docker build -f backend/Dockerfile -t resolvify-worker:latest backend
+```
+
+### Run (on jump server or host with LAN access to targets)
+
+```bash
+docker run -d \
+  -e BACKEND_BASE_URL=https://your-app.resolvify.tech \
+  -e REDIS_URL=redis://your-redis:6379/0 \
+  -e WORKER_ID=worker-onprem-01 \
+  -e WORKER_ENVIRONMENT=production \
+  -e ACTIVATION_TOKEN=your-license-token \
+  --network host \
+  resolvify-worker:latest \
+  python -m worker.main
+```
+
+Use `--network host` so the worker shares the host network and can reach SSH targets on the LAN. If Redis/backend are on a different host, adjust URLs accordingly and use port mappings instead of host network.
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BACKEND_BASE_URL` | Yes | Backend API base (SaaS or PaaS) |
+| `REDIS_URL` | Yes | Redis connection URL |
+| `WORKER_ID` | Yes | Unique worker identifier |
+| `WORKER_ENVIRONMENT` | No | e.g. `production`, `development` (default: dev) |
+| `ACTIVATION_TOKEN` | No | License token for on-prem; if set, worker sends it on register and backend validates before allowing registration |
+| `WORKER_COMMAND_TIMEOUT` | No | Command timeout in seconds (default: 300) |
+| `WORKER_REGISTER_RETRIES` | No | Retries for register (default: 5) |
+| `WORKER_CAPABILITIES` | No | Comma-separated (e.g. `ssh,winrm`) |
+| `WORKER_NETWORK_SEGMENT` | No | For routing |
+
+### Network requirements
+
+- **Outbound HTTPS** to `BACKEND_BASE_URL` (register, heartbeat, events)
+- **Outbound TCP** to Redis (host:port from `REDIS_URL`)
+- **Outbound SSH (22)** to target hosts (or bastion)
+- For on-prem: use `network_mode: host` so the worker can reach LAN targets
+
+See also `backend/docs/DEPLOYMENT_MATRIX.md`.
+
+---
+
 ## 504 Gateway Timeout (all API calls)
 
 If **POST /api/v1/executions/demo/sessions**, **GET /auth/me**, or other endpoints return **504 Gateway Timeout**:

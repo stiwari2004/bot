@@ -34,8 +34,12 @@ const securityHeaders = [
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
 ];
 
+// Combined image: static export so FastAPI can serve frontend from same origin
+const combinedBuild = process.env.COMBINED_BUILD === '1' || process.env.COMBINED_BUILD === 'true';
+
 const nextConfig = {
   ...(basePath ? { basePath } : {}),
+  ...(combinedBuild ? { output: 'export' } : {}),
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

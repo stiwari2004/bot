@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 import uvicorn
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -348,6 +349,27 @@ async def test_interface():
     """Redirect to test interface"""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/static/test.html")
+
+
+# Combined image: serve frontend SPA at / when app/frontend exists (Next.js static export)
+_frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
+if os.path.isdir(_frontend_dir):
+    from fastapi.responses import FileResponse
+    _frontend_index = os.path.join(_frontend_dir, "index.html")
+    if os.path.isfile(_frontend_index):
+        app.mount("/_next", StaticFiles(directory=os.path.join(_frontend_dir, "_next")), name="frontend_next")
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            if full_path.startswith("api"):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Not found")
+            if full_path.startswith("_next"):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Not found")
+            path = os.path.join(_frontend_dir, full_path)
+            if os.path.isfile(path):
+                return FileResponse(path)
+            return FileResponse(_frontend_index)
 
 
 if __name__ == "__main__":

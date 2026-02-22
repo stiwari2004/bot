@@ -27,10 +27,18 @@ class AgentWorkerController(BaseController):
         network_segment: Optional[str] = None,
         environment: Optional[str] = None,
         max_concurrency: int = 1,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        activation_token: Optional[str] = None,
+        db: Optional[Session] = None,
     ) -> Dict[str, Any]:
-        """Register a worker and record initial heartbeat"""
+        """Register a worker and record initial heartbeat. If activation_token provided, validate before allowing."""
         try:
+            if activation_token and db:
+                from app.services.license.license_service import LicenseService
+                license_svc = LicenseService(db)
+                success, error, _ = license_svc.activate(activation_token)
+                if not success:
+                    raise HTTPException(status_code=403, detail=error or "Invalid activation token")
             state = agent_worker_manager.register_worker(
                 worker_id=worker_id,
                 capabilities=capabilities,

@@ -1,0 +1,39 @@
+# Dependencies (reinstalled in image)
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build output (rebuilt in image)
+.next
+out
+build
+.turbo
+
+# IDE and OS
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# Testing and docs
+coverage
+*.md
+!README.md
+
+# Misc
+*.log
+.cache

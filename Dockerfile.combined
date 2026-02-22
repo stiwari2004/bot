@@ -1,0 +1,52 @@
+# Combined image: backend (FastAPI) + frontend (Next.js static export)
+# Build from repo root: docker build -f Dockerfile.combined -t resolvify-app:latest .
+
+# -----------------------------------------------------------------------------
+# Stage 1: Build frontend (Next.js static export)
+# -----------------------------------------------------------------------------
+FROM node:20-bullseye-slim AS frontend-builder
+
+WORKDIR /app
+
+# Install deps and build with static export (same-origin API)
+COPY frontend-nextjs/package*.json ./
+RUN npm ci
+
+COPY frontend-nextjs/ .
+ENV COMBINED_BUILD=1
+ENV NEXT_PUBLIC_API_BASE_URL=""
+ENV NEXT_PUBLIC_BASE_PATH=""
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# -----------------------------------------------------------------------------
+# Stage 2: Backend + frontend static files
+# -----------------------------------------------------------------------------
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for backend
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libpq-dev curl wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Backend Python deps
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Backend code
+COPY backend/ .
+
+# Frontend static export into backend app (served by FastAPI at /)
+COPY --from=frontend-builder /app/out ./app/frontend
+
+# Upload dir and non-root user
+RUN python3 -c "import pathlib; pathlib.Path('/app/uploads').mkdir(parents=True, exist_ok=True)" \
+    && useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -100,6 +100,11 @@ except ImportError:  # pragma: no cover - optional dependency
     Runbook = None
 
 try:
+    from app.models.central_runbook import CentralRunbook
+except ImportError:  # pragma: no cover - optional dependency
+    CentralRunbook = None
+
+try:
     from app.models.deployment_approval import DeploymentApproval
 except ImportError:  # pragma: no cover - optional dependency
     DeploymentApproval = None

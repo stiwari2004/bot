@@ -82,6 +82,11 @@ except ImportError:
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(runbooks.router, prefix="/runbooks", tags=["runbooks"])
+try:
+    from app.api.v1.endpoints import central_runbooks
+    api_router.include_router(central_runbooks.router, prefix="/central-runbooks", tags=["central-runbooks"])
+except ImportError:
+    pass  # central_runbooks module not available
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
 if alerts:
     api_router.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
@@ -317,7 +322,12 @@ try:
 except ImportError:
     pass  # Subscriptions module not available
 
-# License Activation endpoints (PaaS only)
+# License endpoints (token activation + PaaS activation)
+try:
+    from app.api.v1.endpoints import license
+    api_router.include_router(license.router, prefix="/license", tags=["license"])
+except ImportError:
+    pass  # License module not available
 try:
     from app.api.v1.endpoints import license_activation
     api_router.include_router(license_activation.router, prefix="/license", tags=["license-activation"])

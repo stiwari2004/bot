@@ -16,6 +16,7 @@ from app.services.execution.event_service import EventService
 from app.services.execution.metadata_service import MetadataService
 from app.services.execution.connection_service import resolve_target_connection_for_assignment
 from app.services.agent_worker_manager import agent_worker_manager
+from app.services.subscription.subscription_tracker import SubscriptionTracker
 from app.services.policy import validate_sandbox_profile
 from app.services.queue_client import RedisQueueClient, queue_client
 
@@ -172,6 +173,12 @@ class ExecutionOrchestrator:
         session.sandbox_profile = session.sandbox_profile or "default"
         db.add(session)
         
+        # Check node limit before resolving target connection
+        tracker = SubscriptionTracker(db)
+        allowed, error_msg = tracker.check_node_limit(tenant_id)
+        if not allowed:
+            raise ValueError(error_msg or "Node limit reached")
+
         # Resolve target host from connected nodes list (execution only runs on nodes in Settings → Nodes)
         request_metadata = dict(metadata or {})
         if issue_description:

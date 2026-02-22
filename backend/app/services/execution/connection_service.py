@@ -194,6 +194,16 @@ def resolve_target_connection_for_assignment(
         "server_name": node.name,
         "environment": node.environment,
     }
+    # Merge bastion/ProxyJump fields from node meta_data (JSON)
+    if node.meta_data:
+        try:
+            meta = json.loads(node.meta_data) if isinstance(node.meta_data, str) else node.meta_data
+            if isinstance(meta, dict):
+                for key in ("bastion_host", "bastion_port", "bastion_username", "bastion_password", "bastion_private_key", "bastion_credentials"):
+                    if key in meta and meta[key] is not None:
+                        connection[key] = meta[key]
+        except (json.JSONDecodeError, TypeError):
+            pass
     if node.credential_id:
         credential = db.query(Credential).filter(Credential.id == node.credential_id).first()
         if credential and credential.name:

@@ -38,6 +38,11 @@ class SSHConnector(InfrastructureConnector):
             "password": "...",
             "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----...",
             "passphrase": "...",
+            "bastion_host": "jump.example.com",  # Optional: connect via bastion/ProxyJump
+            "bastion_port": 22,
+            "bastion_username": "jump_user",
+            "bastion_password": "...",
+            "bastion_private_key": "...",
             "retries": 3,
             "retry_delay_seconds": 2.0
         }
@@ -84,6 +89,7 @@ class SSHConnector(InfrastructureConnector):
                 password,
                 private_key,
                 passphrase,
+                connection_config=connection_config,
                 connect_timeout=connect_timeout,
                 command_timeout=min(command_timeout, max(10, int(time_left))),
                 shell=shell,
@@ -122,9 +128,10 @@ class SSHConnector(InfrastructureConnector):
         password: Optional[str],
         private_key: Optional[str],
         passphrase: Optional[str],
-        connect_timeout: int,
-        command_timeout: float,
-        shell: str,
+        connection_config: Optional[Dict[str, Any]] = None,
+        connect_timeout: int = 15,
+        command_timeout: float = 60,
+        shell: str = "bash",
     ) -> Dict[str, Any]:
         try:
             import paramiko
@@ -169,6 +176,10 @@ class SSHConnector(InfrastructureConnector):
             logger.error("Failed to parse SSH private key: %s", exceptions[-1] if exceptions else "unknown error")
             raise ValueError("Unsupported SSH private key type or invalid key material.")
 
+        cfg = connection_config or {}
+        bastion_host = (cfg.get("bastion_host") or "").strip()
+        use_bastion = bool(bastion_host)
+
         def _execute() -> Dict[str, Any]:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -176,22 +187,54 @@ class SSHConnector(InfrastructureConnector):
             if private_key:
                 pkey = _load_private_key()
             try:
-                logger.info(
-                    "SSH connect %s:%s (connect_timeout=%ss)",
-                    host, port, connect_timeout,
-                )
-                client.connect(
-                    hostname=host,
-                    port=port,
-                    username=username,
-                    password=password,
-                    pkey=pkey,
-                    timeout=connect_timeout,
-                    banner_timeout=connect_timeout,
-                    auth_timeout=connect_timeout,
-                    look_for_keys=False,
-                    allow_agent=False,
-                )
+                bastion_client = None
+                if use_bastion:
+                    channel, bastion_client = self._connect_via_bastion(
+                        bastion_host=bastion_host,
+                        bastion_port=int(cfg.get("bastion_port") or 22),
+                        bastion_username=(cfg.get("bastion_username") or "").strip() or username,
+                        bastion_password=cfg.get("bastion_password"),
+                        bastion_private_key=cfg.get("bastion_private_key") or cfg.get("bastion_api_key"),
+                        bastion_passphrase=cfg.get("bastion_passphrase") or cfg.get("bastion_private_key_passphrase"),
+                        target_host=host,
+                        target_port=port,
+                        connect_timeout=connect_timeout,
+                        _load_key=_load_private_key,
+                    )
+                    logger.info(
+                        "SSH connect %s:%s via bastion %s (connect_timeout=%ss)",
+                        host, port, bastion_host, connect_timeout,
+                    )
+                    client.connect(
+                        hostname=host,
+                        port=port,
+                        username=username,
+                        password=password,
+                        pkey=pkey,
+                        sock=channel,
+                        timeout=connect_timeout,
+                        banner_timeout=connect_timeout,
+                        auth_timeout=connect_timeout,
+                        look_for_keys=False,
+                        allow_agent=False,
+                    )
+                else:
+                    logger.info(
+                        "SSH connect %s:%s (connect_timeout=%ss)",
+                        host, port, connect_timeout,
+                    )
+                    client.connect(
+                        hostname=host,
+                        port=port,
+                        username=username,
+                        password=password,
+                        pkey=pkey,
+                        timeout=connect_timeout,
+                        banner_timeout=connect_timeout,
+                        auth_timeout=connect_timeout,
+                        look_for_keys=False,
+                        allow_agent=False,
+                    )
                 logger.info(
                     "SSH connected to %s:%s, executing command (command_timeout=%ss)",
                     host, port, command_timeout,
@@ -239,9 +282,65 @@ class SSHConnector(InfrastructureConnector):
             finally:
                 with contextlib.suppress(Exception):
                     client.close()
+                if bastion_client is not None:
+                    with contextlib.suppress(Exception):
+                        bastion_client.close()
 
         return await asyncio.to_thread(_execute)
 
+    def _connect_via_bastion(
+        self,
+        bastion_host: str,
+        bastion_port: int,
+        bastion_username: str,
+        bastion_password: Optional[str],
+        bastion_private_key: Optional[str],
+        bastion_passphrase: Optional[str],
+        target_host: str,
+        target_port: int,
+        connect_timeout: int,
+        _load_key,
+    ):
+        """
+        Connect to bastion and open a direct-tcpip channel to target.
+        Returns (channel, bastion_client). Caller must close bastion_client when done.
+        """
+        import paramiko
 
-
-
+        bastion_client = paramiko.SSHClient()
+        bastion_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        bastion_pkey = None
+        if bastion_private_key:
+            key_stream = io.StringIO((bastion_private_key or "").strip())
+            for key_cls in (
+                getattr(paramiko, "Ed25519Key", None),
+                getattr(paramiko, "RSAKey", None),
+                getattr(paramiko, "ECDSAKey", None),
+                getattr(paramiko, "DSSKey", None),
+            ):
+                if key_cls is None:
+                    continue
+                key_stream.seek(0)
+                try:
+                    bastion_pkey = key_cls.from_private_key(key_stream, password=bastion_passphrase)
+                    break
+                except Exception:
+                    continue
+        bastion_client.connect(
+            hostname=bastion_host,
+            port=bastion_port,
+            username=bastion_username,
+            password=bastion_password,
+            pkey=bastion_pkey,
+            timeout=connect_timeout,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        transport = bastion_client.get_transport()
+        if not transport:
+            bastion_client.close()
+            raise ValueError("Bastion connection has no transport")
+        channel = transport.open_channel(
+            "direct-tcpip", (target_host, target_port), ("", 0)
+        )
+        return (channel, bastion_client)
