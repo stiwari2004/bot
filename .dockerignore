@@ -23,6 +23,8 @@ frontend-nextjs/out
 frontend-nextjs/.turbo
 frontend-nextjs/*.log
 frontend-nextjs/*.md
+# Combined build: exclude API routes (static export cannot build them; browser hits FastAPI at same origin)
+frontend-nextjs/src/app/api
 
 # Other
 discovery-agent
