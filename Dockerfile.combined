@@ -13,6 +13,8 @@ COPY frontend-nextjs/package*.json ./
 RUN npm ci
 
 COPY frontend-nextjs/ .
+# Static export cannot include API routes; in combined image browser calls same origin (FastAPI)
+RUN rm -rf src/app/api
 ENV COMBINED_BUILD=1
 ENV NEXT_PUBLIC_API_BASE_URL=""
 ENV NEXT_PUBLIC_BASE_PATH=""
