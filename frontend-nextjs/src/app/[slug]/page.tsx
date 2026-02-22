@@ -1,8 +1,8 @@
 import DirectTenantPathPage from './page-client';
 
-/** Required for static export (output: 'export'): no slugs known at build time; SPA fallback serves index.html. */
+/** Required for static export (output: 'export'): provide one placeholder so the route is included; SPA fallback serves index.html for other slugs. */
 export function generateStaticParams() {
-  return [];
+  return [{ slug: '_' }];
 }
 
 export default function Page() {
