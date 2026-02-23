@@ -96,6 +96,23 @@ docker rm -f resolvify-app
 
 Then run the `docker compose` command again.
 
+## 4. Seed initial accounts (first-time setup)
+
+The standalone database starts empty. To create **tenant admin** and **user** accounts (and optionally a vendor super admin), run the seed script **inside the app container** (no repo needed — the script is in the image):
+
+```bash
+# Replace with your desired admin email and password
+docker exec resolvify-app python scripts/seed_dev_data.py admin@yourcompany.com 'YourSecurePassword'
+```
+
+This creates:
+
+- **Tenant** (default) and a **tenant admin** user with the email/password you passed — customers log in at the **main login** (`/`) or at **Tenant Admin / MSP Login** (`/tenant-admin/login`).
+- A **regular user** `dev@dev.resolvify.tech` with the same password — for testing.
+- **Super admin** (vendor only) — not shown on the customer login page; only the vendor uses `/super-admin/login` (direct URL) with the same email/password for platform administration.
+
+**Customer-facing login:** At `http://<server>:8000` customers see only **Sign In** (user/tenant admin) and **Tenant Admin / MSP Login**. No demo mode and no super admin link. License checks run after login where applicable.
+
 ## Access the app in the browser
 
 - **URL:** `http://<jump-server-IP>:8000`
@@ -150,9 +167,8 @@ The UI may hang if the browser cannot reach the API (CORS, wrong host, or bad/st
 1. **Ensure the app container has `ENVIRONMENT=development`** (the default in `docker-compose.standalone.yml`). This allows CORS from any origin (e.g. `http://<jump-server-ip>:8000`) so the frontend’s API calls succeed.
 2. **Open the app at the same host you use in the browser** — e.g. `http://<jump-server-ip>:8000` or `http://jump01:8000`. Don’t mix hostnames (e.g. IP vs hostname) if your DNS differs.
 3. **Open in a private/incognito window** or **clear site data** (DevTools → Application → Storage → Clear site data) to remove a bad cached token.
-4. **Use "Continue in Demo Mode" / "Skip login"** if you see the login screen, to use the app without an account.
-5. **Check the browser console** (F12 → Console): look for failed requests to `/api/v1/auth/me` or CORS errors. If you see CORS or network errors, rebuild the image so the backend has the latest CORS fix (dev/standalone allows any origin via regex).
-6. The frontend times out the auth check after 15 seconds; you should then see the login page or an error instead of spinning forever.
+4. **Check the browser console** (F12 → Console): look for failed requests to `/api/v1/auth/me` or CORS errors. If you see CORS or network errors, rebuild the image so the backend has the latest CORS fix (dev/standalone allows any origin via regex).
+5. The frontend times out the auth check after 15 seconds; you should then see the login page or an error instead of spinning forever.
 
 ### Console: "Executing inline script violates... Content Security Policy"
 
@@ -160,7 +176,7 @@ If the console shows CSP errors like `script-src 'self'` blocking inline scripts
 
 ### License code
 
-You are **not** required to enter a license to use the app. License activation is only used in certain PaaS/super-admin flows. For the standalone deployment you can log in (or skip login) and use the platform; no license prompt is needed.
+You are **not** required to enter a license to use the app. License activation is only used in certain PaaS/super-admin flows. For the standalone deployment customers log in (main or Tenant Admin / MSP) and use the platform; no license prompt is needed.
 
 ### "CREDENTIAL_ENCRYPTION_KEY must be set"
 

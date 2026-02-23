@@ -7,30 +7,24 @@ import { LockClosedIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
-interface LoginPageProps {
-  onSkipLogin?: () => void;
-}
+interface LoginPageProps {}
 
-export function LoginPage({ onSkipLogin }: LoginPageProps) {
+export function LoginPage(_props: LoginPageProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { login, user, isAuthenticated } = useAuth();
-  const [isDemoHost, setIsDemoHost] = useState(false);
+  const [showMspLoginLink, setShowMspLoginLink] = useState(false);
 
-  // Detect if we're on the public demo host or a standalone/on-prem host (show "Continue without login")
+  // Customer deployments (PaaS/standalone): show link to Tenant Admin / MSP login only. No demo, no super admin.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const hostname = window.location.hostname;
-    const isDemo = hostname === 'demo.resolvify.tech';
-    // Standalone/on-prem: IP, localhost, or hostnames that are not the main Resolvify domains
-    const isStandalone = /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname === 'localhost' || hostname.endsWith('.local')
-      || (!isDemo && !hostname.endsWith('resolvify.tech'));
-    setIsDemoHost(isDemo || isStandalone);
-
-    // Note: admin.resolvify.tech and dev.resolvify.tech can be used by both regular users and super admins
+    const isStandaloneOrPaaS = /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname === 'localhost' || hostname.endsWith('.local')
+      || !hostname.endsWith('resolvify.tech');
+    setShowMspLoginLink(isStandaloneOrPaaS);
   }, [router]);
 
   // Redirect admins after login
@@ -121,7 +115,7 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-neutral-300 rounded-lg placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 bg-white transition-all"
-                    placeholder={isDemoHost ? 'demo@example.com' : 'you@example.com'}
+                    placeholder="you@example.com"
                   />
                 </div>
               </div>
@@ -149,28 +143,6 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
               </div>
             </div>
 
-            {isDemoHost && (
-              <Card variant="default" className="bg-primary-50 border-primary-200">
-                <CardContent padding="sm">
-                  <p className="font-semibold text-primary-800 mb-2 text-sm">Sandbox Demo Credentials:</p>
-                  <div className="space-y-1 text-xs text-primary-700">
-                    <p>
-                      Email:{' '}
-                      <code className="bg-primary-100 px-1.5 py-0.5 rounded font-mono">
-                        demo@example.com
-                      </code>
-                    </p>
-                    <p>
-                      Password:{' '}
-                      <code className="bg-primary-100 px-1.5 py-0.5 rounded font-mono">
-                        demo123
-                      </code>
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             <div>
               <Button
                 type="submit"
@@ -192,40 +164,22 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
               </a>
             </div>
 
-            <div className="text-center space-y-2">
-              {onSkipLogin && isDemoHost && (
+            {/* Customer PaaS/standalone: link to MSP admin portal only (no super admin) */}
+            {showMspLoginLink && (
+              <div className="text-center pt-2 border-t border-neutral-200">
+                <p className="text-xs text-neutral-500 mb-2">
+                  Tenant Admin or MSP Admin?
+                </p>
                 <Button
                   type="button"
-                  variant="ghost"
-                  onClick={onSkipLogin}
-                  className="w-full"
+                  variant="outline"
+                  onClick={() => router.push('/tenant-admin/login')}
+                  className="w-full text-sm"
                 >
-                  Continue in Demo Mode (No Login Required)
+                  Tenant Admin / MSP Login
                 </Button>
-              )}
-              {isDemoHost && (
-                <p className="text-xs text-neutral-500">
-                  Demo mode uses public endpoints and doesn't require authentication
-                </p>
-              )}
-              {/* Show super admin login link only for dev environment, not on production admin portal */}
-              {typeof window !== 'undefined' && 
-               window.location.hostname === 'dev.resolvify.tech' && (
-                <div className="pt-2 border-t border-neutral-200">
-                  <p className="text-xs text-neutral-500 mb-2">
-                    Are you a super administrator?
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => router.push('/super-admin/login')}
-                    className="w-full text-sm"
-                  >
-                    Go to Super Admin Login
-                  </Button>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>

@@ -60,7 +60,6 @@ type NavSection = {
 
 export default function Home() {
   const { isAuthenticated, loading: authLoading, user, token, logout, mustChangePassword } = useAuth();
-  const [skipLogin, setSkipLogin] = useState(false);
   const [activeTab, setActiveTab] = useState('tickets');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspaceSessionId, setWorkspaceSessionId] = useState<number | null>(null);
@@ -68,10 +67,6 @@ export default function Home() {
   const { vitals, loading: vitalsLoading, error: vitalsError, refresh: refreshVitals } = useAgentVitals();
 
   const workspaceEnabled = process.env.NEXT_PUBLIC_AGENT_WORKSPACE_ENABLED !== 'false';
-
-  // Note: admin.resolvify.tech and dev.resolvify.tech can be used by both regular users and super admins
-  // Regular users use the normal login at /, super admins use /super-admin/login
-  // No automatic redirect needed here
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   useEffect(() => {
@@ -155,9 +150,9 @@ export default function Home() {
     );
   }
 
-  // Always show login page if not authenticated (unless user explicitly skipped)
-  if (!isAuthenticated && !skipLogin) {
-    return <LoginPage onSkipLogin={() => setSkipLogin(true)} />;
+  // Always show login page if not authenticated (no demo skip in PaaS)
+  if (!isAuthenticated) {
+    return <LoginPage />;
   }
 
   // Show password change modal if required - BLOCK access to main app
