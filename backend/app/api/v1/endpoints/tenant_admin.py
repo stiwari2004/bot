@@ -448,6 +448,20 @@ async def create_customer_user(
     db.commit()
     db.refresh(user)
     
+    # PaaS: sync to central for billing
+    try:
+        from app.services.central_client import sync_users_for_billing
+        sync_users_for_billing(customer_id, [{
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "tenant_id": user.tenant_id,
+            "node_details": None,
+        }])
+    except Exception as e:
+        logger.warning("PaaS sync_users_for_billing failed: %s", e)
+    
     logger.info(f"MSP admin {current_user.email} created user {user.email} for customer {customer_id}")
     
     return {
@@ -496,6 +510,20 @@ async def update_customer_user(
     
     db.commit()
     db.refresh(user)
+    
+    # PaaS: sync to central for billing
+    try:
+        from app.services.central_client import sync_users_for_billing
+        sync_users_for_billing(customer_id, [{
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "tenant_id": user.tenant_id,
+            "node_details": None,
+        }])
+    except Exception as e:
+        logger.warning("PaaS sync_users_for_billing failed: %s", e)
     
     logger.info(f"MSP admin {current_user.email} updated user {user.email} for customer {customer_id}")
     

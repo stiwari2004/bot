@@ -334,6 +334,15 @@ try:
 except ImportError:
     pass  # License activation module not available
 
+# PaaS endpoints (central: validate-login, billing sync)
+try:
+    from app.api.v1.endpoints import paas_auth, paas_billing
+    api_router.include_router(paas_auth.router, prefix="/paas", tags=["paas-auth"])
+    api_router.include_router(paas_billing.router, prefix="/paas", tags=["paas-billing"])
+    logger.info("PaaS endpoints (auth, billing) loaded successfully")
+except ImportError as e:
+    logger.warning(f"PaaS endpoints not available: {e}")
+
 # Client Admin endpoints (for tenant admins to manage their own tenant)
 try:
     from app.api.v1.endpoints import client_admin

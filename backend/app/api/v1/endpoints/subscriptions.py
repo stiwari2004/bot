@@ -332,6 +332,59 @@ async def get_subscription(
     )
 
 
+class RegenerateLicenseKeyResponse(BaseModel):
+    """Response for regenerate license key"""
+    license_key: str
+    subscription_id: int
+
+
+@router.post("/{subscription_id}/regenerate-license-key", response_model=RegenerateLicenseKeyResponse)
+async def regenerate_subscription_license_key(
+    subscription_id: int,
+    db: Session = Depends(get_db),
+    current_admin: SuperAdmin = Depends(get_current_super_admin),
+):
+    """
+    Generate a new license key for this subscription and assign it (Super Admin only).
+
+    Allowed only if the subscription is not yet activated on any server.
+    If already activated, returns 400.
+    """
+    subscription = db.query(TenantSubscription).filter(
+        TenantSubscription.id == subscription_id
+    ).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if subscription.is_activated:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot regenerate license key: subscription is already activated on a server",
+        )
+    activation_service = LicenseActivationService(db)
+    for _ in range(50):
+        key = activation_service.generate_license_key()
+        exists = (
+            db.query(TenantSubscription)
+            .filter(TenantSubscription.license_key == key)
+            .first()
+        )
+        if not exists:
+            subscription.license_key = key
+            db.commit()
+            db.refresh(subscription)
+            logger.info(
+                "Super admin %s regenerated license key for subscription %s (tenant_id=%s)",
+                current_admin.email,
+                subscription_id,
+                subscription.tenant_id,
+            )
+            return RegenerateLicenseKeyResponse(license_key=key, subscription_id=subscription_id)
+    raise HTTPException(
+        status_code=500,
+        detail="Could not generate a unique license key; try again",
+    )
+
+
 @router.put("/subscriptions/{subscription_id}", response_model=SubscriptionResponse)
 async def update_subscription(
     subscription_id: int,

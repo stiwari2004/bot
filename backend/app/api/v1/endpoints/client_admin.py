@@ -166,6 +166,19 @@ async def create_tenant_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    # PaaS: sync to central for billing
+    try:
+        from app.services.central_client import sync_users_for_billing
+        sync_users_for_billing(current_admin.tenant_id, [{
+            "id": new_user.id,
+            "email": new_user.email,
+            "full_name": new_user.full_name,
+            "role": new_user.role,
+            "tenant_id": new_user.tenant_id,
+            "node_details": None,
+        }])
+    except Exception as e:
+        logger.warning("PaaS sync_users_for_billing failed: %s", e)
     return {
         "id": new_user.id,
         "email": new_user.email,
@@ -241,6 +254,19 @@ async def update_tenant_user(
     
     db.commit()
     db.refresh(user)
+    # PaaS: sync to central for billing
+    try:
+        from app.services.central_client import sync_users_for_billing
+        sync_users_for_billing(current_admin.tenant_id, [{
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "tenant_id": user.tenant_id,
+            "node_details": None,
+        }])
+    except Exception as e:
+        logger.warning("PaaS sync_users_for_billing failed: %s", e)
     return {
         "id": user.id,
         "email": user.email,

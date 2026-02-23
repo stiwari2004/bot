@@ -15,6 +15,17 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+def _get_super_admin():
+    """Lazy import to avoid circular deps."""
+    from app.services.super_admin_auth import get_current_super_admin
+    return get_current_super_admin
+
+
+class GenerateLicenseKeyResponse(BaseModel):
+    """Response for generate license key"""
+    license_key: str
+
+
 class LicenseActivationRequest(BaseModel):
     """Request model for license activation"""
     license_key: str
@@ -39,6 +50,34 @@ class LicenseStatusResponse(BaseModel):
     error: Optional[str] = None
     activation: Optional[dict] = None
     server_info: Optional[dict] = None
+
+
+@router.get("/generate-key", response_model=GenerateLicenseKeyResponse)
+async def generate_license_key(
+    db: Session = Depends(get_db),
+    current_admin: object = Depends(_get_super_admin),
+):
+    """
+    Generate a new random license key (Super Admin only).
+
+    Returns a key in format LIC-XXXXXXXX-XXXXXXXX-XXXXXXXX that is unique
+    in tenant_subscriptions. Use when creating a PaaS subscription or
+    assigning a key to an existing subscription.
+    """
+    activation_service = LicenseActivationService(db)
+    for _ in range(50):
+        key = activation_service.generate_license_key()
+        exists = (
+            db.query(TenantSubscription)
+            .filter(TenantSubscription.license_key == key)
+            .first()
+        )
+        if not exists:
+            return GenerateLicenseKeyResponse(license_key=key)
+    raise HTTPException(
+        status_code=500,
+        detail="Could not generate a unique license key; try again",
+    )
 
 
 @router.post("/activate-server", response_model=LicenseActivationResponse)

@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
     BACKEND_BASE_URL: str = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
     OAUTH_CALLBACK_URL: str = os.getenv("OAUTH_CALLBACK_URL", "http://localhost:8000/oauth/callback")
+
+    # PaaS / edge: central Resolvify server (for tenant-admin/MSP auth and billing sync)
+    CENTRAL_SERVER_URL: Optional[str] = os.getenv("CENTRAL_SERVER_URL")
+    CENTRAL_API_KEY: Optional[str] = os.getenv("CENTRAL_API_KEY")
+
+    # Central only: API key that edges must send (X-Paas-API-Key) to call PaaS endpoints
+    PAAS_EDGE_API_KEY: Optional[str] = os.getenv("PAAS_EDGE_API_KEY")
     
     # Multi-tenant
     DEFAULT_TENANT_ID: int = int(os.getenv("DEFAULT_TENANT_ID", "1"))

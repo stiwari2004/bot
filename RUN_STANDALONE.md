@@ -2,6 +2,15 @@
 
 Use this when you have only the saved image (`resolvify-app.tar`) and want to run the app **without the full repo**. Your source code never goes to the client machine.
 
+## Architecture (PaaS / central)
+
+The jump server has **its own database**. The intended model (see **PAAS_CENTRAL_ARCHITECTURE.md** for full detail):
+
+- **Tenant-admins / MSPs** are created in **Resolvify central** (dev or production); central is source of truth for them. **Licensing is checked on the central server.**
+- **Users** (name, node details) are created by MSP/tenant-admin in **their platform** (this jump server’s DB) and **synced to central for billing only.**
+
+So: separate DB on the edge; central has MSP/tenant-admin identities and licensing; user details created on the edge are synced to central for billing. Until central sync and license-check integration are fully in place, the seed step below is a temporary way to bootstrap local accounts.
+
 ## Your code stays private
 
 - **On your machine (where the repo lives):** You build the Docker image and save it to a `.tar` file. You also copy only **three files** to the client: the `.tar`, the compose file, and the init SQL.
@@ -98,7 +107,10 @@ Then run the `docker compose` command again.
 
 ## 4. Seed initial accounts (first-time setup)
 
-The standalone database starts empty. To create **tenant admin** and **user** accounts (and optionally a vendor super admin), run the seed script **inside the app container** (no repo needed — the script is in the image):
+**Do I create the login ID in the super admin section of dev or production resolvify.tech?**  
+No. The jump server has **its own database**. It is not connected to dev.resolvify.tech or production resolvify.tech. Users and tenants you create in super admin on dev or production exist only in that environment. To log in on the **jump server**, you must create the accounts **on the jump server itself** (using the seed command below).
+
+The standalone database starts empty. To create **tenant admin** and **user** accounts (and optionally a vendor super admin), run the seed script **inside the app container on the jump server** (no repo needed — the script is in the image):
 
 ```bash
 # Replace with your desired admin email and password

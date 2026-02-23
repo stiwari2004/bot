@@ -64,6 +64,89 @@ async def login(
     # #endregion
     
     try:
+        # --- PaaS: validate with central and get-or-create local user ---
+        if ((getattr(settings, "DEPLOYMENT_MODE", "") or "").lower() == "paas" and
+                getattr(settings, "CENTRAL_SERVER_URL", None)):
+            from app.services.central_client import validate_paas_login
+            central_result = validate_paas_login(form_data.username, form_data.password)
+            if central_result is not None:
+                from sqlalchemy import func
+                import secrets
+                local_user = db.query(User).filter(
+                    func.lower(User.email) == func.lower(form_data.username)
+                ).first()
+                default_tenant_id = getattr(settings, "DEFAULT_TENANT_ID", 1)
+                if not local_user:
+                    local_user = User(
+                        tenant_id=default_tenant_id,
+                        email=form_data.username,
+                        password_hash=get_password_hash(secrets.token_urlsafe(32)),
+                        full_name=central_result.get("full_name"),
+                        role=central_result.get("role", "tenant_admin"),
+                        is_active=True,
+                    )
+                    db.add(local_user)
+                    db.commit()
+                    db.refresh(local_user)
+                else:
+                    local_user.full_name = central_result.get("full_name") or local_user.full_name
+                    local_user.role = central_result.get("role", local_user.role)
+                    local_user.is_active = True
+                    db.commit()
+                    db.refresh(local_user)
+                user = local_user
+                user.failed_login_attempts = 0
+                user.locked_until = None
+                user.last_login = datetime.now(timezone.utc)
+                db.commit()
+                try:
+                    from app.models.user_login_history import UserLoginHistory
+                    login_history = UserLoginHistory(
+                        user_id=user.id,
+                        login_at=datetime.now(timezone.utc),
+                        success=True,
+                    )
+                    db.add(login_history)
+                    db.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to track login history: {e}")
+                    db.rollback()
+                access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+                access_token = create_access_token(
+                    data={"sub": user.email, "tenant_id": user.tenant_id},
+                    expires_delta=access_token_expires,
+                )
+                try:
+                    from app.models.user_session import UserSession
+                    import hashlib
+                    token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+                    session = UserSession(
+                        user_id=user.id,
+                        token_hash=token_hash,
+                        ip_address=None,
+                        user_agent=None,
+                        expires_at=datetime.now(timezone.utc) + access_token_expires,
+                    )
+                    db.add(session)
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Failed to persist session for user {user.email}: {e}", exc_info=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Session could not be created. Please try logging in again.",
+                    ) from e
+                return {
+                    "access_token": access_token,
+                    "token_type": "bearer",
+                    "must_change_password": getattr(user, "must_change_password", False) or False,
+                }
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate with central",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         # Check if user exists first (case-insensitive email lookup)
         from sqlalchemy import func
         # #region agent log - Check for duplicate users
