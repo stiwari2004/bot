@@ -1,0 +1,96 @@
+# Standalone run for pre-built resolvify-app image (e.g. after loading resolvify-app.tar).
+# No build step; uses image: resolvify-app:latest plus Postgres and Redis.
+#
+# On the server (e.g. jump01):
+#   1. Create a directory and copy this file + init-pgvector.sql there.
+#   2. Create a .env file with CREDENTIAL_ENCRYPTION_KEY (required). See RUN_STANDALONE.md.
+#   3. .env is used only for variable substitution (Compose reads it on the host). Do not add DATABASE_URL to .env.
+#   4. docker load -i resolvify-app.tar   # if not already loaded
+#   5. docker compose -f docker-compose.standalone.yml up -d
+#   6. Open http://<server-ip>:8000 in your browser (app listens on 8000, not 3000/8080).
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: resolvify-postgres
+    environment:
+      POSTGRES_DB: troubleshooting_ai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-pgvector.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: resolvify-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    image: resolvify-app:latest
+    container_name: resolvify-app
+    # Do NOT use env_file here so .env cannot override DATABASE_URL (fixes "ndysango1982@postgres" host error)
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/troubleshooting_ai
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-me-use-a-long-secret-key-min-32-chars}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
+      - WORKER_ORCHESTRATION_ENABLED=true
+      - ENABLE_TICKETING_POLLER=${ENABLE_TICKETING_POLLER:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Use Python (always in image); curl/wget may be missing or fail in minimal image
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\" || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  worker:
+    image: resolvify-app:latest
+    container_name: resolvify-worker
+    # Do NOT use env_file so .env cannot override DATABASE_URL
+    environment:
+      - BACKEND_BASE_URL=http://app:8000
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/troubleshooting_ai
+      - SECRET_KEY=${SECRET_KEY:-change-me-use-a-long-secret-key-min-32-chars}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
+      - WORKER_ID=worker-standalone
+      - WORKER_ENVIRONMENT=production
+    depends_on:
+      app:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    command: ["python", "-m", "worker.main"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

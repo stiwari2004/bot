@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Seed dev database with super admin + default tenant and user.
+Seed dev database with super admin + default tenant + tenant admin and user.
 Usage: python scripts/seed_dev_data.py [super_admin_email] [super_admin_password]
-Defaults: admin@dev.resolvify.tech / Admin123!
-Also creates: tenant "default", user stiwari2004@gmail.com / S@ndysango1982
+Defaults: admin@dev.resolvify.tech / Admin@123!
+Creates: super admin, tenant (demo/default if missing), tenant admin user, optional dev user.
 """
 import sys
 import os
@@ -17,10 +17,36 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.auth import get_password_hash
 
+DEFAULT_SUPER_EMAIL = "admin@dev.resolvify.tech"
+DEFAULT_SUPER_PASSWORD = "Admin@123!"
+
+
+def ensure_user(db, tenant_id: int, email: str, password: str, full_name: str, role: str):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(
+            tenant_id=tenant_id,
+            email=email,
+            password_hash=get_password_hash(password),
+            full_name=full_name,
+            role=role,
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        print(f"✅ User {email} created (ID: {user.id}, role={role})")
+    else:
+        user.password_hash = get_password_hash(password)
+        user.is_active = True
+        db.commit()
+        print(f"   User {email} exists (ID: {user.id}), password updated")
+    return user
+
 
 async def main():
-    super_email = sys.argv[1] if len(sys.argv) > 1 else "admin@resolvify.tech"
-    super_password = sys.argv[2] if len(sys.argv) > 2 else "Admin123!"
+    super_email = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SUPER_EMAIL
+    super_password = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_SUPER_PASSWORD
 
     await init_db()
     db = SessionLocal()
@@ -44,8 +70,8 @@ async def main():
             db.refresh(sa)
             print(f"✅ Super admin {super_email} created (ID: {sa.id})")
 
-        # 2. Default tenant
-        tenant = db.query(Tenant).filter(Tenant.name == "default").first()
+        # 2. Tenant (use demo id=1 or default)
+        tenant = db.query(Tenant).filter(Tenant.id == 1).first() or db.query(Tenant).filter(Tenant.name == "default").first()
         if not tenant:
             tenant = Tenant(name="default", description="Default tenant for development", is_active=True)
             db.add(tenant)
@@ -53,29 +79,18 @@ async def main():
             db.refresh(tenant)
             print(f"✅ Tenant 'default' created (ID: {tenant.id})")
         else:
-            print(f"   Tenant 'default' exists (ID: {tenant.id})")
+            print(f"   Tenant '{tenant.name}' exists (ID: {tenant.id})")
 
-        # 3. Default user (for normal login)
-        user = db.query(User).filter(User.email == "admin@example.com").first()
-        if not user:
-            user = User(
-                tenant_id=tenant.id,
-                email="admin@example.com",
-                password_hash=get_password_hash("admin123"),
-                full_name="Admin User",
-                role="admin",
-                is_active=True,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            print(f"✅ User admin@example.com created (ID: {user.id})")
-        else:
-            print(f"   User admin@example.com exists (ID: {user.id})")
+        # 3. Tenant admin (same email as super admin for dev convenience)
+        ensure_user(db, tenant.id, super_email, super_password, "Tenant Admin", "admin")
+
+        # 4. Optional dev user (for normal login)
+        ensure_user(db, tenant.id, "dev@dev.resolvify.tech", super_password, "Dev User", "user")
 
         print("\n--- Dev login credentials ---")
-        print("Super admin:", super_email, "/", super_password)
-        print("Normal user: admin@example.com / admin123")
+        print("Super admin (use at /super-admin/login):", super_email, "/", super_password)
+        print("Tenant admin / user (use at /):", super_email, "/", super_password)
+        print("Regular user:", "dev@dev.resolvify.tech", "/", super_password)
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback

@@ -20,15 +20,17 @@ export function LoginPage({ onSkipLogin }: LoginPageProps) {
   const { login, user, isAuthenticated } = useAuth();
   const [isDemoHost, setIsDemoHost] = useState(false);
 
-  // Detect if we're on the public demo host (demo.resolvify.tech)
+  // Detect if we're on the public demo host or a standalone/on-prem host (show "Continue without login")
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const hostname = window.location.hostname;
-    setIsDemoHost(hostname === 'demo.resolvify.tech');
-    
+    const isDemo = hostname === 'demo.resolvify.tech';
+    // Standalone/on-prem: IP, localhost, or hostnames that are not the main Resolvify domains
+    const isStandalone = /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname === 'localhost' || hostname.endsWith('.local')
+      || (!isDemo && !hostname.endsWith('resolvify.tech'));
+    setIsDemoHost(isDemo || isStandalone);
+
     // Note: admin.resolvify.tech and dev.resolvify.tech can be used by both regular users and super admins
-    // Regular users use this normal login page, super admins should go to /super-admin/login directly
-    // No automatic redirect - let users choose which login they need
   }, [router]);
 
   // Redirect admins after login

@@ -38,17 +38,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchUserInfo = useCallback(async (authToken: string) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      // Use authFetch so 401 responses are handled automatically
       const { authFetch } = await import('@/lib/auth-fetch');
-      
       const url: string = apiConfig.endpoints.auth.me();
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 15000);
       const response = await authFetch(url, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        },
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        signal: controller.signal,
       });
+      if (timeoutId) clearTimeout(timeoutId);
 
       if (response.ok) {
         const userData = await response.json();
@@ -69,7 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
       }
     } catch (error) {
-      // On error, clear token and treat as not authenticated
       if (error instanceof Error && error.name !== 'AbortError') {
         console.error('Failed to fetch user info:', error);
       }
@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(null);
       setUser(null);
     } finally {
-      // Always set loading to false, even on error
+      if (timeoutId) clearTimeout(timeoutId);
       setLoading(false);
     }
   }, []);
