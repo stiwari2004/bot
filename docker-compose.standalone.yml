@@ -51,6 +51,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - ENVIRONMENT=development
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/troubleshooting_ai
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-change-me-use-a-long-secret-key-min-32-chars}

@@ -262,24 +262,19 @@ from app.core.compression_middleware import CompressionMiddleware
 app.add_middleware(CompressionMiddleware)
 
 # CORS middleware - Security: Restrict methods and headers
-# In sandbox/dev mode, allow all localhost origins for easier testing
+# In sandbox/dev/standalone, allow any origin so jump server (IP/hostname) works without config
 cors_origins = settings.ALLOWED_HOSTS
-if settings.ENVIRONMENT.lower() in ("sandbox", "development", "dev"):
-    # Allow all localhost origins and dev domain in sandbox/dev
-    cors_origins = [
-        "http://localhost:3000", 
-        "http://localhost:3001", 
-        "http://localhost:4321",  # Astro marketing site dev server
-        "http://localhost:8000", 
-        "http://localhost:8001",
-        "https://dev.resolvify.tech",
-        "https://resolvify.tech",
-    ]
-    logger.info(f"CORS: Allowing localhost and dev domain origins for {settings.ENVIRONMENT} environment")
+cors_origin_regex = None
+if settings.ENVIRONMENT.lower() in ("sandbox", "development", "dev", "standalone"):
+    # Allow any origin (http/https, any host:port) so standalone/jumpserver works at http://<ip>:8000
+    cors_origins = []
+    cors_origin_regex = r"https?://[^/]+"
+    logger.info(f"CORS: Allowing any origin (regex) for {settings.ENVIRONMENT} environment (standalone/jumpserver friendly)")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # Restrict methods
     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],  # Restrict headers
@@ -352,6 +347,7 @@ async def test_interface():
 
 
 # Combined image: serve frontend SPA at / when app/frontend exists (Next.js static export)
+# API routes (include_router above) are matched first; this catch-all is last so /api/* goes to the backend
 _frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
 if os.path.isdir(_frontend_dir):
     from fastapi.responses import FileResponse

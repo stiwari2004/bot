@@ -1,6 +1,11 @@
 # Running Resolvify from the pre-built image (e.g. on jump server)
 
-Use this when you have only the saved image (`resolvify-app.tar`) and want to run the app without the full repo.
+Use this when you have only the saved image (`resolvify-app.tar`) and want to run the app **without the full repo**. Your source code never goes to the client machine.
+
+## Your code stays private
+
+- **On your machine (where the repo lives):** You build the Docker image and save it to a `.tar` file. You also copy only **three files** to the client: the `.tar`, the compose file, and the init SQL.
+- **On the client/jump server:** The client has **only** Docker, the image (loaded from the tar), `docker-compose.standalone.yml`, `init-pgvector.sql`, and a `.env` you create (keys and passwords). **No repository, no source code, no copy of your codebase** — only the built image and the minimal config needed to run it.
 
 ## What you need on the server
 
@@ -13,7 +18,25 @@ Use this when you have only the saved image (`resolvify-app.tar`) and want to ru
 
 **Important:** The app listens on port **8000** (not 3000 or 8080). Use `-p 8000:8000` if you run the container by hand.
 
-## 1. Create a directory and copy files
+## 0. Build and ship the image (on your machine only)
+
+Do this where your repo lives. The client never sees the repo.
+
+```bash
+# In your repo root (on your dev/build machine)
+docker build -f Dockerfile.combined -t resolvify-app:latest .
+docker save resolvify-app:latest -o resolvify-app.tar
+```
+
+Copy **only these** to the client (e.g. via SCP, USB, or your delivery process):
+
+- `resolvify-app.tar`
+- `docker-compose.standalone.yml`
+- `init-pgvector.sql`
+
+Do **not** copy the repo, backend, or frontend source. The client only needs the image and the two config files above (plus a `.env` they create on the server).
+
+## 1. Create a directory and copy files (on the client)
 
 The folder name is up to you; it doesn't have to be `resolvify`. Example:
 
@@ -22,8 +45,9 @@ mkdir -p ~/resolvify
 cd ~/resolvify
 ```
 
-Copy from your dev machine (or repo) into this directory:
+Put the files you received (no repo) into this directory:
 
+- `resolvify-app.tar`
 - `docker-compose.standalone.yml`
 - `init-pgvector.sql`
 
@@ -119,15 +143,20 @@ docker compose -f docker-compose.standalone.yml up -d
 
 After this, the app and Postgres will both use the password from `.env`.
 
-### Stuck on "Loading..." or loading loop
+### Stuck on "Loading..." or "Connecting"
 
-The UI may hang if the browser cannot reach the API or has a bad/stale token.
+The UI may hang if the browser cannot reach the API (CORS, wrong host, or bad/stale token), or if **CSP blocks the app’s scripts**.
 
-1. **Open the app in a private/incognito window** (no cached token).
-2. **Or clear site data** for the app URL: DevTools → Application → Storage → Clear site data.
-3. **Use "Skip login"** if you see a login screen: use the link/button to continue as guest so you can use the tool without an account.
-4. **Check the browser console** (F12 → Console): look for failed requests to `/api/v1/auth/me` or CORS errors. Ensure you open the app at `http://<server-ip>:8000` (same host as the API).
-5. After a code update, the frontend now times out the auth check after 15 seconds so loading should not spin forever; you should see the login page or an error.
+1. **Ensure the app container has `ENVIRONMENT=development`** (the default in `docker-compose.standalone.yml`). This allows CORS from any origin (e.g. `http://<jump-server-ip>:8000`) so the frontend’s API calls succeed.
+2. **Open the app at the same host you use in the browser** — e.g. `http://<jump-server-ip>:8000` or `http://jump01:8000`. Don’t mix hostnames (e.g. IP vs hostname) if your DNS differs.
+3. **Open in a private/incognito window** or **clear site data** (DevTools → Application → Storage → Clear site data) to remove a bad cached token.
+4. **Use "Continue in Demo Mode" / "Skip login"** if you see the login screen, to use the app without an account.
+5. **Check the browser console** (F12 → Console): look for failed requests to `/api/v1/auth/me` or CORS errors. If you see CORS or network errors, rebuild the image so the backend has the latest CORS fix (dev/standalone allows any origin via regex).
+6. The frontend times out the auth check after 15 seconds; you should then see the login page or an error instead of spinning forever.
+
+### Console: "Executing inline script violates... Content Security Policy"
+
+If the console shows CSP errors like `script-src 'self'` blocking inline scripts, the **page HTML is being served with a CSP that blocks the Next.js app’s inline scripts**, so the app never runs and stays on "Loading". **Fix:** Rebuild the image from a repo that has the security middleware fix: the backend uses a **relaxed CSP for SPA routes** (allows `'unsafe-inline'` for script and style only on frontend paths, not on `/api`). Rebuild, save a new `resolvify-app.tar`, and redeploy on the client (see section 0).
 
 ### License code
 

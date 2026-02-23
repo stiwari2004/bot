@@ -37,18 +37,43 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
 
-        # Content Security Policy (API responses - no scripts/styles; tight img/connect)
-        csp = (
-            "default-src 'self'; "
-            "base-uri 'self'; "
-            "form-action 'self'; "
-            "script-src 'self'; "
-            "style-src 'self'; "
-            "img-src 'self' data: blob:; "
-            "font-src 'self' data:; "
-            "connect-src 'self'; "
-            "frame-ancestors 'none';"
+        # Content Security Policy: strict for API, relaxed for frontend (combined image serves SPA with inline scripts)
+        path = request.url.path or ""
+        api_like = (
+            path.startswith("/api")
+            or path.startswith("/health")
+            or path.startswith("/oauth")
+            or path.startswith("/static")
+            or path.startswith("/metrics")
+            or path.startswith("/docs")
+            or path.startswith("/_next")
+            or path == "/openapi.json"
         )
+        if api_like:
+            csp = (
+                "default-src 'self'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "script-src 'self'; "
+                "style-src 'self'; "
+                "img-src 'self' data: blob:; "
+                "font-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none';"
+            )
+        else:
+            # SPA (Next.js static export): allow inline scripts/styles so hydration and chunks run
+            csp = (
+                "default-src 'self'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "font-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none';"
+            )
         response.headers["Content-Security-Policy"] = csp
 
         # HSTS for any HTTPS request (dev.resolvify.tech, prod, etc.)
