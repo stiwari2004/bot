@@ -182,6 +182,17 @@ try:
 except ImportError as e:
     logger.warning(f"Tenant admin discovery endpoints not available (ImportError): {e}")
 
+# MSP Tenant Admin core endpoints (customers, dashboard, subscriptions)
+try:
+    from app.api.v1.endpoints import tenant_admin, tenant_admin_dashboard
+    api_router.include_router(tenant_admin.router, prefix="/tenant-admin", tags=["tenant-admin"])
+    api_router.include_router(tenant_admin_dashboard.router, prefix="/tenant-admin", tags=["tenant-admin-dashboard"])
+    logger.info("Tenant admin endpoints loaded successfully")
+except ImportError as e:
+    logger.warning(f"Tenant admin endpoints not available (ImportError): {e}")
+except Exception as e:
+    logger.error(f"Error loading tenant admin endpoints: {e}", exc_info=True)
+
 # User profile and preferences endpoints
 try:
     from app.api.v1.endpoints import user_profile, user_preferences, user_activity, user_sessions

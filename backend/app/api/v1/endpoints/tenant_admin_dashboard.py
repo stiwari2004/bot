@@ -10,7 +10,7 @@ from datetime import datetime
 
 from app.core.database import get_db
 from app.models.user import User
-from app.core.auth import get_current_user
+from app.services.auth import get_current_user
 from app.services.dashboard.tenant_admin_dashboard_service import TenantAdminDashboardService
 from app.core.logging import get_logger
 
