@@ -121,16 +121,13 @@ export default function Home() {
     if (hostname === 'admin.resolvify.tech' || currentPath.startsWith('/super-admin/')) return;
     // Wait for user data to be fully loaded (including tenant info)
     if (isAuthenticated && user && user.tenant !== undefined) {
-      // Only MSP admins go to tenant-admin. Never redirect 'user' or 'viewer' even if tenant is MSP.
-      const isMspAdmin = (
-        user.role === 'msp_admin' ||
-        (user.role === 'admin' && user.tenant?.is_msp === true)
-      );
+      // Only MSP admins (role === 'msp_admin') go to tenant-admin.
+      const isMspAdmin = user.role === 'msp_admin';
       if (isMspAdmin && currentPath === '/') {
         window.location.href = '/tenant-admin';
         return;
       }
-      // Tenant admin (non-MSP) and regular users: stay on main app
+      // Tenant admin (non-MSP) and regular users (including legacy 'admin' under MSP tenant): stay on main app
     }
   }, [isAuthenticated, user, authLoading]);
 

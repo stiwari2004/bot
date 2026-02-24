@@ -92,16 +92,11 @@ async def get_current_msp_admin(
             detail="Your tenant is not an MSP. This endpoint is only for MSP tenant admins."
         )
     
-    # Check for MSP admin role: either 'msp_admin' or legacy 'admin' with MSP tenant
-    is_msp_admin = (
-        current_user.role == "msp_admin" or 
-        (current_user.role == "admin" and tenant.is_msp)
-    )
-    
-    if not is_msp_admin:
+    # Check for MSP admin role: require explicit 'msp_admin' role (do not treat legacy 'admin' as MSP admin)
+    if current_user.role != "msp_admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="MSP admin access required. Only users with 'msp_admin' role (or 'admin' role in MSP tenant) can access MSP admin features."
+            detail="MSP admin access required. Only users with 'msp_admin' role can access MSP admin features."
         )
     
     if not tenant.is_active:

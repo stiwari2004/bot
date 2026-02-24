@@ -52,12 +52,8 @@ export function MspAdminAuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const userData = await response.json();
         
-        // Validate user is MSP admin
-        // Check for both new 'msp_admin' role and legacy 'admin' role with MSP tenant
-        const isMspAdmin = (
-          userData.role === 'msp_admin' || 
-          (userData.role === 'admin' && userData.tenant?.is_msp === true)
-        );
+        // Validate user is MSP admin: require explicit 'msp_admin' role
+        const isMspAdmin = userData.role === 'msp_admin';
         
         if (isMspAdmin) {
           setAdmin({

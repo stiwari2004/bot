@@ -37,11 +37,8 @@ export function LoginPage(_props: LoginPageProps) {
     if (isSuperAdminHost || currentPath.startsWith('/super-admin/')) return;
     // Wait for user data to be fully loaded (including tenant info)
     if (isAuthenticated && user && user.tenant !== undefined) {
-      // Only redirect by role. Never redirect 'user' or 'viewer' to tenant-admin even if tenant is MSP.
-      const isMspAdmin = (
-        user.role === 'msp_admin' ||
-        (user.role === 'admin' && user.tenant?.is_msp === true)
-      );
+      // Only MSP admins (role === 'msp_admin') go to tenant-admin.
+      const isMspAdmin = user.role === 'msp_admin';
       if (isMspAdmin && !currentPath.startsWith('/tenant-admin')) {
         window.location.href = '/tenant-admin';
         return;
@@ -54,7 +51,7 @@ export function LoginPage(_props: LoginPageProps) {
         window.location.href = '/admin';
         return;
       }
-      // user.role === 'user' | 'viewer' | etc.: no redirect; they stay on main app
+      // user.role === 'user' | 'viewer' | legacy 'admin' under MSP tenant: stay on main app
     }
   }, [isAuthenticated, user]);
 
