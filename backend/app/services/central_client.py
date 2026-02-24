@@ -63,10 +63,15 @@ def validate_paas_login(email: str, password: str) -> Optional[Dict[str, Any]]:
         with httpx.Client(timeout=CENTRAL_REQUEST_TIMEOUT) as client:
             response = client.post(url, json=payload, headers=_headers())
         if response.status_code != 200:
+            try:
+                body = response.text[:500] if response.text else ""
+            except Exception:
+                body = ""
             logger.warning(
-                "Central validate-login returned status=%s for email=%s",
+                "Central validate-login returned status=%s for email=%s body=%s",
                 response.status_code,
                 email,
+                body,
             )
             return None
         data = response.json()
