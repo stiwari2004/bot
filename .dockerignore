@@ -26,7 +26,6 @@ frontend-nextjs/*.md
 # Combined build: exclude API routes (static export cannot build them; browser hits FastAPI at same origin)
 frontend-nextjs/src/app/api
 
-# Other
-discovery-agent
+# Other (do not ignore discovery-agent; Dockerfile.combined needs it for agent.tar.gz/agent.zip)
 .env
 .env.*

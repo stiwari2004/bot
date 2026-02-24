@@ -1,5 +1,27 @@
 # Remote Servers Discovery Setup Guide
 
+## Deploying the app (backend + frontend + discovery)
+
+For the server that runs the Resolvify API (e.g. PAAS at `http://192.168.48.10:8000`), build and run the **complete app image**. That image includes the discovery-agent folder so `/api/v1/tenant-admin/discovery/run`, `agent.tar.gz`, and `agent.zip` work.
+
+**Build the complete app image (from repo root):**
+```bash
+# From repo root (directory that contains backend/, frontend-nextjs/, discovery-agent/):
+docker build -f Dockerfile.combined -t resolvify-app:latest .
+
+# Or use the script:
+./build-app.sh
+```
+
+**Run the app (backend serves API + static frontend; discovery endpoints included):**
+```bash
+docker run -p 8000:8000 -e DATABASE_URL=... resolvify-app:latest
+```
+
+Then one-step discovery works: `curl -sSL "http://YOUR_HOST:8000/api/v1/tenant-admin/discovery/run" -o run.py && python3 run.py "http://YOUR_HOST:8000/api/v1/tenant-admin/discovery/ingest" "TOKEN"`.
+
+---
+
 ## Network Discovery (Recommended)
 
 When `network_discovery.enabled: true` (or `DISCOVERY_AUTO_SCAN=1`), the agent:
@@ -12,11 +34,11 @@ Run `python3 discover.py "INGEST_URL" "TOKEN"` on the jump server. No pre-config
 
 ---
 
-## Customer Docker image (production)
+## Discovery agent Docker image (scanner only)
 
-For customers you ship a **Docker image**. The image has all dependencies installed at **build time**; at runtime the container only runs discovery. No bootstrap, no pip install, no venv inside the container. License activation is handled by your backend when the agent reports in.
+For running the **scanner** in a container (e.g. on a jump server), build the **discovery-agent-only** image. This is separate from the app image above: the app image runs the API (and serves run/agent.tar.gz/agent.zip); the agent image only runs discovery and posts to the ingest URL.
 
-**Build the image:**
+**Build the agent image (optional; only if you run discovery inside Docker):**
 ```bash
 # From repo root:
 docker build -f discovery-agent/Dockerfile -t resolvify-discovery-agent discovery-agent
@@ -240,12 +262,14 @@ Check the Resolvify UI → Tenant Admin → Discovery → Assets to see all disc
 
 **Solution** (PAAS or pre-built backend image where dev/prod work but this server returns 404):
 
-- The backend image must include the `discovery-agent` folder. Build the backend from the **repo root** so the Dockerfile can copy it in:
+- **Recommended:** Build and deploy the **complete app image** so the API and discovery endpoints all work:
   ```bash
-  # From repo root (directory that contains backend/ and discovery-agent/)
-  docker build -f backend/Dockerfile -t your-backend .
+  # From repo root
+  docker build -f Dockerfile.combined -t resolvify-app:latest .
+  # Then run resolvify-app:latest on PAAS (port 8000).
   ```
-- Or use the combined image (`docker build -f Dockerfile.combined -t resolvify-app .`), which includes discovery-agent.
+  Or run `./build-app.sh` from repo root.
+- If you only need the backend (no frontend in image), build the backend from repo root: `docker build -f backend/Dockerfile -t your-backend .`
 - Alternatively, mount discovery-agent into the container or set `DISCOVERY_AGENT_DIR` to a path where you’ve placed the folder.
 
 ### Issue: "remote_servers scanner not available"
