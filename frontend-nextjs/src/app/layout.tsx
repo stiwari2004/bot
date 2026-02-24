@@ -18,6 +18,10 @@ export const metadata: Metadata = {
   description: "AI-powered troubleshooting and runbook execution platform",
 };
 
+// Required for nonce-based CSP: page must be dynamically rendered so the nonce
+// from middleware is applied to inline scripts (Next.js 15+ production fix).
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{

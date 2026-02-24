@@ -13,8 +13,8 @@ export function middleware(request: NextRequest) {
     "default-src 'self'",
     "base-uri 'self'",
     "form-action 'self'",
-    // Nonce-based: no unsafe-inline, no unsafe-eval (ZAP fix)
-    `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ''}`,
+    // Nonce-based: no unsafe-inline, no unsafe-eval (ZAP fix). strict-dynamic allows scripts loaded by nonced scripts.
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
     `style-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline'" : ''}`,
     // Tightened: no wildcard https:/http: (ZAP fix)
     "img-src 'self' data: blob:",
