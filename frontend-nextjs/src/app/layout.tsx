@@ -18,9 +18,10 @@ export const metadata: Metadata = {
   description: "AI-powered troubleshooting and runbook execution platform",
 };
 
-// Required for nonce-based CSP: page must be dynamically rendered so the nonce
-// from middleware is applied to inline scripts (Next.js 15+ production fix).
-export const dynamic = "force-dynamic";
+// Standalone Next.js (no COMBINED_BUILD): force-dynamic so CSP nonce is applied to scripts.
+// Static export (COMBINED_BUILD=1) cannot use force-dynamic; all pages must be statically exportable.
+export const dynamic =
+  process.env.COMBINED_BUILD === "1" ? "force-static" : "force-dynamic";
 
 export default function RootLayout({
   children,
