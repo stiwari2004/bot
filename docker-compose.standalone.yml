@@ -58,6 +58,10 @@ services:
       - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
       - WORKER_ORCHESTRATION_ENABLED=true
       - ENABLE_TICKETING_POLLER=${ENABLE_TICKETING_POLLER:-false}
+      # PaaS edge: validate logins against central (set in .env when using central)
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-}
+      - CENTRAL_SERVER_URL=${CENTRAL_SERVER_URL:-}
+      - CENTRAL_API_KEY=${CENTRAL_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

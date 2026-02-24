@@ -59,11 +59,24 @@ docker-compose exec backend python scripts/create_super_admin.py admin@platform.
 
 ### 2. Access Super Admin Portal
 
-1. Navigate to: `http://localhost:3000/super-admin/login`
-2. Login with your super admin credentials
+1. Navigate to: **`/super-admin/login`** (e.g. `https://your-domain/super-admin/login` or `http://localhost:3000/super-admin/login`)
+2. Login with your **super admin** credentials (email/password from `super_admins` table)
 3. You'll be redirected to the dashboard at `/super-admin`
 
-### 3. Database Migration
+**Important:** The **main** login page (`/` or `/login`) uses the **users** table (tenant users). Super admin uses the **super_admins** table and a **separate** login at **`/super-admin/login`**. If you see "Login attempt with non-existent email" in logs when using the main login, you are hitting the wrong endpoint — use `/super-admin/login` for super admin.
+
+### 3. Reset Super Admin Password (e.g. production)
+
+If the super admin account exists but the password doesn't work, reset it by running the script **inside the backend container** (so it uses the same DB and hashing as the app):
+
+```bash
+# Production (docker-compose.production.yml, project bot-prod)
+docker exec -it bot-prod-backend python scripts/reset_super_admin_password.py admin@resolvify.tech 'YourNewPassword123!'
+```
+
+Use a **strong password** and single quotes around it so the shell doesn't expand it. Then log in at **`/super-admin/login`** with that email and new password.
+
+### 4. Database Migration
 
 The new `super_admins` table and updated `tenants` table will be created automatically on next backend startup. If you need to manually run migrations:
 

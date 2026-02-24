@@ -11,6 +11,8 @@ The jump server has **its own database**. The intended model (see **PAAS_CENTRAL
 
 So: separate DB on the edge; central has MSP/tenant-admin identities and licensing; user details created on the edge are synced to central for billing. Until central sync and license-check integration are fully in place, the seed step below is a temporary way to bootstrap local accounts.
 
+**Who can log in on the standalone:** Only **Users** (in the **users** table on central) with role **tenant_admin** or **msp_admin**. Creating a tenant with type "paas" on central does **not** by itself create a login; you must create a **user** under that tenant (or under an MSP tenant) with one of those roles. See **PRODUCTION_VS_STANDALONE.md** for the full "Why standalone login might not work" checklist.
+
 ## Your code stays private
 
 - **On your machine (where the repo lives):** You build the Docker image and save it to a `.tar` file. You also copy only **three files** to the client: the `.tar`, the compose file, and the init SQL.
@@ -79,6 +81,16 @@ POSTGRES_PASSWORD=password
 ```
 
 Use the same key you generated for `CREDENTIAL_ENCRYPTION_KEY`; change `SECRET_KEY` and `POSTGRES_PASSWORD` to your own values.
+
+**For central-validated login (PaaS edge):** Add these so the standalone validates logins against central instead of the local DB:
+
+```env
+DEPLOYMENT_MODE=paas
+CENTRAL_SERVER_URL=https://your-production-backend-url
+CENTRAL_API_KEY=your-edge-api-key-matching-centrals-PAAS_EDGE_API_KEY
+```
+
+The standalone compose file may not pass `.env` into the app container; if login still uses local DB, add these variables to the `app` service `environment:` section in `docker-compose.standalone.yml` (or ensure your deployment injects them).
 
 **Do not set `DATABASE_URL` in `.env`.** The compose file sets it. With the current standalone compose, `.env` is only used by Compose for variable substitution (on the host); it is not loaded into the app container, so a stray `DATABASE_URL` in `.env` will no longer override the correct URL.
 

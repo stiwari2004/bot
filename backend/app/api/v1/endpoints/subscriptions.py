@@ -121,12 +121,12 @@ async def create_subscription(
     max_nodes = license_plan.default_max_nodes if license_plan else subscription_data.max_nodes
     monthly_price = Decimal(license_plan.default_monthly_price) if license_plan and license_plan.default_monthly_price and license_plan.default_monthly_price != "custom" else subscription_data.monthly_price
     
-    # Generate license key for PaaS deployments
+    # Generate license key only for on-prem PaaS tenants (not for SaaS; SaaS is managed on central)
     activation_service = LicenseActivationService(db)
     license_key = None
-    if activation_service.is_paas_mode():
+    if (tenant.deployment_type or "").lower() == "paas":
         license_key = activation_service.generate_license_key()
-        logger.info(f"Generated license key for PaaS subscription: {license_key}")
+        logger.info(f"Generated license key for PaaS tenant {tenant.name}: {license_key}")
     
     # Create subscription
     subscription = TenantSubscription(
@@ -355,6 +355,12 @@ async def regenerate_subscription_license_key(
     ).first()
     if not subscription:
         raise HTTPException(status_code=404, detail="Subscription not found")
+    tenant = db.query(Tenant).filter(Tenant.id == subscription.tenant_id).first()
+    if not tenant or (tenant.deployment_type or "").lower() != "paas":
+        raise HTTPException(
+            status_code=400,
+            detail="License key is only for PaaS (on-prem) tenants. This subscription's tenant is not PaaS.",
+        )
     if subscription.is_activated:
         raise HTTPException(
             status_code=400,
