@@ -112,29 +112,25 @@ export default function Home() {
     }
   }, []);
 
-  // Redirect admins to their appropriate admin pages
+  // Redirect admins to their appropriate admin pages (never on super-admin host – admin.resolvify.tech uses /super-admin/login)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (authLoading) return;
-    
+    const hostname = window.location.hostname;
+    const currentPath = window.location.pathname;
+    if (hostname === 'admin.resolvify.tech' || currentPath.startsWith('/super-admin/')) return;
     // Wait for user data to be fully loaded (including tenant info)
     if (isAuthenticated && user && user.tenant !== undefined) {
-      const currentPath = window.location.pathname;
-      
       // MSP Admin: redirect to /tenant-admin
-      // Allow both 'msp_admin' role and legacy 'admin' role with MSP tenant
       const isMspAdmin = (
-        user.role === 'msp_admin' || 
+        user.role === 'msp_admin' ||
         (user.role === 'admin' && user.tenant?.is_msp === true)
       );
       if (isMspAdmin && currentPath === '/') {
         window.location.href = '/tenant-admin';
         return;
       }
-      
       // Tenant Admin (non-MSP): no redirect needed - they see admin tabs in main page
-      // Allow both 'tenant_admin' role and legacy 'admin' role with non-MSP tenant
-      // They will see admin features in the System section
     }
   }, [isAuthenticated, user, authLoading]);
 

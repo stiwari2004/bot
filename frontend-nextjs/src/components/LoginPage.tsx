@@ -27,28 +27,29 @@ export function LoginPage(_props: LoginPageProps) {
     setShowMspLoginLink(isStandaloneOrPaaS);
   }, [router]);
 
-  // Redirect admins after login
+  // Redirect admins after login (only for main app / tenant login – never on super-admin host or paths)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const hostname = window.location.hostname;
+    const currentPath = window.location.pathname;
+    // Super-admin console (admin.resolvify.tech): never redirect to tenant-admin; super-admin has its own flow
+    const isSuperAdminHost = hostname === 'admin.resolvify.tech';
+    if (isSuperAdminHost || currentPath.startsWith('/super-admin/')) return;
     // Wait for user data to be fully loaded (including tenant info)
     if (isAuthenticated && user && user.tenant !== undefined) {
-      const currentPath = window.location.pathname;
-      
       // MSP Admin: redirect to /tenant-admin
       // Allow both 'msp_admin' role and legacy 'admin' role with MSP tenant
       const isMspAdmin = (
-        user.role === 'msp_admin' || 
+        user.role === 'msp_admin' ||
         (user.role === 'admin' && user.tenant?.is_msp === true)
       );
       if (isMspAdmin && !currentPath.startsWith('/tenant-admin')) {
         window.location.href = '/tenant-admin';
         return;
       }
-      
       // Tenant Admin (non-MSP): redirect to /admin
-      // Allow both 'tenant_admin' role and legacy 'admin' role with non-MSP tenant
       const isTenantAdmin = (
-        user.role === 'tenant_admin' || 
+        user.role === 'tenant_admin' ||
         (user.role === 'admin' && user.tenant?.is_msp === false)
       );
       if (isTenantAdmin && !currentPath.startsWith('/admin') && !currentPath.startsWith('/tenant-admin')) {
