@@ -40,6 +40,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Backend code
 COPY backend/ .
 
+# Discovery agent (for /api/v1/tenant-admin/discovery/agent.tar.gz and agent.zip; required for run.py one-step install)
+COPY discovery-agent /app/discovery-agent
+
 # Frontend static export into backend app (served by FastAPI at /)
 COPY --from=frontend-builder /app/out ./app/frontend
 

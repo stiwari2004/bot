@@ -360,12 +360,14 @@ def _get_discovery_agent_dir() -> Path:
     paths_to_try = []
     if os.environ.get("DISCOVERY_AGENT_DIR"):
         paths_to_try.append(Path(os.environ["DISCOVERY_AGENT_DIR"]))
-    # Standard location when discovery-agent is mounted in Docker at /app/discovery-agent
+    # Standard location when discovery-agent is copied into image (Dockerfile.combined / backend from repo root)
     paths_to_try.append(Path("/app/discovery-agent"))
+    app_dir = this_file.parent.parent.parent.parent  # app.api.v1.endpoints -> app
+    # Bundled copy inside backend (e.g. backend/app/static/discovery_agent populated at build)
+    paths_to_try.append(app_dir / "static" / "discovery_agent")
     backend = this_file.parent.parent.parent.parent.parent
     repo_root = backend.parent
     paths_to_try.append(repo_root / "discovery-agent")
-    app_dir = this_file.parent.parent.parent.parent
     paths_to_try.append(app_dir.parent.parent / "discovery-agent")
     cwd = Path(os.getcwd())
     paths_to_try.append(cwd / "discovery-agent")

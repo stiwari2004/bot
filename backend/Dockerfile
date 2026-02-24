@@ -1,9 +1,10 @@
+# Build from repo root to include discovery-agent (agent.tar.gz / agent.zip endpoints):
+#   docker build -f backend/Dockerfile -t backend .
+# Without discovery-agent, /api/v1/tenant-admin/discovery/agent.tar.gz returns 404.
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -12,12 +13,11 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
+# When context is repo root (recommended): copy backend and discovery-agent
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY . .
+COPY backend/ .
+COPY discovery-agent /app/discovery-agent
 
 # Create upload directory (use Python to avoid depending on /bin/sh in edge-case bases)
 RUN python3 -c "import pathlib; pathlib.Path('/app/uploads').mkdir(parents=True, exist_ok=True)"

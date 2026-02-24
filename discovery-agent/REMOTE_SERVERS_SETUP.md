@@ -238,6 +238,16 @@ Check the Resolvify UI → Tenant Admin → Discovery → Assets to see all disc
   ```
 - Or set `DISCOVERY_AGENT_DIR=/path/inside/container/to/discovery-agent` and ensure that path exists in the image or is mounted.
 
+**Solution** (PAAS or pre-built backend image where dev/prod work but this server returns 404):
+
+- The backend image must include the `discovery-agent` folder. Build the backend from the **repo root** so the Dockerfile can copy it in:
+  ```bash
+  # From repo root (directory that contains backend/ and discovery-agent/)
+  docker build -f backend/Dockerfile -t your-backend .
+  ```
+- Or use the combined image (`docker build -f Dockerfile.combined -t resolvify-app .`), which includes discovery-agent.
+- Alternatively, mount discovery-agent into the container or set `DISCOVERY_AGENT_DIR` to a path where you’ve placed the folder.
+
 ### Issue: "remote_servers scanner not available"
 
 **Solution**: Install dependencies:
