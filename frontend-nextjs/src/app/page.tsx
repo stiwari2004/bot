@@ -121,7 +121,7 @@ export default function Home() {
     if (hostname === 'admin.resolvify.tech' || currentPath.startsWith('/super-admin/')) return;
     // Wait for user data to be fully loaded (including tenant info)
     if (isAuthenticated && user && user.tenant !== undefined) {
-      // MSP Admin: redirect to /tenant-admin
+      // Only MSP admins go to tenant-admin. Never redirect 'user' or 'viewer' even if tenant is MSP.
       const isMspAdmin = (
         user.role === 'msp_admin' ||
         (user.role === 'admin' && user.tenant?.is_msp === true)
@@ -130,7 +130,7 @@ export default function Home() {
         window.location.href = '/tenant-admin';
         return;
       }
-      // Tenant Admin (non-MSP): no redirect needed - they see admin tabs in main page
+      // Tenant admin (non-MSP) and regular users: stay on main app
     }
   }, [isAuthenticated, user, authLoading]);
 

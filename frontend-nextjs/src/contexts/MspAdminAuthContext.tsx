@@ -70,10 +70,13 @@ export function MspAdminAuthProvider({ children }: { children: ReactNode }) {
           });
           setToken(authToken);
         } else {
-          // Not an MSP admin, clear token
+          // Not an MSP admin: clear token and send to main app login so they can sign in there
           localStorage.removeItem('auth_token');
           setToken(null);
           setAdmin(null);
+          if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+          }
         }
       } else {
         localStorage.removeItem('auth_token');

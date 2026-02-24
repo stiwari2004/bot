@@ -18,13 +18,13 @@ export function LoginPage(_props: LoginPageProps) {
   const { login, user, isAuthenticated } = useAuth();
   const [showMspLoginLink, setShowMspLoginLink] = useState(false);
 
-  // Customer deployments (PaaS/standalone): show link to Tenant Admin / MSP login only. No demo, no super admin.
+  // Show "Tenant Admin / MSP Login" on main app login everywhere except super-admin host (admin.resolvify.tech).
+  // So dev.resolvify.tech and PaaS/standalone always show: main login + Forgot password + link to tenant-admin.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const hostname = window.location.hostname;
-    const isStandaloneOrPaaS = /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname === 'localhost' || hostname.endsWith('.local')
-      || !hostname.endsWith('resolvify.tech');
-    setShowMspLoginLink(isStandaloneOrPaaS);
+    const isSuperAdminHost = hostname === 'admin.resolvify.tech';
+    setShowMspLoginLink(!isSuperAdminHost);
   }, [router]);
 
   // Redirect admins after login (only for main app / tenant login – never on super-admin host or paths)
@@ -37,8 +37,7 @@ export function LoginPage(_props: LoginPageProps) {
     if (isSuperAdminHost || currentPath.startsWith('/super-admin/')) return;
     // Wait for user data to be fully loaded (including tenant info)
     if (isAuthenticated && user && user.tenant !== undefined) {
-      // MSP Admin: redirect to /tenant-admin
-      // Allow both 'msp_admin' role and legacy 'admin' role with MSP tenant
+      // Only redirect by role. Never redirect 'user' or 'viewer' to tenant-admin even if tenant is MSP.
       const isMspAdmin = (
         user.role === 'msp_admin' ||
         (user.role === 'admin' && user.tenant?.is_msp === true)
@@ -47,7 +46,6 @@ export function LoginPage(_props: LoginPageProps) {
         window.location.href = '/tenant-admin';
         return;
       }
-      // Tenant Admin (non-MSP): redirect to /admin
       const isTenantAdmin = (
         user.role === 'tenant_admin' ||
         (user.role === 'admin' && user.tenant?.is_msp === false)
@@ -56,6 +54,7 @@ export function LoginPage(_props: LoginPageProps) {
         window.location.href = '/admin';
         return;
       }
+      // user.role === 'user' | 'viewer' | etc.: no redirect; they stay on main app
     }
   }, [isAuthenticated, user]);
 
@@ -165,7 +164,7 @@ export function LoginPage(_props: LoginPageProps) {
               </a>
             </div>
 
-            {/* Customer PaaS/standalone: link to MSP admin portal only (no super admin) */}
+            {/* Main app login: link to Tenant Admin / MSP (hidden only on super-admin host) */}
             {showMspLoginLink && (
               <div className="text-center pt-2 border-t border-neutral-200">
                 <p className="text-xs text-neutral-500 mb-2">
