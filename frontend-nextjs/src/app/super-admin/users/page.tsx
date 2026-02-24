@@ -565,7 +565,7 @@ export default function UsersPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="msp_admin">MSP Admin</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="tenant_admin">Tenant Admin</SelectItem>
                         <SelectItem value="user">User</SelectItem>
                         <SelectItem value="viewer">Viewer</SelectItem>
                       </SelectContent>

@@ -213,14 +213,13 @@ export default function Home() {
       ],
     },
     // System section only for authenticated (non-guest) users
-    // Admin features only for tenant admins (role='tenant_admin' or 'admin' with non-MSP tenant).
-    // Use is_msp !== true so slug-based setups (where tenant may be missing) still show admin section.
+    // Admin features only for tenant admins (role='tenant_admin' – including client admins under MSP tenants).
     ...(isAuthenticated ? [{
       id: 'system',
       label: 'System',
       icon: Cog6ToothIcon,
       items: [
-        ...(user && (user.role === 'tenant_admin' || (user.role === 'admin' && user.tenant?.is_msp !== true)) ? [
+        ...(user && user.role === 'tenant_admin' ? [
           { id: 'settings', name: 'Settings & Connections', description: 'Connectors & credentials', icon: Cog6ToothIcon },
           { id: 'admin-users', name: 'User Management', description: 'Create and manage users', icon: UserGroupIcon },
           { id: 'admin-nodes', name: 'Node Management', description: 'Approve and manage nodes', icon: ServerIcon },
