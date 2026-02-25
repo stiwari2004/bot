@@ -683,9 +683,15 @@ async def authorize_ticketing_connection(
             zoho_domain = meta_data.get("zoho_domain", "in")  # ManageEngine typically uses .in
         
         # Build OAuth authorization URL
+        # ManageEngine ServiceDesk Plus OnDemand uses SDPOnDemand.* scopes per docs:
+        # https://www.manageengine.com/products/service-desk/sdpod-v3-api/getting-started/oauth-2.0.html
+        if connection.tool_name == "manageengine":
+            scope = "SDPOnDemand.requests.ALL,SDPOnDemand.general.READ"
+        else:
+            scope = "Desk.tickets.READ,Desk.tickets.WRITE,Desk.tickets.UPDATE"
         auth_url = f"https://accounts.zoho.{zoho_domain}/oauth/v2/auth"
         params = {
-            "scope": "Desk.tickets.READ,Desk.tickets.WRITE,Desk.tickets.UPDATE" if connection.tool_name == "zoho" else "Desk.tickets.READ,Desk.tickets.WRITE,Desk.tickets.UPDATE",
+            "scope": scope,
             "client_id": client_id,
             "response_type": "code",
             "redirect_uri": redirect_uri,
@@ -789,8 +795,15 @@ async def oauth_callback_public(
     """
     try:
         if not state or ":" not in state:
+            logger.warning(f"OAuth callback received state without connection_id (legacy or expired). state={state[:50] if state else ''!r}")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired OAuth state. Please open the connection in Resolvify and click Authorize again."
+            )
+        parts = state.split(":", 1)
+        if len(parts) != 2:
             raise HTTPException(status_code=400, detail="Invalid OAuth state; connection_id missing")
-        connection_id_str, _ = state.split(":", 1)
+        connection_id_str, _ = parts[0], parts[1]
         try:
             connection_id = int(connection_id_str)
         except ValueError:
@@ -819,14 +832,21 @@ async def oauth_callback_public(
         if connection.tool_name == "manageengine":
             zoho_domain = meta_data.get("zoho_domain", "in")
 
-        # Exchange code for tokens
-        tokens = await oauth_service.exchange_code_for_tokens(
-            code=code,
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-            domain=zoho_domain
-        )
+        # Exchange code for tokens (use domain-specific Zoho URL per ManageEngine docs)
+        try:
+            tokens = await oauth_service.exchange_code_for_tokens(
+                code=code,
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+                domain=zoho_domain
+            )
+        except Exception as token_err:
+            logger.warning(f"OAuth token exchange failed: {token_err}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Authorization failed: {str(token_err)}. Check redirect URI and client credentials."
+            )
 
         # Update connection with tokens
         meta_data.update(tokens)
