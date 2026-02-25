@@ -29,6 +29,17 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTool]);
+
+  // Default redirect URI for OAuth (ManageEngine/Zoho): use current origin so SaaS/PAAS get the right URL
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (selectedTool !== 'manageengine' && selectedTool !== 'zoho') return;
+    const origin = window.location.origin;
+    const suggested = `${origin}/oauth/callback`;
+    setRedirectUri((prev) =>
+      !prev || prev === 'http://localhost:8000/oauth/callback' ? suggested : prev
+    );
+  }, [selectedTool]);
   const [webhookUrl, setWebhookUrl] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -257,7 +268,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                           className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                         />
                         <p className="text-xs text-neutral-500 mt-1">
-                          Configure this redirect URI in your OAuth app settings
+                          Register this exact URL in ManageEngine/Zoho OAuth app. SaaS: https://resolvify.tech/oauth/callback. PAAS: https://&lt;your-host&gt;/oauth/callback.
                         </p>
                       </div>
                     </>

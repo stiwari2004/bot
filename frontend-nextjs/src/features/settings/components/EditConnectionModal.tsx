@@ -39,7 +39,10 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         if (connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') {
           setClientId(meta.client_id || '');
           setClientSecret(meta.client_secret ? '••••••••' : '');
-          setRedirectUri(meta.redirect_uri || 'http://localhost:8000/oauth/callback');
+          const defaultRedirect = typeof window !== 'undefined'
+            ? `${window.location.origin}/oauth/callback`
+            : 'http://localhost:8000/oauth/callback';
+          setRedirectUri(meta.redirect_uri || defaultRedirect);
         } else {
           setApiSecret(meta.api_secret ? '••••••••' : '');
           // For ServiceNow, load username/password from meta_data or connection fields
@@ -224,6 +227,9 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
                       onChange={(e) => setRedirectUri(e.target.value)}
                       className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                     />
+                    <p className="text-xs text-neutral-500 mt-1">
+                      Must match the URI registered in ManageEngine/Zoho. SaaS: https://resolvify.tech/oauth/callback. PAAS: https://&lt;your-host&gt;/oauth/callback.
+                    </p>
                   </div>
                 </>
               ) : (
