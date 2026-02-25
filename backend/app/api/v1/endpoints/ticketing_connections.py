@@ -853,11 +853,10 @@ async def oauth_callback_public(
         connection.meta_data = json.dumps(meta_data)
         db.commit()
 
-        return {
-            "status": "success",
-            "message": "OAuth authorization successful",
-            "connection_id": connection_id
-        }
+        # Front-channel OAuth flow: send user back to frontend app on success.
+        # Use tab=settings so Settings & Connections view is opened automatically.
+        redirect_url = f"{settings.FRONTEND_BASE_URL}/?tab=settings&oauth_success=1&connection_id={connection_id}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
     except HTTPException:
         raise
