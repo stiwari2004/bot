@@ -299,9 +299,10 @@ try:
             error: str = Query(None),
             db: Session = Depends(get_db)
         ):
-            """OAuth callback handler"""
-            return await ticketing_connections.oauth_callback(
-                code=code, state=state, error=error, db=db
+            """OAuth callback handler (no auth; connection_id encoded in state)"""
+            # Ignore 'error' here; if present, Zoho/ManageEngine already show an error to the user.
+            return await ticketing_connections.oauth_callback_public(
+                code=code, state=state, db=db
             )
 except ImportError:
     pass

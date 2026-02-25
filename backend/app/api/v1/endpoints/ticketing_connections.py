@@ -672,10 +672,10 @@ async def authorize_ticketing_connection(
         if not client_id or not client_secret:
             raise HTTPException(status_code=400, detail="OAuth credentials (client_id, client_secret) not configured")
         
-        # Generate state token for CSRF protection
-        state_token = secrets.token_urlsafe(32)
-        # Store state in session or cache (simplified - in production use Redis)
-        # For now, we'll include it in the redirect URL
+        # Generate state token for CSRF protection and encode connection_id so global callback can resolve it.
+        # Format: "<connection_id>:<random>"
+        raw_state = secrets.token_urlsafe(32)
+        state_token = f"{connection_id}:{raw_state}"
         
         # Determine Zoho domain based on tool
         zoho_domain = "com"  # Default
@@ -775,4 +775,72 @@ async def oauth_callback(
         raise
     except Exception as e:
         logger.error(f"Error processing OAuth callback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process OAuth callback: {str(e)}")
+
+
+async def oauth_callback_public(
+    code: str,
+    state: Optional[str],
+    db: Session,
+):
+    """
+    Public OAuth callback used by /oauth/callback (no auth, connection_id encoded in state).
+    State format (set in authorize_ticketing_connection): "<connection_id>:<random>"
+    """
+    try:
+        if not state or ":" not in state:
+            raise HTTPException(status_code=400, detail="Invalid OAuth state; connection_id missing")
+        connection_id_str, _ = state.split(":", 1)
+        try:
+            connection_id = int(connection_id_str)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid connection_id in OAuth state")
+
+        connection = db.query(TicketingToolConnection).filter(
+            TicketingToolConnection.id == connection_id
+        ).first()
+
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        if connection.tool_name not in ("zoho", "manageengine"):
+            raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
+
+        meta_data = _parse_meta_data_safe(connection.meta_data)
+        client_id = meta_data.get("client_id")
+        client_secret = meta_data.get("client_secret")
+        redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
+
+        if not client_id or not client_secret:
+            raise HTTPException(status_code=400, detail="OAuth credentials not configured")
+
+        # Determine Zoho domain
+        zoho_domain = "com"
+        if connection.tool_name == "manageengine":
+            zoho_domain = meta_data.get("zoho_domain", "in")
+
+        # Exchange code for tokens
+        tokens = await oauth_service.exchange_code_for_tokens(
+            code=code,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            domain=zoho_domain
+        )
+
+        # Update connection with tokens
+        meta_data.update(tokens)
+        connection.meta_data = json.dumps(meta_data)
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "OAuth authorization successful",
+            "connection_id": connection_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing public OAuth callback: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process OAuth callback: {str(e)}")
