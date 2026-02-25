@@ -27,11 +27,11 @@ services:
     volumes:
       - redis_data:/data
 
-  # FastAPI Backend
+  # FastAPI Backend (context repo root so Dockerfile can copy backend/ and discovery-agent)
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     healthcheck:
@@ -64,8 +64,8 @@ services:
 
   worker:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - BACKEND_BASE_URL=http://backend:8000
       - WORKER_ID=worker-local

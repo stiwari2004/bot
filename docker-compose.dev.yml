@@ -42,12 +42,12 @@ services:
     networks:
       - app-dev-network
 
-  # FastAPI Backend
+  # FastAPI Backend (context repo root so Dockerfile can copy backend/ and discovery-agent)
   backend:
     container_name: bot-dev-backend
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       # Force Docker to use project directory for build cache, not home directory
       cache_from: []
     ports:
@@ -93,8 +93,8 @@ services:
   worker:
     container_name: bot-dev-worker
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       # Force Docker to use project directory for build cache, not home directory
       cache_from: []
     environment:

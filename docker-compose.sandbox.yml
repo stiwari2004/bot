@@ -4,7 +4,9 @@
 
 services:
   backend-sandbox:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: bot-backend-sandbox
     ports:
       - "8001:8000"  # Different port from main

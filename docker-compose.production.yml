@@ -62,12 +62,12 @@ services:
       networks:
         - app-network
 
-  # FastAPI Backend
+  # FastAPI Backend (context repo root so Dockerfile can copy backend/ and discovery-agent)
   backend:
     container_name: bot-prod-backend
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     # Backend port - change if 8000 is in use by other apps
     ports:
       - "8000:8000"  # Change to "8005:8000" if port 8000 is in use
@@ -105,8 +105,8 @@ services:
   worker:
     container_name: bot-prod-worker
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - BACKEND_BASE_URL=http://backend:8000
       - WORKER_ID=worker-production
