@@ -123,8 +123,8 @@ $ADDITIONAL_HOSTS = Read-Host "Additional allowed hosts (comma-separated, press 
 $ALLOWED_HOSTS = "`"$FRONTEND_BASE_URL`",`"$BACKEND_BASE_URL`""
 if (-not [string]::IsNullOrWhiteSpace($ADDITIONAL_HOSTS)) {
     $hosts = $ADDITIONAL_HOSTS -split ","
-    foreach ($host in $hosts) {
-        $ALLOWED_HOSTS += ",`"$($host.Trim())`""
+    foreach ($h in $hosts) {
+        $ALLOWED_HOSTS += ",`"$($h.Trim())`""
     }
 }
 $ALLOWED_HOSTS = "[$ALLOWED_HOSTS]"

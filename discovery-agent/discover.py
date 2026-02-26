@@ -27,13 +27,18 @@ def main():
         print("Creating virtual environment...")
         subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True)
     
-    # Install deps one at a time to reduce peak memory (pip -r can use a lot on small systems).
+    # Ensure pip is available in the venv (some distros create venv without pip)
+    if not os.path.isfile(pip):
+        print("Bootstrapping pip in virtual environment...")
+        subprocess.run([python, "-m", "ensurepip", "--upgrade"], check=False)
+    
+    # Install deps using venv's python -m pip (more reliable than venv/bin/pip on all distros)
     env = os.environ.copy()
     env["PIP_NO_CACHE_DIR"] = "1"
     packages = ["paramiko", "PyYAML", "netmiko", "pywinrm"]
     for pkg in packages:
         subprocess.run(
-            [pip, "install", "-q", "--no-cache-dir", pkg],
+            [python, "-m", "pip", "install", "-q", "--no-cache-dir", pkg],
             check=False,
             env=env,
         )
