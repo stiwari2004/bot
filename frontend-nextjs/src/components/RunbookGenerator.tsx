@@ -578,7 +578,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
                           <div className="flex flex-wrap gap-2">
                             {s.command_suggested_fix && (
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="outline"
                                 onClick={() => handleUseSuggested(s)}
                               >
@@ -586,14 +586,14 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
                               </Button>
                             )}
                             <Button
-                              size="xs"
+                              size="sm"
                               variant="secondary"
                               onClick={() => handleApproveStep(s)}
                             >
                               Mark reviewed
                             </Button>
                             <Button
-                              size="xs"
+                              size="sm"
                               variant="ghost"
                               onClick={() => handleRedoCommand(s)}
                             >

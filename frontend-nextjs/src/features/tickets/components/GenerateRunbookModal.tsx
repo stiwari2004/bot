@@ -532,7 +532,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                             <div className="flex flex-wrap gap-2">
                               {s.command_suggested_fix && (
                                 <Button
-                                  size="xs"
+                                  size="sm"
                                   variant="outline"
                                   onClick={() => handleUseSuggested(s)}
                                 >
@@ -540,14 +540,14 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                                 </Button>
                               )}
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="secondary"
                                 onClick={() => handleApproveStep(s)}
                               >
                                 Mark reviewed
                               </Button>
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="ghost"
                                 onClick={() => handleRedoCommand(s)}
                               >
