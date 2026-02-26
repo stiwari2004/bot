@@ -465,6 +465,17 @@ class YamlProcessor:
             if match:
                 indent = match.group(1)
                 value = match.group(2).strip()
+
+                # Auto-fix: close unterminated double-quoted scalars like: expected_output: "PID
+                # This is a common LLM defect that causes ScannerError (unexpected end of stream).
+                if value.startswith('"') and value.count('"') == 1:
+                    fixed_value = value + '"'
+                    sanitized_lines.append(f"{indent}expected_output: {fixed_value}")
+                    logger.info(
+                        f"Auto-fix: closed unterminated expected_output scalar: "
+                        f"'{value}' -> '{fixed_value}'"
+                    )
+                    continue
                 
                 # Check if value needs quoting
                 needs_quoting = False
