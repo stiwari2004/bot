@@ -50,8 +50,6 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
   const [detectingOS, setDetectingOS] = useState(false);
   const [reviewStatus, setReviewStatus] = useState<any | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewStatus, setReviewStatus] = useState<any | null>(null);
-  const [reviewLoading, setReviewLoading] = useState(false);
 
   // Auto-detect OS from server name in issue description (for servers only)
   useEffect(() => {
