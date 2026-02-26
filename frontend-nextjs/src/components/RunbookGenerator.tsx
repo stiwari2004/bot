@@ -48,6 +48,10 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detectingOS, setDetectingOS] = useState(false);
+  const [reviewStatus, setReviewStatus] = useState<any | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewStatus, setReviewStatus] = useState<any | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   // Auto-detect OS from server name in issue description (for servers only)
   useEffect(() => {
@@ -161,6 +165,18 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
 
       const data = await response.json();
       setRunbook(data);
+      try {
+        setReviewLoading(true);
+        const rs = await authFetch(apiConfig.endpoints.runbooks.reviewStatus(data.id));
+        if (rs.ok) {
+          const body = await rs.json();
+          setReviewStatus(body);
+        }
+      } catch (err) {
+        console.error('Failed to load runbook review status', err);
+      } finally {
+        setReviewLoading(false);
+      }
       onRunbookGenerated?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Runbook generation failed');
@@ -177,12 +193,24 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
     setSuccessMessage(null);
 
     try {
-      const response = await fetch(`/api/v1/runbooks/demo/${runbook.id}/approve`, {
+      const response = await authFetch(apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbook.id}/approve`), {
         method: 'POST',
       });
 
       if (!response.ok) {
-        throw new Error('Failed to approve runbook');
+        let detail = 'Failed to approve runbook';
+        try {
+          const err = await response.json();
+          const d = (err && (err.detail || err.message)) || err;
+          if (typeof d === 'string') {
+            detail = d;
+          } else if (d && d.message) {
+            detail = d.message;
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(detail);
       }
 
       const data = await response.json();
@@ -193,6 +221,108 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
       setError(err instanceof Error ? err.message : 'Failed to approve runbook');
     } finally {
       setApproving(false);
+    }
+  };
+
+  const loadReviewStatus = async (runbookId: number) => {
+    try {
+      setReviewLoading(true);
+      const rs = await authFetch(apiConfig.endpoints.runbooks.reviewStatus(runbookId));
+      if (rs.ok) {
+        const body = await rs.json();
+        setReviewStatus(body);
+      }
+    } catch (err) {
+      console.error('Failed to load runbook review status', err);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const reloadRunbook = async (runbookId: number) => {
+    try {
+      const res = await authFetch(apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbookId}`));
+      if (!res.ok) return;
+      const data = await res.json();
+      setRunbook(data);
+    } catch (err) {
+      console.error('Failed to reload runbook', err);
+    }
+  };
+
+  const pendingReviewSteps = (reviewStatus?.steps || []).filter(
+    (s: any) =>
+      (s.command_validation_status === 'invalid' || s.command_validation_status === 'pending_review') &&
+      s.command_review_status !== 'approved_by_human'
+  );
+
+  const handleApproveStep = async (step: any) => {
+    if (!runbook) return;
+    try {
+      const res = await authFetch(apiConfig.endpoints.runbooks.stepApprove(runbook.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: step.section, index: step.index }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to approve step');
+      }
+      await loadReviewStatus(runbook.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve step');
+    }
+  };
+
+  const handleUseSuggested = async (step: any) => {
+    if (!runbook) return;
+    if (!step.command_suggested_fix) return;
+    try {
+      const res = await authFetch(apiConfig.endpoints.runbooks.stepUpdateCommand(runbook.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: step.section,
+          index: step.index,
+          command: step.command_suggested_fix,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to update command');
+      }
+      await reloadRunbook(runbook.id);
+      await loadReviewStatus(runbook.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply suggested command');
+    }
+  };
+
+  const handleRedoCommand = async (step: any) => {
+    if (!runbook) return;
+    const humanContext = window.prompt(
+      'Optional: provide extra context for regenerating this command (e.g. \"use bash\", \"RHEL 8\", \"mon01 is production\").\nLeave empty to let AI decide.',
+      ''
+    );
+    if (humanContext === null) return;
+    try {
+      const res = await authFetch(apiConfig.endpoints.runbooks.stepRegenerate(runbook.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: step.section,
+          index: step.index,
+          human_context: humanContext || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to regenerate command');
+      }
+      await reloadRunbook(runbook.id);
+      await loadReviewStatus(runbook.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate command');
     }
   };
 
@@ -418,6 +548,71 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
           </CardHeader>
           <CardContent padding="md">
 
+            {reviewStatus && !reviewStatus.command_review_ready && (
+              <Card variant="outlined" className="mb-4 border-amber-200 bg-amber-50">
+                <CardContent padding="sm">
+                  <p className="text-xs font-semibold text-amber-900">
+                    {reviewStatus.steps_pending_review} step(s) need command review before this runbook can be
+                    approved.
+                  </p>
+                  {pendingReviewSteps.length > 0 && (
+                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                      {pendingReviewSteps.map((s: any, idx: number) => (
+                        <div
+                          key={`${s.section}-${s.index}-${idx}`}
+                          className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2"
+                        >
+                          <div className="text-xs text-neutral-800 text-left">
+                            <div className="font-semibold">
+                              {s.section} step #{s.index + 1}
+                            </div>
+                            {s.command_validation_issue && (
+                              <div className="text-amber-800">
+                                Issue: {s.command_validation_issue}
+                              </div>
+                            )}
+                            {s.command_suggested_fix && (
+                              <div className="text-neutral-700 truncate">
+                                Suggested: <code>{s.command_suggested_fix}</code>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {s.command_suggested_fix && (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => handleUseSuggested(s)}
+                              >
+                                Use suggested
+                              </Button>
+                            )}
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              onClick={() => handleApproveStep(s)}
+                            >
+                              Mark reviewed
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              onClick={() => handleRedoCommand(s)}
+                            >
+                              Redo command
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {reviewLoading && (
+                    <p className="mt-1 text-xs text-amber-800">Refreshing review status…</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             <div className="prose max-w-none">
               <div 
                 dangerouslySetInnerHTML={{ 
@@ -438,7 +633,7 @@ export function RunbookGenerator({ onRunbookGenerated }: RunbookGeneratorProps) 
                   <Button
                     variant="success"
                     onClick={handleApprove}
-                    disabled={approving}
+                    disabled={approving || (reviewStatus && !reviewStatus.command_review_ready)}
                     isLoading={approving}
                     leftIcon={<CheckCircleIcon className="h-5 w-5" />}
                   >

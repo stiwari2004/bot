@@ -31,6 +31,8 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detectingOS, setDetectingOS] = useState(false);
+  const [reviewStatus, setReviewStatus] = useState<any | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -55,7 +57,35 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
     setRiskLevel(ticket.severity === 'critical' ? 'high' : ticket.severity === 'high' ? 'medium' : 'low');
     setRunbook(null);
     setError(null);
+    setReviewStatus(null);
   }, [ticket]);
+
+  const loadReviewStatus = async (runbookId: number) => {
+    try {
+      setReviewLoading(true);
+      const res = await authFetch(apiConfig.endpoints.runbooks.reviewStatus(runbookId));
+      if (!res.ok) {
+        throw new Error('Failed to load review status');
+      }
+      const data = await res.json();
+      setReviewStatus(data);
+    } catch (e) {
+      console.error('Failed to load review status', e);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const reloadRunbook = async (runbookId: number) => {
+    try {
+      const res = await authFetch(apiConfig.buildUrl(`/api/v1/runbooks/demo/${runbookId}`));
+      if (!res.ok) return;
+      const data = await res.json();
+      setRunbook(data);
+    } catch (e) {
+      console.error('Failed to reload runbook', e);
+    }
+  };
 
   // Auto-detect OS from server name in issue description (for servers only)
   useEffect(() => {
@@ -244,11 +274,91 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
 
       const data = await response.json();
       setRunbook(data);
+      loadReviewStatus(data.id);
     } catch (err) {
       console.error('Error generating runbook:', err);
       setError(err instanceof Error ? err.message : 'Runbook generation failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const pendingReviewSteps = (reviewStatus?.steps || []).filter(
+    (s: any) =>
+      (s.command_validation_status === 'invalid' || s.command_validation_status === 'pending_review') &&
+      s.command_review_status !== 'approved_by_human'
+  );
+
+  const handleApproveStep = async (step: any) => {
+    if (!runbook) return;
+    try {
+      const res = await authFetch(apiConfig.endpoints.runbooks.stepApprove(runbook.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: step.section, index: step.index }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to approve step');
+      }
+      await loadReviewStatus(runbook.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to approve step');
+    }
+  };
+
+  const handleUseSuggested = async (step: any) => {
+    if (!runbook) return;
+    if (!step.command_suggested_fix) return;
+    try {
+      const res = await authFetch(apiConfig.endpoints.runbooks.stepUpdateCommand(runbook.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: step.section,
+          index: step.index,
+          command: step.command_suggested_fix,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to update command');
+      }
+      await reloadRunbook(runbook.id);
+      await loadReviewStatus(runbook.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to apply suggested command');
+    }
+  };
+
+  const handleRedoCommand = async (step: any) => {
+    if (!runbook) return;
+    // Simple prompt for optional human context; cancel if user closes dialog
+    const humanContext = window.prompt(
+      'Optional: provide extra context for regenerating this command (e.g. \"use bash\", \"RHEL 8\", \"mon01 is production\").\nLeave empty to let AI decide.',
+      ''
+    );
+    if (humanContext === null) {
+      return;
+    }
+    try {
+      const res = await authFetch(apiConfig.endpoints.runbooks.stepRegenerate(runbook.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: step.section,
+          index: step.index,
+          human_context: humanContext || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to regenerate command');
+      }
+      await reloadRunbook(runbook.id);
+      await loadReviewStatus(runbook.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to regenerate command');
     }
   };
 
@@ -390,6 +500,70 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
             </form>
           ) : (
             <div className="space-y-4">
+              {reviewStatus && !reviewStatus.command_review_ready && (
+                <Card variant="outlined" className="border-amber-200 bg-amber-50">
+                  <CardContent padding="md">
+                    <p className="text-sm font-semibold text-amber-900">
+                      This runbook has {reviewStatus.steps_pending_review} step(s) that need command review before
+                      approval.
+                    </p>
+                    {pendingReviewSteps.length > 0 && (
+                      <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                        {pendingReviewSteps.map((s: any, idx: number) => (
+                          <div
+                            key={`${s.section}-${s.index}-${idx}`}
+                            className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2"
+                          >
+                            <div className="text-xs text-neutral-800 text-left">
+                              <div className="font-semibold">
+                                {s.section} step #{s.index + 1}
+                              </div>
+                              {s.command_validation_issue && (
+                                <div className="text-amber-800">
+                                  Issue: {s.command_validation_issue}
+                                </div>
+                              )}
+                              {s.command_suggested_fix && (
+                                <div className="text-neutral-700 truncate">
+                                  Suggested: <code>{s.command_suggested_fix}</code>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {s.command_suggested_fix && (
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => handleUseSuggested(s)}
+                                >
+                                  Use suggested
+                                </Button>
+                              )}
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => handleApproveStep(s)}
+                              >
+                                Mark reviewed
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => handleRedoCommand(s)}
+                              >
+                                Redo command
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {reviewLoading && (
+                      <p className="mt-2 text-xs text-amber-700">Refreshing review status…</p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
               <Card variant="outlined" className="border-success-200 bg-success-50">
                 <CardContent padding="md">
                   <p className="text-success-800 font-semibold">Runbook generated successfully!</p>
@@ -435,8 +609,19 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                         method: 'POST',
                       });
                       if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ detail: 'Failed to approve runbook' }));
-                        throw new Error(errorData.detail || 'Failed to approve runbook');
+                        let detail = 'Failed to approve runbook';
+                        try {
+                          const errorData = await response.json();
+                          const d = (errorData && (errorData.detail || errorData.message)) || errorData;
+                          if (typeof d === 'string') {
+                            detail = d;
+                          } else if (d && d.message) {
+                            detail = d.message;
+                          }
+                        } catch {
+                          // ignore parse error
+                        }
+                        throw new Error(detail);
                       }
                       alert('Runbook approved successfully!');
                       onClose();
@@ -444,6 +629,7 @@ export function GenerateRunbookModal({ ticket, onClose }: GenerateRunbookModalPr
                       setError(err instanceof Error ? err.message : 'Failed to approve runbook');
                     }
                   }}
+                  disabled={reviewStatus && !reviewStatus.command_review_ready}
                 >
                   Approve
                 </Button>

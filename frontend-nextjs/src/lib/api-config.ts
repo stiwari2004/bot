@@ -80,6 +80,10 @@ const createEndpoints = (baseUrl: string) => ({
     setCurrentVersion: (versionId: number) => `${baseUrl}/api/v1/runbooks/demo/versions/${versionId}/set-current`,
     verifyCitations: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/citations/verify`,
     citationHealth: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/citations/health`,
+    reviewStatus: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/review-status`,
+    stepApprove: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/steps/approve`,
+    stepUpdateCommand: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/steps/command`,
+    stepRegenerate: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/steps/regenerate`,
   },
   analytics: {
     runbookQuality: (days?: number) => {
