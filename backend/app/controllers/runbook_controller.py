@@ -19,6 +19,7 @@ from app.models.ticket import Ticket
 from app.schemas.runbook import RunbookResponse, RunbookUpdate
 from app.core.logging import get_logger
 from app.core.transactions import transaction
+from typing import Tuple
 
 logger = get_logger(__name__)
 
@@ -34,6 +35,160 @@ class RunbookController(BaseController):
         self.generator = RunbookGeneratorService()
         self.duplicate_service = DuplicateDetectionService()
         self.cleanup_service = TicketCleanupService()
+
+    def _command_review_complete(self, meta_data: Dict[str, Any]) -> Tuple[bool, int]:
+        """Check if all steps with invalid/pending_review validation are approved by human.
+        Returns (ready, steps_pending_review count)."""
+        spec = meta_data.get("runbook_spec") or meta_data
+        if not spec:
+            return True, 0
+        pending = 0
+        for section_key in ("prechecks", "steps", "postchecks"):
+            for step in spec.get(section_key, []):
+                if not isinstance(step, dict):
+                    continue
+                status = step.get("command_validation_status")
+                review = step.get("command_review_status")
+                if status in ("invalid", "pending_review") and review != "approved_by_human":
+                    pending += 1
+        return pending == 0, pending
+
+    def _get_step_at(self, spec: Dict[str, Any], section: str, index: int) -> Optional[Dict[str, Any]]:
+        """Get step dict at section and 0-based index. Returns None if out of range."""
+        section_key = section if section in ("prechecks", "steps", "postchecks") else None
+        if not section_key:
+            return None
+        items = spec.get(section_key, [])
+        if not isinstance(items, list) or index < 0 or index >= len(items):
+            return None
+        step = items[index]
+        return step if isinstance(step, dict) else None
+
+    def _body_md_from_spec(self, spec: Dict[str, Any]) -> str:
+        """Build body_md YAML code fence from spec (same order as generator)."""
+        import yaml
+        from collections import OrderedDict
+        order = ['runbook_id', 'version', 'title', 'service', 'env', 'risk', 'description',
+                 'owner', 'last_tested', 'review_required', 'inputs', 'prechecks', 'steps', 'postchecks']
+        ordered = OrderedDict()
+        for key in order:
+            if key in spec:
+                ordered[key] = spec[key]
+        for key, value in spec.items():
+            if key not in ordered:
+                ordered[key] = value
+        spec_dict = dict(ordered)
+        runbook_yaml = yaml.safe_dump(spec_dict, sort_keys=False, default_flow_style=False, width=120)
+        return f"""# Agent Runbook (YAML)
+
+```yaml
+{runbook_yaml}
+```
+"""
+
+    def _persist_spec_to_runbook(self, runbook: Runbook, meta_data: Dict[str, Any]) -> None:
+        """Update runbook.meta_data and runbook.body_md from meta_data (with runbook_spec) and commit."""
+        spec = meta_data.get("runbook_spec")
+        if not spec:
+            return
+        runbook.meta_data = json.dumps(meta_data)
+        runbook.body_md = self._body_md_from_spec(spec)
+        self.db.commit()
+        self.db.refresh(runbook)
+
+    def approve_step(self, runbook_id: int, section: str, index: int) -> RunbookResponse:
+        """Mark step at (section, 0-based index) as approved_by_human."""
+        runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+        if not runbook:
+            raise self.not_found("Runbook", runbook_id)
+        meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else (runbook.meta_data or {})
+        spec = meta_data.get("runbook_spec")
+        if not spec:
+            raise HTTPException(status_code=400, detail="Runbook has no runbook_spec")
+        step = self._get_step_at(spec, section, index)
+        if not step:
+            raise HTTPException(status_code=404, detail=f"Step not found: section={section}, index={index}")
+        step["command_review_status"] = "approved_by_human"
+        step["command_validation_status"] = "valid"
+        self._persist_spec_to_runbook(runbook, meta_data)
+        return self.get_runbook(runbook_id)
+
+    def update_step_command(self, runbook_id: int, section: str, index: int, command: str) -> RunbookResponse:
+        """Set step command (e.g. apply suggested fix) and mark pending_review."""
+        runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+        if not runbook:
+            raise self.not_found("Runbook", runbook_id)
+        meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else (runbook.meta_data or {})
+        spec = meta_data.get("runbook_spec")
+        if not spec:
+            raise HTTPException(status_code=400, detail="Runbook has no runbook_spec")
+        step = self._get_step_at(spec, section, index)
+        if not step:
+            raise HTTPException(status_code=404, detail=f"Step not found: section={section}, index={index}")
+        step["command"] = command
+        step["command_validation_status"] = "pending_review"
+        step["command_review_status"] = "pending"
+        step.pop("command_validation_issue", None)
+        step.pop("command_suggested_fix", None)
+        self._persist_spec_to_runbook(runbook, meta_data)
+        return self.get_runbook(runbook_id)
+
+    def get_review_status(self, runbook_id: int) -> Dict[str, Any]:
+        """Return command_review_ready, steps_pending_review, and steps list for UI."""
+        runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+        if not runbook:
+            raise self.not_found("Runbook", runbook_id)
+        meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else (runbook.meta_data or {})
+        ready, pending = self._command_review_complete(meta_data)
+        spec = meta_data.get("runbook_spec") or {}
+        steps_out = []
+        for section_key in ("prechecks", "steps", "postchecks"):
+            for idx, step in enumerate(spec.get(section_key, [])):
+                if not isinstance(step, dict):
+                    continue
+                steps_out.append({
+                    "section": section_key,
+                    "index": idx,
+                    "command_validation_status": step.get("command_validation_status"),
+                    "command_review_status": step.get("command_review_status"),
+                    "command_validation_issue": step.get("command_validation_issue"),
+                    "command_suggested_fix": step.get("command_suggested_fix"),
+                    "command": (step.get("command") or "")[:200],
+                })
+        return {
+            "command_review_ready": ready,
+            "steps_pending_review": pending,
+            "steps": steps_out,
+        }
+
+    async def regenerate_step_command(
+        self, runbook_id: int, section: str, index: int, human_context: Optional[str] = None
+    ) -> RunbookResponse:
+        """Regenerate a single step's command using LLM with optional human context."""
+        runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+        if not runbook:
+            raise self.not_found("Runbook", runbook_id)
+        meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else (runbook.meta_data or {})
+        spec = meta_data.get("runbook_spec")
+        if not spec:
+            raise HTTPException(status_code=400, detail="Runbook has no runbook_spec")
+        step = self._get_step_at(spec, section, index)
+        if not step:
+            raise HTTPException(status_code=404, detail=f"Step not found: section={section}, index={index}")
+        issue_description = meta_data.get("issue_description", "")
+        env = spec.get("env", "prod")
+        os_type = "Windows" if env == "Windows" else "Linux"
+        updated_spec = await self.generator.regenerate_step_command(
+            spec=spec,
+            section=section,
+            index=index,
+            issue_description=issue_description,
+            os_type=os_type,
+            human_context=human_context,
+        )
+        meta_data["runbook_spec"] = updated_spec
+        self._persist_spec_to_runbook(runbook, meta_data)
+        return self.get_runbook(runbook_id)
 
     def _build_operational_context(self, ticket_id: Optional[int]) -> Optional[str]:
         """Build a short operational context string from ticket (and optional alert) for CAG."""
@@ -429,12 +584,31 @@ class RunbookController(BaseController):
             
             # Check if ticket_id is in meta_data (from generation) or passed as parameter
             ticket_id_to_associate = ticket_id
-            if not ticket_id_to_associate and runbook.meta_data:
+            meta_data = None
+            if runbook.meta_data:
                 try:
                     meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else runbook.meta_data
-                    ticket_id_to_associate = meta_data.get("ticket_id")
+                    if not ticket_id_to_associate:
+                        ticket_id_to_associate = meta_data.get("ticket_id")
                 except (json.JSONDecodeError, AttributeError):
                     pass
+
+            # Command review gate: require all invalid/pending_review steps to be approved_by_human
+            if not force_approval and meta_data:
+                ready, steps_pending = self._command_review_complete(meta_data)
+                if not ready:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "detail": "Command review required",
+                            "code": "command_review_required",
+                            "message": (
+                                f"{steps_pending} step(s) have invalid or unreviewed commands. "
+                                "Review or approve each step before approving the runbook."
+                            ),
+                            "steps_pending_review": steps_pending,
+                        },
+                    )
             
             # Approve the runbook
             approved_runbook = await self.generator.approve_and_index_runbook(

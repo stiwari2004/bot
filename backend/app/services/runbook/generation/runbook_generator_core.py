@@ -570,6 +570,69 @@ class RunbookGeneratorService:
     ) -> tuple[bool, List[str]]:
         return self.quality_validator.validate(spec, issue_description)
     
+    async def regenerate_step_command(
+        self,
+        spec: Dict[str, Any],
+        section: str,
+        index: int,
+        issue_description: str,
+        os_type: str,
+        human_context: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Regenerate a single step's command using LLM. Returns updated spec (mutates and returns spec)."""
+        section_key = section if section in ("prechecks", "steps", "postchecks") else None
+        if not section_key:
+            raise ValueError(f"Invalid section: {section}")
+        items = spec.get(section_key, [])
+        if not isinstance(items, list) or index < 0 or index >= len(items):
+            raise ValueError(f"Step index out of range: {section_key}[{index}]")
+        step = items[index]
+        if not isinstance(step, dict):
+            raise ValueError("Step is not a dict")
+        current_command = step.get("command", "")
+        step_name = step.get("name", f"Step {index + 1}")
+        validation_issue = step.get("command_validation_issue", "")
+        shell_hint = "PowerShell" if os_type == "Windows" else "bash/Linux"
+        human_ctx = (human_context or "").strip()
+        prompt = f"""Regenerate ONLY the command for this runbook step. Return nothing but the new command line (no markdown, no explanation).
+
+Issue being addressed: {issue_description[:500]}
+Step name: {step_name}
+Current command (invalid or to replace): {current_command}
+Validation error (if any): {validation_issue or "None"}
+Target environment: {shell_hint}
+"""
+        if human_ctx:
+            prompt += f"\nHuman context (MUST follow): {human_ctx}"
+        prompt += "\n\nReturn only the new command line, no code fence or explanation."
+
+        llm = get_llm_service()
+        if hasattr(llm, "_chat_once"):
+            response = await llm._chat_once(prompt, tenant_id=1)
+        elif hasattr(llm, "_chat_once_with_system"):
+            response = await llm._chat_once_with_system(
+                "You are a runbook step assistant. Output only the new command line.",
+                prompt,
+                tenant_id=1,
+            )
+        else:
+            logger.warning("LLM has no _chat_once; cannot regenerate step command")
+            return spec
+        if not response or not response.strip():
+            logger.warning("LLM returned empty response for step regeneration, keeping original command")
+            return spec
+        new_command = response.strip()
+        if new_command.startswith("```"):
+            lines = new_command.split("\n")
+            new_command = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
+        if new_command:
+            step["command"] = new_command
+            step["command_validation_status"] = "pending_review"
+            step["command_review_status"] = "pending"
+            step.pop("command_validation_issue", None)
+            step.pop("command_suggested_fix", None)
+        return spec
+
     async def approve_and_index_runbook(
         self,
         runbook_id: int,

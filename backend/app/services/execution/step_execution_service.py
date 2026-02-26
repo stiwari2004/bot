@@ -26,6 +26,25 @@ from app.services.execution.command_learning_service import CommandLearningServi
 logger = get_logger(__name__)
 
 
+def _is_command_not_found_or_wrong_shell(error_text: Optional[str]) -> bool:
+    """
+    True if the failure is due to wrong command/shell (e.g. PowerShell on bash),
+    not a real server/application failure. In that case we should continue to the
+    next step instead of failing the run.
+    """
+    if not error_text:
+        return False
+    err = error_text.lower()
+    if "command not found" in err or ": command not found" in err:
+        return True
+    if "not found" in err and ("bash:" in err or "line 1:" in err):
+        return True
+    # PowerShell cmdlets run in bash (e.g. Get-Counter, Select-Object)
+    if "get-counter" in err or "select-object" in err:
+        return True
+    return False
+
+
 def _get_next_step_with_branching(
     db: Session,
     session: ExecutionSession,
@@ -618,17 +637,25 @@ class StepExecutionService:
                 
                 # Type-based failure handling for non-connection errors:
                 # - precheck/postcheck: Continue execution (diagnostic/verification steps)
-                # - main: Stop execution (critical steps)
+                # - main: Stop execution (critical steps), unless failure is "command not found"
+                #   / wrong shell — then continue (failure is inconclusive, not a real server failure)
                 is_diagnostic = step.step_type in ("precheck", "postcheck")
-                
-                if is_diagnostic:
-                    # Continue execution for diagnostic steps
-                    logger.warning(
-                        f"Step {step.step_number} ({step.step_type}) failed but continuing execution. "
-                        f"Error: {(error_text or '')[:200]}"
+                is_command_not_found = _is_command_not_found_or_wrong_shell(error_text)
+                continue_on_failure = is_diagnostic or (
+                    not is_diagnostic and is_command_not_found
+                )
+
+                if continue_on_failure:
+                    reason = (
+                        "Diagnostic step failure - continuing execution"
+                        if is_diagnostic
+                        else "Command not found / wrong shell - continuing execution (inconclusive)"
                     )
-                    
-                    # Publish diagnostic failure event
+                    logger.warning(
+                        f"Step {step.step_number} ({step.step_type or 'main'}) failed but continuing execution. "
+                        f"{reason} Error: {(error_text or '')[:200]}"
+                    )
+
                     if self.event_service:
                         try:
                             await self.event_service.publish_event(
@@ -644,18 +671,17 @@ class StepExecutionService:
                                     "step_number": step.step_number,
                                     "step_type": step.step_type or "main",
                                     "description": step.notes or "",
-                                    "reason": "Diagnostic step failure - continuing execution",
+                                    "reason": reason,
                                 },
                                 step_number=step.step_number,
                             )
                         except Exception as e:
                             logger.warning(f"Failed to publish step.failed_continued event: {e}")
-                    
-                    # Continue to next step (with branching support)
+
                     next_step = _get_next_step_with_branching(
                         db, session, step, step_succeeded=False
                     )
-                    
+
                     if next_step:
                         if next_step.requires_approval:
                             session.status = "waiting_approval"
@@ -674,7 +700,6 @@ class StepExecutionService:
                             db.refresh(session)
                             await self.execute_step(db, session, next_step)
                     else:
-                        # All steps completed (with some failures)
                         failed_steps = db.query(ExecutionStep).filter(
                             ExecutionStep.session_id == session.id,
                             ExecutionStep.completed == True,
@@ -682,7 +707,7 @@ class StepExecutionService:
                         ).all()
                         await self.session_finalizer.finalize_session(db, session, failed_steps)
                 else:
-                    # Stop execution for main steps (fail-fast for safety)
+                    # Stop execution for main steps (real failure, not command-not-found)
                     logger.error(
                         f"Step {step.step_number} (main) failed, stopping execution. "
                         f"Error: {(error_text or '')[:200]}"
@@ -690,7 +715,7 @@ class StepExecutionService:
                     session.status = "failed"
                     session.completed_at = datetime.now(timezone.utc)
                     await self.rollback_service.rollback_execution(db, session)
-                    
+
                     if session.ticket_id:
                         self.ticket_status_service.update_ticket_on_execution_complete(
                             db, session.ticket_id, "failed", issue_resolved=False

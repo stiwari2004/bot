@@ -369,24 +369,44 @@ export function MonitoringConnectionsSection({
                             Webhook URL (Configure in {conn.tool_name === 'datadog' ? 'Datadog' : 'SolarWinds'})
                           </p>
                           <div className="flex items-center gap-2">
-                            <code className="flex-1 bg-white px-2 py-1.5 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
-                              {typeof window !== 'undefined' 
-                                ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(conn.tool_name)}`
-                                : apiConfig.endpoints.alerts.webhook(conn.tool_name)}
-                            </code>
-                            <button
-                              onClick={() => {
-                                const webhookUrl = typeof window !== 'undefined' 
-                                  ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(conn.tool_name)}`
-                                  : apiConfig.endpoints.alerts.webhook(conn.tool_name);
-                                navigator.clipboard.writeText(webhookUrl);
-                                onSuccess('Webhook URL copied to clipboard!');
-                              }}
-                              className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
-                              title="Copy webhook URL"
-                            >
-                              Copy
-                            </button>
+                            {conn.webhook_url ? (
+                              <>
+                                <code className="flex-1 bg-white px-2 py-1.5 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
+                                  {conn.webhook_url}
+                                </code>
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(conn.webhook_url || '');
+                                    onSuccess('Webhook URL copied to clipboard!');
+                                  }}
+                                  className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
+                                  title="Copy webhook URL"
+                                >
+                                  Copy
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <code className="flex-1 bg-white px-2 py-1.5 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
+                                  {typeof window !== 'undefined'
+                                    ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(conn.tool_name)}`
+                                    : apiConfig.endpoints.alerts.webhook(conn.tool_name)}
+                                </code>
+                                <button
+                                  onClick={() => {
+                                    const webhookUrl = typeof window !== 'undefined'
+                                      ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(conn.tool_name)}`
+                                      : apiConfig.endpoints.alerts.webhook(conn.tool_name);
+                                    navigator.clipboard.writeText(webhookUrl);
+                                    onSuccess('Webhook URL copied to clipboard!');
+                                  }}
+                                  className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
+                                  title="Copy webhook URL"
+                                >
+                                  Copy
+                                </button>
+                              </>
+                            )}
                           </div>
                           <p className="text-xs text-blue-700 mt-2">
                             Configure this URL in {conn.tool_name === 'datadog' ? 'Datadog' : 'SolarWinds'} webhook settings to receive real-time alerts.
@@ -491,34 +511,60 @@ export function MonitoringConnectionsSection({
                     <p className="text-sm font-semibold text-blue-900 mb-2">
                       Webhook Configuration
                     </p>
-                    <div className="space-y-2">
-                      <label className="block text-xs font-medium text-blue-800">
-                        Webhook URL (Copy this to configure in {toolName === 'datadog' ? 'Datadog' : toolName === 'solarwinds' ? 'SolarWinds' : toolName})
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 bg-white px-3 py-2 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
-                          {typeof window !== 'undefined' 
-                            ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
-                            : apiConfig.endpoints.alerts.webhook(toolName)}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const url = typeof window !== 'undefined' 
-                              ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
-                              : apiConfig.endpoints.alerts.webhook(toolName);
-                            navigator.clipboard.writeText(url);
-                            onSuccess('Webhook URL copied to clipboard!');
-                          }}
-                          className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
-                        >
-                          Copy
-                        </button>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-blue-800">
+                          Webhook URL (Copy this to configure in {toolName === 'datadog' ? 'Datadog' : toolName === 'solarwinds' ? 'SolarWinds' : toolName})
+                        </label>
+                        <div className="flex items-center gap-2">
+                          {editingId !== null ? (
+                            <>
+                              <input
+                                type="text"
+                                value={webhookUrl}
+                                onChange={(e) => setWebhookUrl(e.target.value)}
+                                placeholder={typeof window !== 'undefined'
+                                  ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+                                  : apiConfig.endpoints.alerts.webhook(toolName)}
+                                className="flex-1 px-3 py-2 border-2 border-blue-200 rounded text-xs font-mono"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(webhookUrl || '');
+                                  onSuccess('Webhook URL copied to clipboard!');
+                                }}
+                                className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
+                              >
+                                Copy
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <code className="flex-1 bg-white px-3 py-2 rounded text-xs font-mono border border-blue-200 text-blue-900 break-all">
+                                {typeof window !== 'undefined'
+                                  ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+                                  : apiConfig.endpoints.alerts.webhook(toolName)}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const url = typeof window !== 'undefined'
+                                    ? `${window.location.origin}${apiConfig.endpoints.alerts.webhook(toolName)}`
+                                    : apiConfig.endpoints.alerts.webhook(toolName);
+                                  navigator.clipboard.writeText(url);
+                                  onSuccess('Webhook URL copied to clipboard!');
+                                }}
+                                className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded border border-blue-300 transition-colors"
+                              >
+                                Copy
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        <p className="text-xs text-blue-700 mt-2">
+                          Go to {toolName === 'datadog' ? 'Datadog → Monitors → Notifications' : toolName === 'solarwinds' ? 'SolarWinds → Settings → Integrations → Webhooks' : `${toolName} settings`} and configure this URL.
+                        </p>
                       </div>
-                      <p className="text-xs text-blue-700 mt-2">
-                        Go to {toolName === 'datadog' ? 'Datadog → Monitors → Notifications' : toolName === 'solarwinds' ? 'SolarWinds → Settings → Integrations → Webhooks' : `${toolName} settings`} and configure this URL.
-                      </p>
-                    </div>
                   </div>
                 )}
                 

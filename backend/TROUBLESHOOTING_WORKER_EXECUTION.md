@@ -200,3 +200,27 @@ Search logs for the **session ID** or **step number** and the **error string** (
 2. **Credential** has `username` and either password (encrypted_password) or private key (encrypted_api_key).
 3. **Server name** used at run time (e.g. from runbook input `server_name` or ticket) matches the connection’s **name** or **target_host**.
 4. **Paramiko** is installed where the worker runs (otherwise SSH connector may use a simulated path and not really connect).
+
+---
+
+## Verify Paramiko from jump server (standalone / PAAS)
+
+If the app and worker run on a jump server in the same network as the target (e.g. monitoring server `192.168.48.20`), you can confirm that **Paramiko** can connect from the **worker container** to the target before debugging runbook execution.
+
+From the host where Docker runs (e.g. jump server):
+
+```bash
+# Replace MONITORING_USER and MONITORING_PASSWORD with the SSH user/password for 192.168.48.20
+docker exec -it resolvify-worker python3 /app/scripts/diagnose_ssh.py 192.168.48.20 MONITORING_USER MONITORING_PASSWORD --port 22
+```
+
+- **Success**: script prints `OK: SSH connection established` and `OK: Command echo ok -> exit_code=0`.
+- **Failure**: script prints `FAIL:` and the exception (e.g. timeout, auth failed, connection refused). Fix network/firewall or credentials accordingly.
+
+If the worker container name is different (e.g. `resolvify-app` when using a single combined container), use that name:
+
+```bash
+docker exec -it resolvify-app python3 /app/scripts/diagnose_ssh.py 192.168.48.20 MONITORING_USER MONITORING_PASSWORD --port 22
+```
+
+This uses the same Paramiko path as the SSH connector; if this succeeds, the “SSH connector requires host and username” error is almost certainly from **missing connection config** (node/credential not resolved for the run), not from Paramiko itself.

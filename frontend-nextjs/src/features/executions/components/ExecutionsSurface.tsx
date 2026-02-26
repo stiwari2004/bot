@@ -9,12 +9,15 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   ArrowPathIcon,
+  XCircleIcon,
 } from '@heroicons/react/24/outline';
 import { useExecutionSessions } from '../hooks/useExecutionSessions';
 import { usePendingApprovals } from '../hooks/usePendingApprovals';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Table, TableHeader, TableRow, TableHead, TableCell, TableBody } from '@/components/ui/Table';
+import apiConfig from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 
 const tabConfig = [
   { id: 'active', label: 'Active Sessions', icon: BoltIcon },
@@ -28,6 +31,7 @@ const humanStatus = (status: string) =>
 
 export function ExecutionsSurface() {
   const [activeTab, setActiveTab] = useState('active');
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const { sessions, loading: sessionsLoading, error: sessionsError, refresh: refreshSessions } =
     useExecutionSessions();
   const {
@@ -36,6 +40,24 @@ export function ExecutionsSurface() {
     error: approvalsError,
     refresh: refreshApprovals,
   } = usePendingApprovals();
+
+  const handleCancelSession = async (sessionId: number) => {
+    if (!confirm('Cancel this execution? The session will be marked abandoned and will no longer run.')) return;
+    setCancellingId(sessionId);
+    try {
+      const res = await authFetch(apiConfig.endpoints.agent.cancelSession(sessionId), { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { detail?: string }).detail || 'Failed to cancel');
+      }
+      await refreshSessions();
+      await refreshApprovals();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to cancel session');
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const activeSessions = useMemo(
     () =>
@@ -81,9 +103,21 @@ export function ExecutionsSurface() {
                     {session.runbook_title || `Runbook #${session.runbook_id}`}
                   </p>
                 </div>
-                <Badge variant="status" status={session.status as any} size="sm">
-                  {humanStatus(session.status)}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="status" status={session.status as any} size="sm">
+                    {humanStatus(session.status)}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => handleCancelSession(session.id)}
+                    disabled={cancellingId === session.id}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                    title="Cancel execution (clear stuck runs)"
+                  >
+                    <XCircleIcon className="h-4 w-4" />
+                    {cancellingId === session.id ? 'Cancelling…' : 'Cancel'}
+                  </button>
+                </div>
               </div>
               {session.issue_description && (
                 <p className="mb-3 text-sm text-neutral-600 text-left">{session.issue_description}</p>

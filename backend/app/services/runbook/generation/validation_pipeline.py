@@ -204,7 +204,52 @@ class ValidationPipeline:
                         f"Command validation found issues but runbook structure is valid. "
                         f"Warnings added to metadata. Consider regenerating for better results."
                     )
+
+                # Per-step validation/review state (for fail-safe approve gate)
+                invalid_set: Dict[tuple, Dict[str, Any]] = {}  # (section_key, 0based_idx) -> {issue, suggested_fix}
+                for item in command_validation.get("invalid_commands", []):
+                    sec = item.get("section", "")
+                    # validator uses "precheck" -> spec uses "prechecks"
+                    section_key = "prechecks" if sec == "precheck" else ("postchecks" if sec == "postcheck" else "steps")
+                    idx_0 = (item.get("index") or 1) - 1
+                    invalid_set[(section_key, idx_0)] = {
+                        "issue": item.get("issue", "Command not found or invalid"),
+                        "suggested_fix": item.get("suggested_fix"),
+                    }
+                for item in command_validation.get("diagnostic_mislabeled", []):
+                    sec = item.get("section", "")
+                    section_key = "prechecks" if sec == "precheck" else ("postchecks" if sec == "postcheck" else "steps")
+                    idx_0 = (item.get("index") or 1) - 1
+                    invalid_set[(section_key, idx_0)] = {
+                        "issue": item.get("issue", "Mislabeled"),
+                        "suggested_fix": item.get("suggested_fix"),
+                    }
+
+                for section_key in ("prechecks", "steps", "postchecks"):
+                    items = spec.get(section_key, [])
+                    if not isinstance(items, list):
+                        continue
+                    for idx_0, step in enumerate(items):
+                        if not isinstance(step, dict):
+                            continue
+                        key = (section_key, idx_0)
+                        if key in invalid_set:
+                            step["command_validation_status"] = "invalid"
+                            step["command_validation_issue"] = invalid_set[key].get("issue")
+                            step["command_suggested_fix"] = invalid_set[key].get("suggested_fix")
+                            step["command_review_status"] = "pending"
+                        else:
+                            step["command_validation_status"] = "valid"
+                            step["command_review_status"] = step.get("command_review_status") or "pending"
+                spec["command_review_required"] = True
             else:
+                # All commands valid: mark steps valid and no review required
+                for section_key in ("prechecks", "steps", "postchecks"):
+                    for step in spec.get(section_key, []):
+                        if isinstance(step, dict):
+                            step["command_validation_status"] = "valid"
+                            step["command_review_status"] = step.get("command_review_status") or "pending"
+                spec["command_review_required"] = False
                 logger.info(
                     f"Command validation passed: "
                     f"{command_validation['validation_summary']}. "

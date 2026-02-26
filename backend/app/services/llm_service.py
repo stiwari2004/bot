@@ -378,8 +378,11 @@ class PerplexityLLMService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        # Create async HTTP client
-        self.client = httpx.AsyncClient(timeout=120.0, headers=self.headers)
+        # Timeout for Perplexity API (sync/validation can be slow; increase if you see "sync taking too long")
+        timeout_sec = float(os.getenv("PERPLEXITY_TIMEOUT", "120").strip() or "120")
+        timeout_sec = max(30.0, min(300.0, timeout_sec))
+        self._timeout = timeout_sec
+        self.client = httpx.AsyncClient(timeout=timeout_sec, headers=self.headers)
     
     async def classify_service_type(self, issue_description: str, *, tenant_id: Optional[int] = None) -> str:
         """Classify service type using Perplexity."""
@@ -517,52 +520,39 @@ class PerplexityLLMService:
         *,
         tenant_id: Optional[int] = None,
     ) -> str:
-        """Make a chat completion request to Perplexity API."""
-        try:
-            tenant = LlamaCppLLMService._normalise_tenant(tenant_id)
-            # Token counting disabled for now
-            # prompt_tokens = estimate_tokens(system) + estimate_tokens(user)
-            # await budget_manager.charge_tokens(
-            #     tenant_id=tenant,
-            #     tokens=prompt_tokens,
-            #     direction="prompt",
-            # )
-            payload = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": 0.2,
-                "max_tokens": 4096,  # Perplexity supports up to 4096 tokens for sonar models
-            }
-            url = f"{self.base_url}/chat/completions"
-            resp = await self.client.post(url, json=payload)
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                choices = data.get("choices") or []
-                if choices:
-                    text = choices[0].get("message", {}).get("content", "")
-                    # Token counting disabled for now
-                    # completion_tokens = estimate_tokens(text)
-                    # if completion_tokens:
-                    #     await budget_manager.charge_tokens(
-                    #         tenant_id=tenant,
-                    #         tokens=completion_tokens,
-                    #         direction="completion",
-                    #     )
-                    return text
-                logger.warning(f"Perplexity: empty choices from {url}")
-            else:
-                logger.error(f"Perplexity: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
-            return ""
-        # Budget exceptions disabled - token counting is disabled
-        # except (LLMRateLimitExceeded, LLMBudgetExceeded):
-        #     raise
-        except Exception as e:
-            logger.error(f"Perplexity: exception calling API - {e}")
-            return ""
+        """Make a chat completion request to Perplexity API. One retry on timeout."""
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 4096,  # Perplexity supports up to 4096 tokens for sonar models
+        }
+        for attempt in range(2):
+            try:
+                tenant = LlamaCppLLMService._normalise_tenant(tenant_id)
+                resp = await self.client.post(url, json=payload, timeout=self._timeout)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices") or []
+                    if choices:
+                        return (choices[0].get("message", {}) or {}).get("content", "") or ""
+                    logger.warning(f"Perplexity: empty choices from {url}")
+                else:
+                    logger.error(f"Perplexity: non-200 from {url} status={resp.status_code} body={resp.text[:200]}")
+                return ""
+            except (httpx.TimeoutException, httpx.ReadTimeout) as e:
+                logger.warning(f"Perplexity: timeout on attempt {attempt + 1}/2 (timeout={self._timeout}s) - {e}")
+                if attempt == 0:
+                    continue
+                return ""
+            except Exception as e:
+                logger.error(f"Perplexity: exception calling API - {e}")
+                return ""
+        return ""
 
 
 def get_llm_service():

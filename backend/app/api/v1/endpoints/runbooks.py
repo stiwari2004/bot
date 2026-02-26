@@ -23,6 +23,22 @@ from app.core.rate_limiting import rate_limit
 router = APIRouter()
 
 
+# Request bodies for runbook step review (command review flow)
+class RunbookStepApproveBody(BaseModel):
+    section: str = Field(..., description="prechecks, steps, or postchecks")
+    index: int = Field(..., ge=0, description="0-based step index")
+
+class RunbookStepCommandBody(BaseModel):
+    section: str = Field(..., description="prechecks, steps, or postchecks")
+    index: int = Field(..., ge=0, description="0-based step index")
+    command: str = Field(..., min_length=1)
+
+class RunbookStepRegenerateBody(BaseModel):
+    section: str = Field(..., description="prechecks, steps, or postchecks")
+    index: int = Field(..., ge=0, description="0-based step index")
+    human_context: Optional[str] = Field(None, description="Optional human context for regeneration")
+
+
 # Input validation models
 class ServiceType(str, Enum):
     """CI Type enumeration"""
@@ -478,6 +494,55 @@ async def approve_runbook_demo(
     """Approve and publish a draft runbook for the authenticated user's tenant with duplicate detection"""
     controller = RunbookController(db, tenant_id=current_user.tenant_id)
     return await controller.approve_runbook(runbook_id, force_approval, ticket_id)
+
+
+@router.get("/demo/{runbook_id}/review-status")
+async def get_runbook_review_status_demo(
+    runbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get command review status: command_review_ready, steps_pending_review, and steps list."""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
+    return controller.get_review_status(runbook_id)
+
+
+@router.post("/demo/{runbook_id}/steps/approve", response_model=RunbookResponse)
+async def runbook_step_approve_demo(
+    runbook_id: int,
+    body: RunbookStepApproveBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mark a step as approved by human (for command review flow)."""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
+    return controller.approve_step(runbook_id, body.section, body.index)
+
+
+@router.put("/demo/{runbook_id}/steps/command", response_model=RunbookResponse)
+async def runbook_step_update_command_demo(
+    runbook_id: int,
+    body: RunbookStepCommandBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a step's command (e.g. apply suggested fix)."""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
+    return controller.update_step_command(runbook_id, body.section, body.index, body.command)
+
+
+@router.post("/demo/{runbook_id}/steps/regenerate", response_model=RunbookResponse)
+async def runbook_step_regenerate_demo(
+    runbook_id: int,
+    body: RunbookStepRegenerateBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Regenerate a single step's command with optional human context."""
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
+    return await controller.regenerate_step_command(
+        runbook_id, body.section, body.index, body.human_context
+    )
 
 
 @router.post("/demo/{runbook_id}/reindex")

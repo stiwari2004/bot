@@ -93,6 +93,15 @@ class CommandErrorDetector:
         
         error_lower = error_text.lower()
         
+        # Bash/shell "command not found" — wrong command or wrong shell (e.g. PowerShell on bash).
+        # These should trigger self-healing (Perplexity can suggest correct command/shell).
+        if "command not found" in error_lower or ": command not found" in error_lower:
+            logger.debug("Command syntax error detected: bash/shell 'command not found'")
+            return True
+        if "not found" in error_lower and ("bash:" in error_lower or "line 1:" in error_lower or "sh:" in error_lower):
+            logger.debug("Command syntax error detected: shell 'not found' (wrong command/shell)")
+            return True
+
         # PowerShell-specific error patterns (case-insensitive matching)
         command_error_patterns = [
             "parameter cannot be found",
