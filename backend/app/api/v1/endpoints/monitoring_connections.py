@@ -297,6 +297,21 @@ async def test_monitoring_connection(
             await connector.close()
             
             return result
+        elif db_connection.tool_name == "opmanager":
+            from app.services.monitoring_connectors.opmanager import OpManagerConnector
+
+            base_url = db_connection.api_base_url
+            api_key = db_connection.api_key
+
+            if not base_url:
+                return {"success": False, "message": "API Base URL is required for OpManager connections"}
+            if not api_key:
+                return {"success": False, "message": "API key is required for OpManager connections"}
+
+            connector = OpManagerConnector()
+            result = await connector.test_connection(base_url=base_url, api_key=api_key)
+            await connector.close()
+            return result
         elif db_connection.tool_name == "datadog":
             if not db_connection.api_key or not db_connection.application_key:
                 return {"success": False, "message": "API Key and Application Key are required for Datadog connections"}

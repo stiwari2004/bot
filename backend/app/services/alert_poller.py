@@ -13,6 +13,7 @@ from app.models.monitoring_tool_connection import MonitoringToolConnection
 from app.models.alert import Alert
 from app.services.monitoring_connectors.solarwinds import SolarWindsConnector
 from app.services.monitoring_connectors.solarwinds_types import SolarWindsConnectionConfig
+from app.services.monitoring_connectors.opmanager import OpManagerConnector
 from app.services.alert.alert_normalizer import AlertNormalizer
 from app.core.logging import get_logger
 
@@ -24,6 +25,7 @@ class AlertPoller:
     
     def __init__(self):
         self.solarwinds_connector = SolarWindsConnector()
+        self.opmanager_connector = OpManagerConnector()
         self.running = False
         self._task: Optional[asyncio.Task] = None
     
@@ -51,8 +53,8 @@ class AlertPoller:
                 logger.warning("Alert poller task did not cancel in time")
             except asyncio.CancelledError:
                 pass
-        
         await self.solarwinds_connector.close()
+        await self.opmanager_connector.close()
         logger.info("Alert poller service stopped")
     
     async def _poll_loop(self):
@@ -104,6 +106,8 @@ class AlertPoller:
             
             if connection.tool_name == "solarwinds":
                 await self._poll_solarwinds(connection, meta_data, db)
+            elif connection.tool_name == "opmanager":
+                await self._poll_opmanager(connection, meta_data, db)
             else:
                 logger.warning(f"Alert polling not implemented for {connection.tool_name}")
         except Exception as e:
@@ -212,6 +216,98 @@ class AlertPoller:
             
         except Exception as e:
             logger.error(f"Error polling SolarWinds connection {connection.id}: {e}", exc_info=True)
+            connection.last_sync_status = "error"
+            connection.last_error = str(e)[:500]
+            db.commit()
+            raise
+
+    async def _poll_opmanager(
+        self,
+        connection: MonitoringToolConnection,
+        meta_data: Dict[str, Any],
+        db: Session,
+    ):
+        """Poll ManageEngine OpManager for alarms"""
+        try:
+            base_url = connection.api_base_url or meta_data.get("api_base_url", "")
+            api_key = meta_data.get("api_key") or connection.api_key
+
+            if not base_url or not api_key:
+                raise ValueError("OpManager polling requires api_base_url and api_key")
+
+            # Optional filters from metadata
+            alert_type = meta_data.get("alert_type", "ActiveAlarms")
+            severity_filter = meta_data.get("severity")  # e.g., "1" for Critical
+            limit = int(meta_data.get("limit", 100))
+
+            alarms = await self.opmanager_connector.fetch_alarms(
+                base_url=base_url,
+                api_key=api_key,
+                alert_type=alert_type,
+                severity=severity_filter,
+                limit=limit,
+            )
+
+            logger.info(
+                f"Fetched {len(alarms)} alarms from OpManager connection {connection.id}"
+            )
+
+            created_count = 0
+            updated_count = 0
+
+            for alarm in alarms:
+                normalized = AlertNormalizer.normalize_opmanager_alert(alarm)
+
+                existing = (
+                    db.query(Alert)
+                    .filter(
+                        Alert.tenant_id == connection.tenant_id,
+                        Alert.external_id == normalized["external_id"],
+                        Alert.source == "opmanager",
+                    )
+                    .first()
+                )
+
+                if existing:
+                    existing.title = normalized["title"]
+                    existing.description = normalized["description"]
+                    existing.severity = normalized["severity"]
+                    existing.status = normalized["status"]
+                    existing.meta_data = normalized["metadata"]
+                    if normalized.get("resolved_at"):
+                        existing.resolved_at = normalized["resolved_at"]
+                    updated_count += 1
+                else:
+                    alert = Alert(
+                        tenant_id=connection.tenant_id,
+                        external_id=normalized["external_id"],
+                        source="opmanager",
+                        title=normalized["title"],
+                        description=normalized["description"],
+                        severity=normalized["severity"],
+                        status=normalized["status"],
+                        environment="prod",
+                        service=normalized.get("source_entity_name", ""),
+                        starts_at=normalized.get("triggered_at"),
+                        resolved_at=normalized.get("resolved_at"),
+                        meta_data=normalized["metadata"],
+                        raw_payload=normalized,
+                    )
+                    db.add(alert)
+                    created_count += 1
+
+            connection.last_sync_at = datetime.now(timezone.utc)
+            connection.last_sync_status = "success"
+            connection.last_error = None
+            db.commit()
+
+            logger.info(
+                f"Polled OpManager connection {connection.id}: "
+                f"{created_count} created, {updated_count} updated"
+            )
+
+        except Exception as e:
+            logger.error(f"Error polling OpManager connection {connection.id}: {e}", exc_info=True)
             connection.last_sync_status = "error"
             connection.last_error = str(e)[:500]
             db.commit()

@@ -66,6 +66,97 @@ class AlertNormalizer:
             raise
     
     @staticmethod
+    def normalize_opmanager_alert(opm_alarm: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize OpManager alarm to internal alert format.
+        
+        Example alarm (from listAlarms):
+        {
+            "severity":"<img ...>Critical",
+            "numericSeverity":1,
+            "deviceType":"-",
+            "severityString":"Critical",
+            "statusStr":"Critical",
+            "displayName":"System",
+            "eventType":"SelfMonitoring Alarm",
+            "message":"OpManager Disk Free Space is 1GB, configured threshold is 5GB",
+            "deviceName":"System",
+            "statusNum":1,
+            "modTimeLong":1772036296205,
+            "modTime":"25 Feb 2026 04:18:16 PM UTC",
+            "alarmId":"1",
+            "category":"SelfMonitoring",
+            "entity":"8_FREE_SPACE",
+            "alarmcode":"SM_THRESHOLD_DOWN_DiskSpaceMonitor",
+            "status":1,
+            "who":"Unacknowledged"
+        }
+        """
+        try:
+            # Map numeric severity (1 Critical, 2 Trouble, 3 Attention, 4 Service Down, 5 Clear)
+            numeric = opm_alarm.get("numericSeverity")
+            severity_map = {
+                1: "critical",
+                2: "high",
+                3: "medium",
+                4: "high",
+                5: "low",
+            }
+            severity = severity_map.get(numeric, "medium")
+
+            # StatusNum / status: 1 Critical, 2 Trouble, 3 Attention, 4 Service Down, 5 Clear
+            status_num = opm_alarm.get("statusNum") or opm_alarm.get("status")
+            status = "firing"
+            if status_num in [5]:
+                status = "resolved"
+
+            external_id = str(opm_alarm.get("alarmId") or opm_alarm.get("alarmcode") or "")
+            title = opm_alarm.get("message") or opm_alarm.get("alarmcode") or "OpManager Alarm"
+            description = opm_alarm.get("message", "")
+
+            entity_type = opm_alarm.get("category", "")
+            entity_name = opm_alarm.get("deviceName") or opm_alarm.get("displayName", "")
+            entity_id = opm_alarm.get("entity", "")
+
+            triggered_at = None
+            if "_parsed_mod_time" in opm_alarm:
+                parsed = opm_alarm["_parsed_mod_time"]
+                if isinstance(parsed, datetime):
+                    triggered_at = parsed
+
+            normalized = {
+                "external_id": external_id,
+                "title": title,
+                "description": description,
+                "severity": severity,
+                "status": status,
+                "source": "opmanager",
+                "source_entity_type": entity_type,
+                "source_entity_name": entity_name,
+                "source_entity_id": entity_id,
+                "triggered_at": triggered_at,
+                "acknowledged_at": None,
+                "resolved_at": None if status != "resolved" else triggered_at,
+                "metadata": {
+                    "opmanager_alarm_id": opm_alarm.get("alarmId"),
+                    "numeric_severity": numeric,
+                    "severity_string": opm_alarm.get("severityString"),
+                    "status_str": opm_alarm.get("statusStr"),
+                    "device_name": entity_name,
+                    "category": entity_type,
+                    "entity": entity_id,
+                    "event_type": opm_alarm.get("eventType"),
+                    "alarm_code": opm_alarm.get("alarmcode"),
+                    "raw_alarm": opm_alarm,
+                },
+            }
+
+            return normalized
+        except Exception as e:
+            logger.error(f"Error normalizing OpManager alarm: {e}", exc_info=True)
+            raise
+    
+    @staticmethod
     def normalize_datadog_alert(datadog_alert: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize Datadog alert to internal format"""
         # Implementation already exists in datadog.py
