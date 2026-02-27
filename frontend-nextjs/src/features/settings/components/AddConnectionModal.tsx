@@ -244,11 +244,11 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                         onChange={(e) => setManageEngineVersion(e.target.value as 'v2' | 'v3')}
                         className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                       >
-                        <option value="v2">v2 (Client ID / Secret / Redirect URI)</option>
-                        <option value="v3">v3 (API key / authtoken)</option>
+                        <option value="v2">ServiceDesk Plus Cloud (OAuth – Client ID / Secret / Redirect URI)</option>
+                        <option value="v3">ServiceDesk Plus On-Prem (API key / authtoken)</option>
                       </select>
                       <p className="text-xs text-neutral-500 mt-1">
-                        v2 keeps the current OAuth client behaviour (Client ID / Secret / Redirect URI). v3 switches to using a technician API key / authtoken.
+                        Use the Cloud option when you have an OAuth client in the Zoho/ManageEngine console. Use the On‑Prem option when you only have a technician API key / authtoken.
                       </p>
                     </div>
                   )}

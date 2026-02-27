@@ -220,7 +220,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
 
               {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') ? (
                 <>
-                  {/* ManageEngine: allow choosing API version (v2 vs v3) */}
+                  {/* ManageEngine: allow choosing between Cloud (OAuth) and On‑Prem (API key) */}
                   {connection.tool_name === 'manageengine' && (
                     <div>
                       <label className="block text-sm font-semibold text-neutral-700 mb-2">
@@ -231,11 +231,11 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
                         onChange={(e) => setManageEngineVersion(e.target.value as 'v2' | 'v3')}
                         className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                       >
-                        <option value="v2">v2 (current setup)</option>
-                        <option value="v3">v3 (OAuth auth code)</option>
+                        <option value="v2">ServiceDesk Plus Cloud (OAuth – Client ID / Secret / Redirect URI)</option>
+                        <option value="v3">ServiceDesk Plus On-Prem (API key / authtoken)</option>
                       </select>
                       <p className="text-xs text-neutral-500 mt-1">
-                        v2 keeps the current behaviour. v3 uses the OAuth authorization code flow; after saving, use the Authorize button on the connection to complete sign-in.
+                        Cloud uses the OAuth authorization code flow (Client ID / Secret / Redirect URI, then Authorize). On‑Prem uses only a technician API key / authtoken.
                       </p>
                     </div>
                   )}

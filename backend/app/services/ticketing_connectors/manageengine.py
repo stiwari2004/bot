@@ -160,8 +160,18 @@ class ManageEngineTicketFetcher:
             return all_tickets
             
         except httpx.HTTPStatusError as e:
-            logger.error(f"ManageEngine API error: {e.response.status_code} - {e.response.text}")
-            raise Exception(f"Failed to fetch tickets from ManageEngine: {e.response.status_code}")
+            # Surface ManageEngine's error details to help with debugging
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            body_snippet = ""
+            try:
+                body_snippet = e.response.text[:500] if hasattr(e.response, "text") else ""
+            except Exception:
+                body_snippet = ""
+            logger.error(f"ManageEngine API error: {status_code} - {body_snippet}")
+            detail = f"HTTP {status_code}"
+            if body_snippet:
+                detail = f"{detail} - {body_snippet}"
+            raise Exception(f"Failed to fetch tickets from ManageEngine: {detail}")
         except Exception as e:
             logger.error(f"Error fetching ManageEngine tickets: {e}")
             raise
