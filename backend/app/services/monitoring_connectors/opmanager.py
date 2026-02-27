@@ -36,13 +36,10 @@ class OpManagerConnector:
 
             url = f"{base_url.rstrip('/')}/api/json/alarm/listAlarms"
             headers = {"apiKey": api_key}
-            params = {
-                "alertType": "ActiveAlarms",
-                "page": 1,
-                "pageLength": 1,
-            }
+            # OpManager is picky about unknown params; only send supported ones.
+            params = {"alertType": "ActiveAlarms"}
 
-            logger.info(f"Testing OpManager connection to {url}")
+            logger.info(f"Testing OpManager connection to {url} with alertType=ActiveAlarms")
             resp = await self.client.get(url, headers=headers, params=params)
 
             if resp.status_code != 200:
@@ -60,10 +57,30 @@ class OpManagerConnector:
                     "message": "Received non-JSON response from OpManager",
                 }
 
+            # If the response contains an error structure, surface it
+            if isinstance(data, dict) and "error" in data:
+                err = data.get("error", {})
+                msg = err.get("message") or "OpManager returned an error"
+                code = err.get("errorcode")
+                return {
+                    "success": False,
+                    "message": f"OpManager error: {msg} ({code})",
+                    "raw": data,
+                }
+
+            sample = None
+            if isinstance(data, list):
+                sample = data[:1]
+            elif isinstance(data, dict):
+                # listAlarms doc shape has fields like rows / rows[...]
+                rows = data.get("rows") or data.get("Alarms")
+                if isinstance(rows, list):
+                    sample = rows[:1]
+
             return {
                 "success": True,
                 "message": "Connection to OpManager successful",
-                "sample": data if isinstance(data, list) else None,
+                "sample": sample,
             }
         except httpx.TimeoutException:
             return {
@@ -93,22 +110,31 @@ class OpManagerConnector:
         url = f"{base_url.rstrip('/')}/api/json/alarm/listAlarms"
         headers = {"apiKey": api_key}
 
+        # Only send parameters OpManager documents: alertType, severity, deviceName, category, fromTime, toTime, probeName.
         params: Dict[str, Any] = {
             "alertType": alert_type or "ActiveAlarms",
-            "page": 1,
-            "pageLength": min(limit, 1000),
         }
         if severity is not None:
             params["severity"] = severity
 
         logger.info(
             f"Fetching OpManager alarms from {url} (alertType={params['alertType']}, "
-            f"severity={params.get('severity')}, limit={params['pageLength']})"
+            f"severity={params.get('severity')})"
         )
 
         resp = await self.client.get(url, headers=headers, params=params)
         resp.raise_for_status()
         data = resp.json()
+
+        # If OpManager returns an error envelope, don't try to treat it as an alarm.
+        if isinstance(data, dict) and "error" in data:
+            err = data.get("error", {})
+            msg = err.get("message") or "OpManager returned an error"
+            code = err.get("errorcode")
+            logger.error(f"OpManager listAlarms error: {msg} ({code})")
+            # Return a single "error" alarm object so callers can surface diagnostics if needed,
+            # but don't try to normalize it as a real alert.
+            return [data]
 
         # The OpManager docs show an object with fields like rows, but
         # some deployments may return a bare list of alarms (as in the user's example).
