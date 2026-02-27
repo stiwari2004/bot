@@ -48,6 +48,9 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [redirectUri, setRedirectUri] = useState('http://localhost:8000/oauth/callback');
+  // ManageEngine specific: allow choosing between v2 (API key / authtoken)
+  // and v3 (OAuth2 authorization code flow).
+  const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v3');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,6 +62,10 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
   }, []);
 
   const selectedToolInfo = availableTools.find(t => t.name === selectedTool);
+  const isManageEngine = selectedTool === 'manageengine';
+  const isZoho = selectedTool === 'zoho';
+  const isManageEngineOAuth = isManageEngine && manageEngineVersion === 'v3';
+  const isOAuthTool = isZoho || isManageEngineOAuth;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,19 +88,38 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
           webhookUrl || apiConfig.endpoints.tickets.webhook(selectedTool);
       } else {
         payload.api_base_url = apiBaseUrl;
-        
-        if (selectedTool === 'zoho' || selectedTool === 'manageengine') {
+
+        if (isOAuthTool) {
           const meta: any = {};
           if (clientId) meta.client_id = clientId;
           if (clientSecret) meta.client_secret = clientSecret;
           if (redirectUri) meta.redirect_uri = redirectUri;
+          // Persist selected API version for ManageEngine so backend/fetcher
+          // can differentiate behaviour if needed.
+          if (isManageEngine) {
+            meta.version = manageEngineVersion || 'v3';
+          }
           if (Object.keys(meta).length > 0) {
             payload.meta_data = meta;
           }
         } else {
-          payload.api_key = apiKey;
-          payload.api_username = apiUsername;
-          payload.api_password = apiPassword;
+          // Non‑OAuth tools (and ManageEngine v2): use API key / username / password fields.
+          if (apiKey) {
+            payload.api_key = apiKey;
+          }
+          if (apiUsername) {
+            payload.api_username = apiUsername;
+          }
+          if (apiPassword) {
+            payload.api_password = apiPassword;
+          }
+          // For ManageEngine v2 specifically, also store the API version flag in meta_data.
+          if (isManageEngine) {
+            payload.meta_data = {
+              ...(payload.meta_data || {}),
+              version: manageEngineVersion || 'v2',
+            };
+          }
         }
       }
 
@@ -203,6 +229,26 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
 
               {connectionType === 'api_poll' && (
                 <>
+                  {/* ManageEngine: allow choosing API version (v2 vs v3) */}
+                  {isManageEngine && (
+                    <div>
+                      <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                        ManageEngine API Version
+                      </label>
+                      <select
+                        value={manageEngineVersion}
+                        onChange={(e) => setManageEngineVersion(e.target.value as 'v2' | 'v3')}
+                        className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                      >
+                        <option value="v2">v2 (API key / authtoken)</option>
+                        <option value="v3">v3 (OAuth auth code)</option>
+                      </select>
+                      <p className="text-xs text-neutral-500 mt-1">
+                        Choose v3 for the OAuth authorization code flow (recommended for ServiceDesk Plus Cloud). Choose v2 if you prefer using an API key / authtoken.
+                      </p>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-semibold text-neutral-700 mb-2">
                       API Base URL *
@@ -225,7 +271,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                     />
                   </div>
                   
-                  {(selectedTool === 'zoho' || selectedTool === 'manageengine') ? (
+                  {isOAuthTool ? (
                     <>
                       <div>
                         <label className="block text-sm font-semibold text-neutral-700 mb-2">
@@ -338,6 +384,37 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                             </p>
                           </div>
                         </>
+                      ) : isManageEngine ? (
+                        <>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              API Key / Authtoken *
+                            </label>
+                            <input
+                              type="text"
+                              value={apiKey}
+                              onChange={(e) => setApiKey(e.target.value)}
+                              placeholder="ManageEngine API key / authtoken"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                              required
+                            />
+                            <p className="text-xs text-neutral-500 mt-1">
+                              Generate an API key/authtoken for your technician in ManageEngine and paste it here.
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                              Technician Email (optional)
+                            </label>
+                            <input
+                              type="text"
+                              value={apiUsername}
+                              onChange={(e) => setApiUsername(e.target.value)}
+                              placeholder="Technician email (optional)"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                            />
+                          </div>
+                        </>
                       ) : (
                         <>
                           <div>
@@ -361,7 +438,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                               value={apiPassword}
                               onChange={(e) => setApiPassword(e.target.value)}
                               placeholder={selectedTool === 'servicenow' ? 'ServiceNow password' : 'API password or token'}
-                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                              className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus-border-primary-500 text-neutral-900 transition-all"
                             />
                           </div>
                         </>

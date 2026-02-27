@@ -114,8 +114,11 @@ export function TicketingConnectionsSection({
                       )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {/* OAuth tools (Zoho, ManageEngine) - show Authorize button */}
-                      {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') && connection.connection_type === 'api_poll' && (
+                      {/* OAuth tools (Zoho, ManageEngine v3) - show Authorize button */}
+                      {(
+                        (connection.tool_name === 'zoho') ||
+                        (connection.tool_name === 'manageengine' && connection.oauth_supported)
+                      ) && connection.connection_type === 'api_poll' && (
                         <>
                           {connection.oauth_authorized ? (
                             <Badge variant="success" size="sm">✓ Authorized</Badge>

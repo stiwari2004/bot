@@ -38,8 +38,8 @@ class ManageEngineTicketFetcher:
         Args:
             api_base_url: ManageEngine API base URL (e.g., https://your-instance.manageengine.com)
             connection_meta: Connection metadata
-            api_key: API key (if using API key authentication)
-            api_secret: API secret (if using API key authentication)
+            api_key: API key/authtoken (for API key mode)
+            api_secret: API secret (if using API key + secret auth)
             api_username: Username (if using basic auth)
             api_password: Password (if using basic auth)
             status_filter: List of request statuses to filter
@@ -50,21 +50,43 @@ class ManageEngineTicketFetcher:
             List of normalized ticket dictionaries
         """
         try:
-            # ManageEngine uses OAuth 2.0 only
-            access_token = await self._get_valid_token(connection_meta)
-            
-            if not access_token:
-                raise Exception(
-                    "ManageEngine connection requires OAuth credentials. "
-                    "Please configure Client ID and Client Secret, then authorize the connection."
-                )
-            
-            headers = {
-                "Authorization": f"Zoho-oauthtoken {access_token}",
-                "Accept": "application/vnd.manageengine.sdp.v3+json",
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
-            logger.info("Using ManageEngine OAuth authentication")
+            # Determine authentication mode from connection metadata.
+            # We treat:
+            # - version == "v3" (default) as OAuth 2.0 (authorization code flow via Zoho accounts)
+            # - version == "v2" as API key/authtoken mode
+            version = str(connection_meta.get("version", "v3")).lower()
+            use_oauth = version != "v2"
+
+            if use_oauth:
+                access_token = await self._get_valid_token(connection_meta)
+                
+                if not access_token:
+                    raise Exception(
+                        "ManageEngine connection requires OAuth credentials. "
+                        "Please configure Client ID and Client Secret, then authorize the connection."
+                    )
+                
+                headers = {
+                    "Authorization": f"Zoho-oauthtoken {access_token}",
+                    "Accept": "application/vnd.manageengine.sdp.v3+json",
+                    "Content-Type": "application/x-www-form-urlencoded"
+                }
+                logger.info("Using ManageEngine OAuth authentication (v3 mode)")
+            else:
+                # API key / authtoken mode (v2)
+                key = api_key or connection_meta.get("api_key") or connection_meta.get("authtoken")
+                if not key:
+                    raise Exception(
+                        "ManageEngine v2 connection requires an API key/authtoken. "
+                        "Please enter the API key in the connection settings."
+                    )
+                headers = {
+                    # Per ManageEngine docs, v3 APIs accept authtoken in the header
+                    "authtoken": key,
+                    "Accept": "application/vnd.manageengine.sdp.v3+json",
+                    "Content-Type": "application/x-www-form-urlencoded"
+                }
+                logger.info("Using ManageEngine API key/authtoken authentication (v2 mode)")
             
             # Normalize API base URL
             if not api_base_url.startswith("http"):

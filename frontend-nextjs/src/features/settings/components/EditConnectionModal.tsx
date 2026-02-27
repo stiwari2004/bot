@@ -26,8 +26,14 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [redirectUri, setRedirectUri] = useState('http://localhost:8000/oauth/callback');
+  // ManageEngine specific: allow choosing between v2 (API key / authtoken)
+  // and v3 (OAuth2 authorization code flow).
+  const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v3');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isManageEngine = connection.tool_name === 'manageengine';
+  const isZoho = connection.tool_name === 'zoho';
 
   useEffect(() => {
     if (connection.meta_data) {
@@ -35,8 +41,19 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         const meta = typeof connection.meta_data === 'string' 
           ? JSON.parse(connection.meta_data) 
           : connection.meta_data;
-        
-        if (connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') {
+
+        let version: 'v2' | 'v3' = 'v3';
+        if (isManageEngine && meta.version) {
+          version = meta.version === 'v2' ? 'v2' : 'v3';
+        }
+        if (isManageEngine) {
+          setManageEngineVersion(version);
+        }
+
+        const useOAuthForThisConnection =
+          isZoho || (isManageEngine && version === 'v3');
+
+        if (useOAuthForThisConnection) {
           setClientId(meta.client_id || '');
           setClientSecret(meta.client_secret ? '••••••••' : '');
           const defaultRedirect = typeof window !== 'undefined'
@@ -85,13 +102,21 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         sync_interval_minutes: syncIntervalMinutes,
       };
 
-      if (connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') {
+      const useOAuthForThisConnection =
+        isZoho || (isManageEngine && manageEngineVersion === 'v3');
+
+      if (useOAuthForThisConnection) {
         const meta: any = {};
         if (clientId) meta.client_id = clientId;
         if (clientSecret && clientSecret !== '••••••••') {
           meta.client_secret = clientSecret;
         }
         if (redirectUri) meta.redirect_uri = redirectUri;
+        // Persist selected API version for ManageEngine so backend/fetcher
+        // can differentiate behaviour if needed.
+        if (isManageEngine) {
+          meta.version = manageEngineVersion || 'v3';
+        }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;
         }
@@ -114,6 +139,10 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
               meta.password = apiPassword;
             }
           }
+        }
+        // For ManageEngine v2 specifically, also store the API version flag in meta_data.
+        if (isManageEngine) {
+          meta.version = manageEngineVersion || 'v2';
         }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;
@@ -190,6 +219,26 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
 
               {(connection.tool_name === 'zoho' || connection.tool_name === 'manageengine') ? (
                 <>
+                  {/* ManageEngine: allow choosing API version (v2 vs v3) */}
+                  {connection.tool_name === 'manageengine' && (
+                    <div>
+                      <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                        ManageEngine API Version
+                      </label>
+                      <select
+                        value={manageEngineVersion}
+                        onChange={(e) => setManageEngineVersion(e.target.value as 'v2' | 'v3')}
+                        className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                      >
+                        <option value="v2">v2 (current setup)</option>
+                        <option value="v3">v3 (OAuth auth code)</option>
+                      </select>
+                      <p className="text-xs text-neutral-500 mt-1">
+                        v2 keeps the current behaviour. v3 uses the OAuth authorization code flow; after saving, use the Authorize button on the connection to complete sign-in.
+                      </p>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-semibold text-neutral-700 mb-2">
                       Client ID

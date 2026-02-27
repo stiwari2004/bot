@@ -19,6 +19,7 @@ export interface TicketingConnection {
   api_password?: string | null;
   meta_data?: string | any;
   oauth_authorized?: boolean;
+  oauth_supported?: boolean;
 }
 
 export interface TicketingTool {

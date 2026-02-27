@@ -172,17 +172,37 @@ async def create_ticketing_connection(
         # Build meta_data with OAuth fields if provided
         meta_data = connection.meta_data or {}
         
-        # Zoho and ManageEngine both use OAuth 2.0 (same flow)
-        if (connection.tool_name == "zoho" or connection.tool_name == "manageengine") and connection.client_id:
+        # Zoho and ManageEngine v3 both use OAuth 2.0 (same flow)
+        if connection.tool_name == "zoho" and connection.client_id:
             meta_data.update({
                 "client_id": connection.client_id,
                 "client_secret": connection.client_secret,
                 "redirect_uri": connection.redirect_uri or settings.OAUTH_CALLBACK_URL
             })
         elif connection.tool_name == "manageengine":
-            # ManageEngine uses OAuth 2.0 only - no API key support
-            # OAuth credentials are stored in meta_data (client_id, client_secret, redirect_uri)
-            pass
+            # For ManageEngine we support two modes:
+            # - v3 (OAuth 2.0 via Zoho accounts)
+            # - v2 (API key / authtoken)
+            version = (connection.meta_data or {}).get("version") if isinstance(connection.meta_data, dict) else None
+            if not version and isinstance(connection.meta_data, str):
+                try:
+                    parsed_meta = json.loads(connection.meta_data)
+                    version = parsed_meta.get("version")
+                except Exception:
+                    version = None
+            # Default to v3 (OAuth) for backward compatibility if version not set
+            version = version or "v3"
+            if version == "v3" and connection.client_id:
+                meta_data.update({
+                    "client_id": connection.client_id,
+                    "client_secret": connection.client_secret,
+                    "redirect_uri": connection.redirect_uri or settings.OAUTH_CALLBACK_URL,
+                    "version": "v3",
+                })
+            else:
+                # v2 / API key mode: ensure version is recorded; API key itself is stored in
+                # api_key/api_username fields and used by the fetcher.
+                meta_data.setdefault("version", "v2")
         
         # For ServiceNow, sync api_username/api_password to meta_data (ServiceNow fetcher expects credentials in meta_data)
         if connection.tool_name == "servicenow":
@@ -244,12 +264,20 @@ async def list_ticketing_connections(
         for c in connections:
             meta_data = _parse_meta_data_safe(c.meta_data)
             oauth_authorized = False
+            oauth_supported = False
             if c.tool_name == "zoho":
+                # Zoho is always OAuth 2.0
+                oauth_supported = True
                 # Zoho is authorized if access_token exists (stored after OAuth callback)
                 oauth_authorized = bool(meta_data.get("access_token"))
             elif c.tool_name == "manageengine":
-                # ManageEngine is authorized if access_token exists (stored after OAuth callback, same as Zoho)
-                oauth_authorized = bool(meta_data.get("access_token"))
+                # ManageEngine supports:
+                # - v3: OAuth 2.0 (authorization code flow)
+                # - v2: API key/authtoken (no OAuth)
+                version = str(meta_data.get("version", "v3")).lower()
+                if version == "v3":
+                    oauth_supported = True
+                    oauth_authorized = bool(meta_data.get("access_token"))
             elif c.tool_name == "servicenow":
                 # ServiceNow is authorized if credentials exist (username/password or OAuth client_id/secret)
                 # Check both meta_data and connection fields
@@ -270,7 +298,8 @@ async def list_ticketing_connections(
                 "last_sync_status": c.last_sync_status,
                 "last_error": c.last_error,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
-                "oauth_authorized": oauth_authorized
+                "oauth_authorized": oauth_authorized,
+                "oauth_supported": oauth_supported,
             })
         
         return {
@@ -302,10 +331,15 @@ async def get_ticketing_connection(
         
         meta_data = _parse_meta_data_safe(connection.meta_data)
         oauth_authorized = False
+        oauth_supported = False
         if connection.tool_name == "zoho":
+            oauth_supported = True
             oauth_authorized = bool(meta_data.get("access_token"))
         elif connection.tool_name == "manageengine":
-            oauth_authorized = bool(meta_data.get("access_token"))
+            version = str(meta_data.get("version", "v3")).lower()
+            if version == "v3":
+                oauth_supported = True
+                oauth_authorized = bool(meta_data.get("access_token"))
         elif connection.tool_name == "servicenow":
             # ServiceNow is authorized if credentials exist (username/password or OAuth client_id/secret)
             has_username = bool(meta_data.get("username") or connection.api_username)
@@ -324,7 +358,8 @@ async def get_ticketing_connection(
             "last_sync_status": connection.last_sync_status,
             "last_error": connection.last_error,
             "created_at": connection.created_at.isoformat() if connection.created_at else None,
-            "oauth_authorized": oauth_authorized
+            "oauth_authorized": oauth_authorized,
+            "oauth_supported": oauth_supported,
         }
         
     except HTTPException:
@@ -504,10 +539,13 @@ async def test_ticketing_connection(
                 from app.services.ticketing_connectors.manageengine import ManageEngineTicketFetcher
                 fetcher = ManageEngineTicketFetcher()
                 try:
-                    # ManageEngine now uses OAuth 2.0 (same as Zoho)
+                    # ManageEngine supports both OAuth (v3) and API key/authtoken (v2).
                     tickets = await fetcher.fetch_tickets(
                         api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                         connection_meta=meta_data,
+                        api_key=connection.api_key,
+                        api_username=connection.api_username,
+                        api_password=connection.api_password,
                         since=None,  # Fetch recent tickets
                         limit=10  # Just test with a few tickets
                     )
@@ -665,6 +703,16 @@ async def authorize_ticketing_connection(
             raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
         
         meta_data = _parse_meta_data_safe(connection.meta_data)
+
+        # For ManageEngine, only v3 connections use OAuth; v2 uses API key/authtoken.
+        if connection.tool_name == "manageengine":
+            version = str(meta_data.get("version", "v3")).lower()
+            if version == "v2":
+                raise HTTPException(
+                    status_code=400,
+                    detail="OAuth is not supported for ManageEngine v2 (API key) connections. "
+                           "Switch this connection to v3 in the settings to use OAuth."
+                )
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
         redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
@@ -745,6 +793,14 @@ async def oauth_callback(
             raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
         
         meta_data = _parse_meta_data_safe(connection.meta_data)
+        if connection.tool_name == "manageengine":
+            version = str(meta_data.get("version", "v3")).lower()
+            if version == "v2":
+                raise HTTPException(
+                    status_code=400,
+                    detail="OAuth is not supported for ManageEngine v2 (API key) connections. "
+                           "Switch this connection to v3 in the settings to use OAuth."
+                )
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
         redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL
@@ -820,6 +876,14 @@ async def oauth_callback_public(
             raise HTTPException(status_code=400, detail=f"OAuth not supported for {connection.tool_name}")
 
         meta_data = _parse_meta_data_safe(connection.meta_data)
+        if connection.tool_name == "manageengine":
+            version = str(meta_data.get("version", "v3")).lower()
+            if version == "v2":
+                raise HTTPException(
+                    status_code=400,
+                    detail="OAuth is not supported for ManageEngine v2 (API key) connections. "
+                           "Switch this connection to v3 in the settings to use OAuth."
+                )
         client_id = meta_data.get("client_id")
         client_secret = meta_data.get("client_secret")
         redirect_uri = meta_data.get("redirect_uri") or settings.OAUTH_CALLBACK_URL

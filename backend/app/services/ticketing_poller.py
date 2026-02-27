@@ -198,10 +198,15 @@ class TicketingPoller:
                 )
             
             elif connection.tool_name == "manageengine":
-                # ManageEngine now uses OAuth 2.0 (same as Zoho)
+                # ManageEngine supports:
+                # - v3: OAuth 2.0 (authorization code flow, same as Zoho)
+                # - v2: API key/authtoken
                 tickets = await self.manageengine_fetcher.fetch_tickets(
                     api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                     connection_meta=meta_data,
+                    api_key=connection.api_key,
+                    api_username=connection.api_username,
+                    api_password=connection.api_password,
                     since=since,
                     limit=100
                 )
