@@ -48,9 +48,10 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [redirectUri, setRedirectUri] = useState('http://localhost:8000/oauth/callback');
-  // ManageEngine specific: allow choosing between v2 (API key / authtoken)
-  // and v3 (OAuth2 authorization code flow).
-  const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v3');
+  // ManageEngine specific: allow choosing between:
+  // - v2: OAuth2 client (Client ID / Secret / Redirect URI)  [existing behaviour]
+  // - v3: API key / authtoken mode
+  const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v2');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +65,10 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
   const selectedToolInfo = availableTools.find(t => t.name === selectedTool);
   const isManageEngine = selectedTool === 'manageengine';
   const isZoho = selectedTool === 'zoho';
-  const isManageEngineOAuth = isManageEngine && manageEngineVersion === 'v3';
+  // For ManageEngine:
+  // - v2 => OAuth (same fields we had earlier)
+  // - v3 => API key / authtoken
+  const isManageEngineOAuth = isManageEngine && manageEngineVersion === 'v2';
   const isOAuthTool = isZoho || isManageEngineOAuth;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,13 +101,13 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
           // Persist selected API version for ManageEngine so backend/fetcher
           // can differentiate behaviour if needed.
           if (isManageEngine) {
-            meta.version = manageEngineVersion || 'v3';
+            meta.version = manageEngineVersion || 'v2';
           }
           if (Object.keys(meta).length > 0) {
             payload.meta_data = meta;
           }
         } else {
-          // Non‑OAuth tools (and ManageEngine v2): use API key / username / password fields.
+          // Non‑OAuth tools (and ManageEngine v3): use API key / username / password fields.
           if (apiKey) {
             payload.api_key = apiKey;
           }
@@ -113,11 +117,11 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
           if (apiPassword) {
             payload.api_password = apiPassword;
           }
-          // For ManageEngine v2 specifically, also store the API version flag in meta_data.
+          // For ManageEngine v3 specifically, also store the API version flag in meta_data.
           if (isManageEngine) {
             payload.meta_data = {
               ...(payload.meta_data || {}),
-              version: manageEngineVersion || 'v2',
+              version: manageEngineVersion || 'v3',
             };
           }
         }
@@ -240,11 +244,11 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                         onChange={(e) => setManageEngineVersion(e.target.value as 'v2' | 'v3')}
                         className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
                       >
-                        <option value="v2">v2 (API key / authtoken)</option>
-                        <option value="v3">v3 (OAuth auth code)</option>
+                        <option value="v2">v2 (Client ID / Secret / Redirect URI)</option>
+                        <option value="v3">v3 (API key / authtoken)</option>
                       </select>
                       <p className="text-xs text-neutral-500 mt-1">
-                        Choose v3 for the OAuth authorization code flow (recommended for ServiceDesk Plus Cloud). Choose v2 if you prefer using an API key / authtoken.
+                        v2 keeps the current OAuth client behaviour (Client ID / Secret / Redirect URI). v3 switches to using a technician API key / authtoken.
                       </p>
                     </div>
                   )}

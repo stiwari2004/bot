@@ -52,10 +52,10 @@ class ManageEngineTicketFetcher:
         try:
             # Determine authentication mode from connection metadata.
             # We treat:
-            # - version == "v3" (default) as OAuth 2.0 (authorization code flow via Zoho accounts)
-            # - version == "v2" as API key/authtoken mode
-            version = str(connection_meta.get("version", "v3")).lower()
-            use_oauth = version != "v2"
+            # - version == "v2" (default / legacy) as OAuth 2.0 (authorization code flow via Zoho accounts)
+            # - version == "v3" as API key/authtoken mode
+            version = str(connection_meta.get("version", "v2")).lower()
+            use_oauth = version == "v2"
 
             if use_oauth:
                 access_token = await self._get_valid_token(connection_meta)
@@ -71,13 +71,13 @@ class ManageEngineTicketFetcher:
                     "Accept": "application/vnd.manageengine.sdp.v3+json",
                     "Content-Type": "application/x-www-form-urlencoded"
                 }
-                logger.info("Using ManageEngine OAuth authentication (v3 mode)")
+                logger.info("Using ManageEngine OAuth authentication (v2 mode)")
             else:
-                # API key / authtoken mode (v2)
+                # API key / authtoken mode (v3)
                 key = api_key or connection_meta.get("api_key") or connection_meta.get("authtoken")
                 if not key:
                     raise Exception(
-                        "ManageEngine v2 connection requires an API key/authtoken. "
+                        "ManageEngine v3 connection requires an API key/authtoken. "
                         "Please enter the API key in the connection settings."
                     )
                 headers = {
@@ -86,7 +86,7 @@ class ManageEngineTicketFetcher:
                     "Accept": "application/vnd.manageengine.sdp.v3+json",
                     "Content-Type": "application/x-www-form-urlencoded"
                 }
-                logger.info("Using ManageEngine API key/authtoken authentication (v2 mode)")
+                logger.info("Using ManageEngine API key/authtoken authentication (v3 mode)")
             
             # Normalize API base URL
             if not api_base_url.startswith("http"):

@@ -26,9 +26,10 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [redirectUri, setRedirectUri] = useState('http://localhost:8000/oauth/callback');
-  // ManageEngine specific: allow choosing between v2 (API key / authtoken)
-  // and v3 (OAuth2 authorization code flow).
-  const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v3');
+  // ManageEngine specific: allow choosing between:
+  // - v2: OAuth2 client (Client ID / Secret / Redirect URI)
+  // - v3: API key / authtoken mode
+  const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v2');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,16 +43,16 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
           ? JSON.parse(connection.meta_data) 
           : connection.meta_data;
 
-        let version: 'v2' | 'v3' = 'v3';
+        let version: 'v2' | 'v3' = 'v2';
         if (isManageEngine && meta.version) {
-          version = meta.version === 'v2' ? 'v2' : 'v3';
+          version = meta.version === 'v3' ? 'v3' : 'v2';
         }
         if (isManageEngine) {
           setManageEngineVersion(version);
         }
 
         const useOAuthForThisConnection =
-          isZoho || (isManageEngine && version === 'v3');
+          isZoho || (isManageEngine && version === 'v2');
 
         if (useOAuthForThisConnection) {
           setClientId(meta.client_id || '');
@@ -103,7 +104,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
       };
 
       const useOAuthForThisConnection =
-        isZoho || (isManageEngine && manageEngineVersion === 'v3');
+        isZoho || (isManageEngine && manageEngineVersion === 'v2');
 
       if (useOAuthForThisConnection) {
         const meta: any = {};
@@ -115,7 +116,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         // Persist selected API version for ManageEngine so backend/fetcher
         // can differentiate behaviour if needed.
         if (isManageEngine) {
-          meta.version = manageEngineVersion || 'v3';
+          meta.version = manageEngineVersion || 'v2';
         }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;
@@ -140,9 +141,9 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
             }
           }
         }
-        // For ManageEngine v2 specifically, also store the API version flag in meta_data.
+        // For ManageEngine v3 specifically, also store the API version flag in meta_data.
         if (isManageEngine) {
-          meta.version = manageEngineVersion || 'v2';
+          meta.version = manageEngineVersion || 'v3';
         }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;

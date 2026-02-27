@@ -114,7 +114,7 @@ export function TicketingConnectionsSection({
                       )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {/* OAuth tools (Zoho, ManageEngine v3) - show Authorize button */}
+                      {/* OAuth tools (Zoho, ManageEngine v2) - show Authorize button */}
                       {(
                         (connection.tool_name === 'zoho') ||
                         (connection.tool_name === 'manageengine' && connection.oauth_supported)
