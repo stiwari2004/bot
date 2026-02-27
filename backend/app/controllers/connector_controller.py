@@ -369,7 +369,7 @@ class ConnectorController(BaseController):
                     "status": "implemented",
                     "description": "Cloud monitoring and alerting platform",
                     "webhook_supported": True,
-                    "api_supported": True
+                    "api_supported": True,
                 },
                 {
                     "type": "azure_monitor",
@@ -377,7 +377,7 @@ class ConnectorController(BaseController):
                     "status": "implemented",
                     "description": "Microsoft Azure monitoring and alerting service",
                     "webhook_supported": True,
-                    "api_supported": False
+                    "api_supported": False,
                 },
                 {
                     "type": "prometheus",
@@ -385,7 +385,7 @@ class ConnectorController(BaseController):
                     "status": "implemented",
                     "description": "Open-source monitoring and alerting toolkit",
                     "webhook_supported": True,
-                    "api_supported": False
+                    "api_supported": False,
                 },
                 {
                     "type": "solarwinds",
@@ -393,7 +393,15 @@ class ConnectorController(BaseController):
                     "status": "implemented",
                     "description": "Network and infrastructure monitoring platform",
                     "webhook_supported": False,
-                    "api_supported": True
+                    "api_supported": True,
+                },
+                {
+                    "type": "opmanager",
+                    "name": "ManageEngine OpManager",
+                    "status": "implemented",
+                    "description": "On‑premise network and infrastructure monitoring (ManageEngine OpManager)",
+                    "webhook_supported": False,
+                    "api_supported": True,
                 },
                 {
                     "type": "splunk",
@@ -402,20 +410,20 @@ class ConnectorController(BaseController):
                     "description": "Log aggregation, SIEM, and operational intelligence platform",
                     "webhook_supported": True,
                     "api_supported": True,
-                    "hec_supported": True
+                    "hec_supported": True,
                 },
                 {
                     "type": "zabbix",
                     "name": "Zabbix",
                     "status": "planned",
-                    "description": "Enterprise monitoring solution"
+                    "description": "Enterprise monitoring solution",
                 },
                 {
                     "type": "manageengine",
                     "name": "ManageEngine",
                     "status": "planned",
-                    "description": "IT management suite"
-                }
+                    "description": "IT management suite",
+                },
             ]
         }
     
