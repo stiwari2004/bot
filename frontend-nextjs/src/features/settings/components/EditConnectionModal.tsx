@@ -224,7 +224,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
                   {connection.tool_name === 'manageengine' && (
                     <div>
                       <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                        ManageEngine API Version
+                        ManageEngine Connection Type
                       </label>
                       <select
                         value={manageEngineVersion}
@@ -240,47 +240,80 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
                     </div>
                   )}
 
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                      Client ID
-                    </label>
-                    <input
-                      type="text"
-                      value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
-                      placeholder={`Your ${connection.tool_name === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client ID`}
-                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                      Client Secret
-                    </label>
-                    <input
-                      type="password"
-                      value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
-                      placeholder="Leave blank to keep existing"
-                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
-                    />
-                    <p className="text-xs text-neutral-500 mt-1">
-                      Leave blank to keep existing secret
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-2">
-                      Redirect URI
-                    </label>
-                    <input
-                      type="text"
-                      value={redirectUri}
-                      onChange={(e) => setRedirectUri(e.target.value)}
-                      className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
-                    />
-                    <p className="text-xs text-neutral-500 mt-1">
-                      Must match the URI registered in ManageEngine/Zoho. SaaS: https://resolvify.tech/oauth/callback. PAAS: https://&lt;your-host&gt;/oauth/callback.
-                    </p>
-                  </div>
+                  {/* OAuth fields (Zoho or ManageEngine Cloud/v2) */}
+                  {(connection.tool_name === 'zoho') || (isManageEngine && manageEngineVersion === 'v2') ? (
+                    <>
+                      <div>
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          Client ID
+                        </label>
+                        <input
+                          type="text"
+                          value={clientId}
+                          onChange={(e) => setClientId(e.target.value)}
+                          placeholder={`Your ${connection.tool_name === 'zoho' ? 'Zoho' : 'ManageEngine'} OAuth Client ID`}
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          Client Secret
+                        </label>
+                        <input
+                          type="password"
+                          value={clientSecret}
+                          onChange={(e) => setClientSecret(e.target.value)}
+                          placeholder="Leave blank to keep existing"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                        <p className="text-xs text-neutral-500 mt-1">
+                          Leave blank to keep existing secret
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          Redirect URI
+                        </label>
+                        <input
+                          type="text"
+                          value={redirectUri}
+                          onChange={(e) => setRedirectUri(e.target.value)}
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                        <p className="text-xs text-neutral-500 mt-1">
+                          Must match the URI registered in ManageEngine/Zoho. SaaS: https://resolvify.tech/oauth/callback. PAAS: https://&lt;your-host&gt;/oauth/callback.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* ManageEngine On‑Prem (v3) – API key/authtoken */}
+                      <div>
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          API Key / Authtoken
+                        </label>
+                        <input
+                          type="text"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="ManageEngine API key / authtoken"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                          Technician Email (optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={apiUsername}
+                          onChange={(e) => setApiUsername(e.target.value)}
+                          placeholder="Technician email (optional)"
+                          className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                        />
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
