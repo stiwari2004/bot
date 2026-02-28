@@ -128,12 +128,25 @@ class ManageEngineTicketFetcher:
                 "input_data": json.dumps(input_data)
             }
             
+            # Allow skipping SSL verification for on-prem with self-signed certs
+            ssl_verify = connection_meta.get("ssl_verify", True)
+            if connection_meta.get("skip_ssl_verify") is True:
+                ssl_verify = False
+            
             logger.info(f"Fetching ManageEngine tickets via OAuth from {api_url} with input_data in query params")
-            response = await self.client.get(
-                api_url,
-                headers=headers,
-                params=params
-            )
+            if ssl_verify:
+                response = await self.client.get(
+                    api_url,
+                    headers=headers,
+                    params=params
+                )
+            else:
+                async with httpx.AsyncClient(timeout=30.0, verify=False) as no_verify_client:
+                    response = await no_verify_client.get(
+                        api_url,
+                        headers=headers,
+                        params=params
+                    )
             
             # Log the response for debugging
             if response.status_code != 200:

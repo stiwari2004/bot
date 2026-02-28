@@ -52,6 +52,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
   // - v2: OAuth2 client (Client ID / Secret / Redirect URI)  [existing behaviour]
   // - v3: API key / authtoken mode
   const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v2');
+  const [skipSslVerify, setSkipSslVerify] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,6 +103,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
           // can differentiate behaviour if needed.
           if (isManageEngine) {
             meta.version = manageEngineVersion || 'v2';
+            meta.skip_ssl_verify = skipSslVerify;
           }
           if (Object.keys(meta).length > 0) {
             payload.meta_data = meta;
@@ -122,6 +124,7 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
             payload.meta_data = {
               ...(payload.meta_data || {}),
               version: manageEngineVersion || 'v3',
+              skip_ssl_verify: skipSslVerify,
             };
           }
         }
@@ -250,6 +253,18 @@ export function AddConnectionModal({ availableTools, onClose, onSuccess }: AddCo
                       <p className="text-xs text-neutral-500 mt-1">
                         Use the Cloud option when you have an OAuth client in the Zoho/ManageEngine console. Use the On‑Prem option when you only have a technician API key / authtoken.
                       </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          type="checkbox"
+                          id="add-skip-ssl-verify"
+                          checked={skipSslVerify}
+                          onChange={(e) => setSkipSslVerify(e.target.checked)}
+                          className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <label htmlFor="add-skip-ssl-verify" className="text-sm text-neutral-700">
+                          Skip SSL verification (use for self-signed certificates, e.g. on-prem)
+                        </label>
+                      </div>
                     </div>
                   )}
 

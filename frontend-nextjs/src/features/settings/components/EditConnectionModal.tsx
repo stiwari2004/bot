@@ -30,6 +30,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
   // - v2: OAuth2 client (Client ID / Secret / Redirect URI)
   // - v3: API key / authtoken mode
   const [manageEngineVersion, setManageEngineVersion] = useState<'v2' | 'v3'>('v2');
+  const [skipSslVerify, setSkipSslVerify] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         }
         if (isManageEngine) {
           setManageEngineVersion(version);
+          setSkipSslVerify(Boolean(meta.skip_ssl_verify));
         }
 
         const useOAuthForThisConnection =
@@ -117,6 +119,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         // can differentiate behaviour if needed.
         if (isManageEngine) {
           meta.version = manageEngineVersion || 'v2';
+          meta.skip_ssl_verify = skipSslVerify;
         }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;
@@ -144,6 +147,7 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
         // For ManageEngine v3 specifically, also store the API version flag in meta_data.
         if (isManageEngine) {
           meta.version = manageEngineVersion || 'v3';
+          meta.skip_ssl_verify = skipSslVerify;
         }
         if (Object.keys(meta).length > 0) {
           payload.meta_data = meta;
@@ -313,6 +317,21 @@ export function EditConnectionModal({ connection, availableTools, onClose, onSuc
                         />
                       </div>
                     </>
+                  )}
+
+                  {connection.tool_name === 'manageengine' && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="edit-skip-ssl-verify"
+                        checked={skipSslVerify}
+                        onChange={(e) => setSkipSslVerify(e.target.checked)}
+                        className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <label htmlFor="edit-skip-ssl-verify" className="text-sm text-neutral-700">
+                        Skip SSL verification (use for self-signed certificates, e.g. on-prem)
+                      </label>
+                    </div>
                   )}
                 </>
               ) : (

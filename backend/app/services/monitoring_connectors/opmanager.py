@@ -52,9 +52,10 @@ class OpManagerConnector:
             try:
                 data = resp.json()
             except Exception:
+                snippet = (resp.text or resp.content.decode("utf-8", errors="replace"))[:300]
                 return {
                     "success": False,
-                    "message": "Received non-JSON response from OpManager",
+                    "message": f"Received non-JSON response from OpManager (HTTP {resp.status_code}). First 300 chars: {snippet!r}",
                 }
 
             # If the response contains an error structure, surface it
