@@ -20,6 +20,21 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _make_json_serializable(obj: Any) -> Any:
+    """Recursively convert datetime/date to ISO string so dicts can be stored in JSON columns."""
+    if obj is None:
+        return None
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if hasattr(obj, "isoformat") and callable(getattr(obj, "isoformat")):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_make_json_serializable(v) for v in obj]
+    return obj
+
+
 class AlertPoller:
     """Background service for polling monitoring tools for alerts"""
     
@@ -268,12 +283,16 @@ class AlertPoller:
                     .first()
                 )
 
+                # JSON columns must not contain datetime objects
+                payload_for_db = _make_json_serializable(normalized)
+                meta_for_db = _make_json_serializable(normalized["metadata"])
+
                 if existing:
                     existing.title = normalized["title"]
                     existing.description = normalized["description"]
                     existing.severity = normalized["severity"]
                     existing.status = normalized["status"]
-                    existing.meta_data = normalized["metadata"]
+                    existing.meta_data = meta_for_db
                     if normalized.get("resolved_at"):
                         existing.resolved_at = normalized["resolved_at"]
                     updated_count += 1
@@ -290,8 +309,8 @@ class AlertPoller:
                         service=normalized.get("source_entity_name", ""),
                         starts_at=normalized.get("triggered_at"),
                         resolved_at=normalized.get("resolved_at"),
-                        meta_data=normalized["metadata"],
-                        raw_payload=normalized,
+                        meta_data=meta_for_db,
+                        raw_payload=payload_for_db,
                     )
                     db.add(alert)
                     created_count += 1
@@ -307,6 +326,7 @@ class AlertPoller:
             )
 
         except Exception as e:
+            db.rollback()
             logger.error(f"Error polling OpManager connection {connection.id}: {e}", exc_info=True)
             connection.last_sync_status = "error"
             connection.last_error = str(e)[:500]
