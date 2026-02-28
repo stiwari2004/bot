@@ -125,7 +125,22 @@ class OpManagerConnector:
 
         resp = await self.client.get(url, headers=headers, params=params)
         resp.raise_for_status()
-        data = resp.json()
+
+        try:
+            data = resp.json()
+        except Exception as e:
+            try:
+                snippet = (resp.text or resp.content.decode("utf-8", errors="replace") or "")[:300]
+            except Exception:
+                snippet = ""
+            msg = (
+                f"OpManager returned empty or non-JSON response (HTTP {resp.status_code}). "
+                "Check API key and listAlarms endpoint."
+            )
+            if snippet:
+                msg = f"{msg} First 300 chars: {snippet!r}"
+            logger.warning(msg)
+            raise ValueError(msg) from e
 
         # If OpManager returns an error envelope, don't try to treat it as an alarm.
         if isinstance(data, dict) and "error" in data:
