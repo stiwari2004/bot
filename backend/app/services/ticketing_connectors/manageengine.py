@@ -93,34 +93,18 @@ class ManageEngineTicketFetcher:
                 api_base_url = f"https://{api_base_url}"
             api_base_url = api_base_url.rstrip("/")
             
-            # ManageEngine OAuth 2.0 API format
-            # According to official docs: https://www.manageengine.com/products/service-desk/sdpod-v3-api/getting-started/oauth-2.0.html
+            # ManageEngine v3 API format:
+            # According to official docs: https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html
             # input_data must be URL-encoded as a query parameter in GET requests
             api_url = f"{api_base_url}/api/v3/requests"
             
-            # Build input_data according to official documentation
-            # input_data should be a JSON string, URL-encoded as a query parameter
-            input_data = {
-                "list_info": {
-                    "row_count": min(limit, 100),
-                    "start_index": 1,
-                    "sort_fields": [{"field": "modified_time", "order": "desc"}]
-                }
-            }
-            
-            # Add search criteria if since is provided
-            if since:
-                input_data["list_info"]["search_criteria"] = {
-                    "field": "modified_time.value",
-                    "condition": "greater than",
-                    "value": str(int(since.timestamp() * 1000))
-                }
-            
-            # Add status filter if provided
-            if status_filter:
-                if "search_criteria" not in input_data["list_info"]:
-                    input_data["list_info"]["search_criteria"] = {}
-                # Status filter can be added to search_criteria if needed
+            # Build input_data according to official documentation, reusing helper so
+            # poller and test paths behave consistently.
+            input_data = self._build_input_data(
+                status_filter=status_filter,
+                limit=min(limit, 100),
+                since=since,
+            )
             
             # According to docs: input_data must be URL-encoded in query params
             # Format: input_data={"list_info": {...}} as URL-encoded string
@@ -231,28 +215,42 @@ class ManageEngineTicketFetcher:
         limit: int,
         since: Optional[datetime]
     ) -> Dict[str, Any]:
-        """Build input_data JSON for ManageEngine API"""
+        """Build input_data JSON for ManageEngine API (GET /api/v3/requests).
+
+        Uses the documented list_info structure and a search_criteria array,
+        matching examples from the official docs. For incremental sync we
+        filter on modified_time.value > since_ms.
+        """
         input_data = {
             "list_info": {
                 "row_count": limit,
                 "start_index": 1,
-                "sort_fields": [{"field": "modified_time", "order": "desc"}]
+                # Use sort_fields array; ManageEngine echoes this structure back in responses.
+                "sort_fields": [{"field": "modified_time", "order": "desc"}],
             }
         }
         
-        if status_filter:
-            input_data["list_info"]["search_criteria"] = [
-                {"field": "status.name", "condition": "is", "value": status}
-                for status in status_filter
-            ]
+        criteria: List[Dict[str, Any]] = []
+
+        # TODO: if we later want status-based filtering, we can append additional
+        # criteria objects here (e.g. {"field": "status.name", "condition": "is", ...})
+        # and use logical_operator="and" as needed. For now, keep it simple and
+        # only filter by modified_time for incremental sync.
         
         if since:
-            input_data["list_info"]["search_criteria"] = input_data["list_info"].get("search_criteria", [])
-            input_data["list_info"]["search_criteria"].append({
-                "field": "modified_time",
-                "condition": "greater_than",
-                "value": int(since.timestamp())
-            })
+            # ManageEngine datetime fields are JSON objects with "value" (ms since epoch).
+            # We filter on modified_time.value using the "greater than" condition,
+            # which we verified via Postman against this instance.
+            criteria.append(
+                {
+                    "field": "modified_time.value",
+                    "condition": "greater than",
+                    "value": str(int(since.timestamp() * 1000)),
+                }
+            )
+        
+        if criteria:
+            input_data["list_info"]["search_criteria"] = criteria
         
         return input_data
     
