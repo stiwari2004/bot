@@ -15,7 +15,7 @@ from app.core.logging import get_logger
 from app.services.ticketing_connectors.zoho_oauth import ZohoOAuthService
 from app.services.ticketing_poller import TicketingPoller
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import secrets
 
@@ -547,13 +547,16 @@ async def test_ticketing_connection(
                 fetcher = ManageEngineTicketFetcher()
                 try:
                     # ManageEngine supports both OAuth (v2) and API key/authtoken (v3).
+                    # For testing, include a small time window so we always send a valid
+                    # search_criteria block that ManageEngine accepts (modified_time.value > since_ms).
+                    test_since = datetime.utcnow() - timedelta(days=7)
                     tickets = await fetcher.fetch_tickets(
                         api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                         connection_meta=meta_data,
                         api_key=connection.api_key,
                         api_username=connection.api_username,
                         api_password=connection.api_password,
-                        since=None,  # Fetch recent tickets
+                        since=test_since,
                         limit=10  # Just test with a few tickets
                     )
                     tickets_fetched = len(tickets)
