@@ -93,18 +93,32 @@ class ManageEngineTicketFetcher:
                 api_base_url = f"https://{api_base_url}"
             api_base_url = api_base_url.rstrip("/")
             
-            # ManageEngine v3 API format:
-            # According to official docs: https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html
-            # input_data must be URL-encoded as a query parameter in GET requests
+            # ManageEngine v3 API format (GET /api/v3/requests):
+            # According to official docs:
+            # https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html
+            # input_data must be URL-encoded as a query parameter in GET requests.
             api_url = f"{api_base_url}/api/v3/requests"
-            
-            # Build input_data according to official documentation, reusing helper so
-            # poller and test paths behave consistently.
-            input_data = self._build_input_data(
-                status_filter=status_filter,
-                limit=min(limit, 100),
-                since=since,
-            )
+
+            # IMPORTANT: Build input_data in the exact shape that we have
+            # validated via Postman against this instance, to avoid subtle
+            # differences between helper variants.
+            list_info: Dict[str, Any] = {
+                "row_count": min(limit, 100),
+                "start_index": 1,
+                "sort_fields": [{"field": "modified_time", "order": "desc"}],
+            }
+
+            # For incremental sync (or tests that pass a since value), filter on
+            # modified_time.value > since_ms using the single-object
+            # search_criteria form that we know ManageEngine accepts.
+            if since:
+                list_info["search_criteria"] = {
+                    "field": "modified_time.value",
+                    "condition": "greater than",
+                    "value": str(int(since.timestamp() * 1000)),
+                }
+
+            input_data = {"list_info": list_info}
             
             # According to docs: input_data must be URL-encoded in query params
             # Format: input_data={"list_info": {...}} as URL-encoded string
