@@ -230,27 +230,17 @@ class ManageEngineTicketFetcher:
             }
         }
         
-        criteria: List[Dict[str, Any]] = []
-
-        # TODO: if we later want status-based filtering, we can append additional
-        # criteria objects here (e.g. {"field": "status.name", "condition": "is", ...})
-        # and use logical_operator="and" as needed. For now, keep it simple and
-        # only filter by modified_time for incremental sync.
-        
+        # For now we only filter on modified_time for incremental sync.
+        # IMPORTANT: Use the single-object form for search_criteria, because we
+        # have verified via Postman that this instance accepts:
+        # "search_criteria": { "field": "modified_time.value", "condition": "greater than", "value": "<ms>" }
+        # and rejected some array-based variants.
         if since:
-            # ManageEngine datetime fields are JSON objects with "value" (ms since epoch).
-            # We filter on modified_time.value using the "greater than" condition,
-            # which we verified via Postman against this instance.
-            criteria.append(
-                {
-                    "field": "modified_time.value",
-                    "condition": "greater than",
-                    "value": str(int(since.timestamp() * 1000)),
-                }
-            )
-        
-        if criteria:
-            input_data["list_info"]["search_criteria"] = criteria
+            input_data["list_info"]["search_criteria"] = {
+                "field": "modified_time.value",
+                "condition": "greater than",
+                "value": str(int(since.timestamp() * 1000)),
+            }
         
         return input_data
     
