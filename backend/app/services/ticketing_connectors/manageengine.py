@@ -93,40 +93,18 @@ class ManageEngineTicketFetcher:
                 api_base_url = f"https://{api_base_url}"
             api_base_url = api_base_url.rstrip("/")
             
-            # ManageEngine v3 API format (GET /api/v3/requests):
-            # According to official docs:
-            # https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html
-            # input_data must be URL-encoded as a query parameter in GET requests.
+            # ManageEngine v3 API format (GET /api/v3/requests) - Get List Request.
+            # Docs: https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html#get-list-request
+            # - list_info must use sort_field (string) + sort_order ("asc"|"desc"), NOT sort_fields array.
+            # - search_criteria must be an ARRAY of criterion objects, NOT a single object.
             api_url = f"{api_base_url}/api/v3/requests"
 
-            # TEMP: Hard-code the exact input_data shape that worked in Postman
-            # for debugging. This ignores the dynamic `since` value and always
-            # uses the same search_criteria so we can confirm behaviour matches
-            # between Postman and the app.
-            input_data: Dict[str, Any] = {
-                "list_info": {
-                    "row_count": 100,
-                    "start_index": 1,
-                    "sort_fields": [
-                        {"field": "modified_time", "order": "desc"}
-                    ],
-                    "search_criteria": {
-                        "field": "modified_time.value",
-                        "condition": "greater than",
-                        "value": "1772459061529",
-                    },
-                }
-            }
-            
-            # According to docs: input_data must be URL-encoded in query params
-            # Format: input_data={"list_info": {...}} as URL-encoded string
+            input_data = self._build_input_data(status_filter, limit, since)
+
+            # input_data must be URL-encoded as query param for GET
             input_data_str = json.dumps(input_data)
             params = {"input_data": input_data_str}
-            # Log so we can confirm hardcoded vs dynamic in server logs
-            logger.info(
-                "ManageEngine request input_data (expect hardcoded value 1772459061529 if deploy is correct): %s",
-                input_data_str[:280],
-            )
+            logger.info("ManageEngine v3 GET list requests with input_data (list_info) in query params")
             
             # Allow skipping SSL verification for on-prem with self-signed certs
             ssl_verify = connection_meta.get("ssl_verify", True)
@@ -231,34 +209,30 @@ class ManageEngineTicketFetcher:
         limit: int,
         since: Optional[datetime]
     ) -> Dict[str, Any]:
-        """Build input_data JSON for ManageEngine API (GET /api/v3/requests).
+        """Build input_data for ManageEngine v3 Get List Request.
 
-        Uses the documented list_info structure and a search_criteria array,
-        matching examples from the official docs. For incremental sync we
-        filter on modified_time.value > since_ms.
+        Matches official docs exactly:
+        https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html#get-list-request
+        - list_info uses sort_field (string) + sort_order ("asc"|"desc"), not sort_fields.
+        - search_criteria is an ARRAY of { field, value, condition [, logical_operator] }.
         """
-        input_data = {
-            "list_info": {
-                "row_count": limit,
-                "start_index": 1,
-                # Use sort_fields array; ManageEngine echoes this structure back in responses.
-                "sort_fields": [{"field": "modified_time", "order": "desc"}],
-            }
+        list_info: Dict[str, Any] = {
+            "row_count": min(limit, 100),
+            "start_index": 1,
+            "sort_field": "modified_time",
+            "sort_order": "desc",
         }
-        
-        # For now we only filter on modified_time for incremental sync.
-        # IMPORTANT: Use the single-object form for search_criteria, because we
-        # have verified via Postman that this instance accepts:
-        # "search_criteria": { "field": "modified_time.value", "condition": "greater than", "value": "<ms>" }
-        # and rejected some array-based variants.
         if since:
-            input_data["list_info"]["search_criteria"] = {
-                "field": "modified_time.value",
-                "condition": "greater than",
-                "value": str(int(since.timestamp() * 1000)),
-            }
-        
-        return input_data
+            since_ms = str(int(since.timestamp() * 1000))
+            # API expects search_criteria as array (doc example uses array of criteria).
+            list_info["search_criteria"] = [
+                {
+                    "field": "modified_time.value",
+                    "condition": "greater than",
+                    "value": since_ms,
+                }
+            ]
+        return {"list_info": list_info}
     
     def _build_request_body(
         self,
