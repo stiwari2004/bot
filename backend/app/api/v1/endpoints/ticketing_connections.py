@@ -547,9 +547,15 @@ async def test_ticketing_connection(
                 fetcher = ManageEngineTicketFetcher()
                 try:
                     # ManageEngine supports both OAuth (v2) and API key/authtoken (v3).
-                    # For testing, include a small time window so we always send a valid
-                    # search_criteria block that ManageEngine accepts (modified_time.value > since_ms).
-                    test_since = datetime.utcnow() - timedelta(days=7)
+                    # For v3/authtoken, the instance is currently rejecting list_info.search_criteria,
+                    # even when it matches the docs, so for connection tests we avoid any filter
+                    # and just fetch the most recent requests. For v2/OAuth we can still include
+                    # a small time window for incremental-style testing.
+                    version = str(meta_data.get("version", "v2")).lower()
+                    if version == "v3":
+                        test_since = None
+                    else:
+                        test_since = datetime.utcnow() - timedelta(days=7)
                     tickets = await fetcher.fetch_tickets(
                         api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                         connection_meta=meta_data,
