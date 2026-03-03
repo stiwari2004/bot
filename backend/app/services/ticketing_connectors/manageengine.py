@@ -99,32 +99,34 @@ class ManageEngineTicketFetcher:
             # input_data must be URL-encoded as a query parameter in GET requests.
             api_url = f"{api_base_url}/api/v3/requests"
 
-            # IMPORTANT: Build input_data in the exact shape that we have
-            # validated via Postman against this instance, to avoid subtle
-            # differences between helper variants.
-            list_info: Dict[str, Any] = {
-                "row_count": min(limit, 100),
-                "start_index": 1,
-                "sort_fields": [{"field": "modified_time", "order": "desc"}],
-            }
-
-            # For incremental sync (or tests that pass a since value), filter on
-            # modified_time.value > since_ms using the single-object
-            # search_criteria form that we know ManageEngine accepts.
-            if since:
-                list_info["search_criteria"] = {
-                    "field": "modified_time.value",
-                    "condition": "greater than",
-                    "value": str(int(since.timestamp() * 1000)),
+            # TEMP: Hard-code the exact input_data shape that worked in Postman
+            # for debugging. This ignores the dynamic `since` value and always
+            # uses the same search_criteria so we can confirm behaviour matches
+            # between Postman and the app.
+            input_data: Dict[str, Any] = {
+                "list_info": {
+                    "row_count": 100,
+                    "start_index": 1,
+                    "sort_fields": [
+                        {"field": "modified_time", "order": "desc"}
+                    ],
+                    "search_criteria": {
+                        "field": "modified_time.value",
+                        "condition": "greater than",
+                        "value": "1772459061529",
+                    },
                 }
-
-            input_data = {"list_info": list_info}
+            }
             
             # According to docs: input_data must be URL-encoded in query params
             # Format: input_data={"list_info": {...}} as URL-encoded string
-            params = {
-                "input_data": json.dumps(input_data)
-            }
+            input_data_str = json.dumps(input_data)
+            params = {"input_data": input_data_str}
+            # Log so we can confirm hardcoded vs dynamic in server logs
+            logger.info(
+                "ManageEngine request input_data (expect hardcoded value 1772459061529 if deploy is correct): %s",
+                input_data_str[:280],
+            )
             
             # Allow skipping SSL verification for on-prem with self-signed certs
             ssl_verify = connection_meta.get("ssl_verify", True)
