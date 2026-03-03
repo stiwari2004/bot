@@ -219,7 +219,8 @@ class ManageEngineTicketFetcher:
         list_info: Dict[str, Any] = {
             "row_count": min(limit, 100),
             "start_index": 1,
-            "sort_field": "modified_time",
+            # Some SDP builds reject modified_time in list_info; created_time is a safe, documented field.
+            "sort_field": "created_time",
             "sort_order": "desc",
         }
         if since:
@@ -227,7 +228,7 @@ class ManageEngineTicketFetcher:
             # API expects search_criteria as array (doc example uses array of criteria).
             list_info["search_criteria"] = [
                 {
-                    "field": "modified_time.value",
+                    "field": "created_time.value",
                     "condition": "greater than",
                     "value": since_ms,
                 }
