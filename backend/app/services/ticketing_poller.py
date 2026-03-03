@@ -201,13 +201,23 @@ class TicketingPoller:
                 # ManageEngine supports:
                 # - v2: OAuth 2.0 (authorization code flow, same as Zoho)
                 # - v3: API key/authtoken
+                # On this SDP instance, v3/authtoken rejects list_info.search_criteria,
+                # so for v3 we avoid date-based filtering and rely on our own de-duplication.
+                version = str(meta_data.get("version", "v2")).lower()
+                effective_since = since
+                if version == "v3":
+                    effective_since = None
+                    logger.info(
+                        f"ManageEngine v3 connection {connection.id}: disabling server-side "
+                        f"search_criteria; fetching latest tickets without since filter."
+                    )
                 tickets = await self.manageengine_fetcher.fetch_tickets(
                     api_base_url=connection.api_base_url or meta_data.get("api_base_url", ""),
                     connection_meta=meta_data,
                     api_key=connection.api_key,
                     api_username=connection.api_username,
                     api_password=connection.api_password,
-                    since=since,
+                    since=effective_since,
                     limit=100
                 )
             
