@@ -24,7 +24,13 @@ class OpManagerConnector:
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def test_connection(self, base_url: str, api_key: str) -> Dict[str, Any]:
+    async def test_connection(
+        self,
+        base_url: str,
+        api_key: str,
+        region_id: Optional[str] = None,
+        sel_customer_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Test connection to OpManager by calling listAlarms with a small limit.
         """
@@ -36,8 +42,13 @@ class OpManagerConnector:
 
             url = f"{base_url.rstrip('/')}/api/json/alarm/listAlarms"
             headers = {"apiKey": api_key}
-            # OpManager is picky about unknown params; only send supported ones.
+            # OpManager MSP (central) requires regionID and selCustomerID.
+            # Docs: https://www.manageengine.com/network-monitoring-msp/help/rest-api-opmanager-msp.html
             params = {"alertType": "ActiveAlarms"}
+            if region_id is not None:
+                params["regionID"] = region_id
+            if sel_customer_id is not None:
+                params["selCustomerID"] = sel_customer_id
 
             logger.info(f"Testing OpManager connection to {url} with alertType=ActiveAlarms")
             resp = await self.client.get(url, headers=headers, params=params)
@@ -99,6 +110,8 @@ class OpManagerConnector:
         alert_type: str = "ActiveAlarms",
         severity: Optional[str] = None,
         limit: int = 100,
+        region_id: Optional[str] = None,
+        sel_customer_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Fetch alarms from OpManager.
@@ -111,10 +124,14 @@ class OpManagerConnector:
         url = f"{base_url.rstrip('/')}/api/json/alarm/listAlarms"
         headers = {"apiKey": api_key}
 
-        # Only send parameters OpManager documents: alertType, severity, deviceName, category, fromTime, toTime, probeName.
+        # Only send documented parameters. For MSP central, regionID & selCustomerID are mandatory.
         params: Dict[str, Any] = {
             "alertType": alert_type or "ActiveAlarms",
         }
+        if region_id is not None:
+            params["regionID"] = region_id
+        if sel_customer_id is not None:
+            params["selCustomerID"] = sel_customer_id
         if severity is not None:
             params["severity"] = severity
 

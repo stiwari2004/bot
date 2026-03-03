@@ -299,6 +299,7 @@ async def test_monitoring_connection(
             return result
         elif db_connection.tool_name == "opmanager":
             from app.services.monitoring_connectors.opmanager import OpManagerConnector
+            import json
 
             base_url = db_connection.api_base_url
             api_key = db_connection.api_key
@@ -308,8 +309,22 @@ async def test_monitoring_connection(
             if not api_key:
                 return {"success": False, "message": "API key is required for OpManager connections"}
 
+            # For OpManager MSP (central), regionID & selCustomerID are required.
+            # Allow overriding via meta_data; default both to "-1" per docs if present.
+            meta_data = json.loads(db_connection.meta_data) if isinstance(db_connection.meta_data, str) else (db_connection.meta_data or {})
+            region_id = None
+            sel_customer_id = None
+            if meta_data:
+                region_id = str(meta_data.get("regionID", "-1"))
+                sel_customer_id = str(meta_data.get("selCustomerID", "-1"))
+
             connector = OpManagerConnector()
-            result = await connector.test_connection(base_url=base_url, api_key=api_key)
+            result = await connector.test_connection(
+                base_url=base_url,
+                api_key=api_key,
+                region_id=region_id,
+                sel_customer_id=sel_customer_id,
+            )
             await connector.close()
             return result
         elif db_connection.tool_name == "datadog":

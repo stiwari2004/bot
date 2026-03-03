@@ -255,12 +255,21 @@ class AlertPoller:
             severity_filter = meta_data.get("severity")  # e.g., "1" for Critical
             limit = int(meta_data.get("limit", 100))
 
+            # MSP central: regionID & selCustomerID are mandatory for external APIs.
+            region_id = None
+            sel_customer_id = None
+            if meta_data:
+                region_id = str(meta_data.get("regionID", "-1"))
+                sel_customer_id = str(meta_data.get("selCustomerID", "-1"))
+
             alarms = await self.opmanager_connector.fetch_alarms(
                 base_url=base_url,
                 api_key=api_key,
                 alert_type=alert_type,
                 severity=severity_filter,
                 limit=limit,
+                region_id=region_id,
+                sel_customer_id=sel_customer_id,
             )
 
             logger.info(
