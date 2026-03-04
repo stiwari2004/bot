@@ -44,6 +44,8 @@ class RunbookSearchService:
         - id, title, similarity_score, confidence_score, success_rate, times_used, last_used, reasoning
         """
         try:
+            # Coerce to str so we never pass a SQL/ORM object (e.g. TextClause) into embedding/search
+            issue_description = (str(issue_description).strip() if issue_description is not None else "") or " "
             # First, get semantic matches from vector store (only approved runbooks)
             search_results = await self.vector_service.hybrid_search(
                 query=issue_description,

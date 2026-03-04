@@ -363,6 +363,8 @@ class PgVectorStore(VectorStore):
         """
         from app.models.document import Document
         
+        # Coerce to str so callers can't pass ORM/SQL objects (e.g. TextClause) and break re/embedding
+        query = (str(query).strip() if query is not None else "") or " "
         # Step 1: Vector search
         query_embedding = await self._generate_embedding(query)
         # Format vector for PostgreSQL

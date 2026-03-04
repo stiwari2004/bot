@@ -211,10 +211,12 @@ class ManageEngineTicketFetcher:
     ) -> Dict[str, Any]:
         """Build input_data for ManageEngine v3 Get List Request.
 
-        Matches official docs exactly:
-        https://www.manageengine.com/products/service-desk/sdpop-v3-api/requests/request.html#get-list-request
-        - list_info uses sort_field (string) + sort_order ("asc"|"desc"), not sort_fields.
-        - search_criteria is an ARRAY of { field, value, condition [, logical_operator] }.
+        V3 date setup (restored/kept):
+        - For v3 the poller passes since=None, so we do NOT send search_criteria here
+          (this instance rejects list_info.search_criteria for requests).
+        - We sort by created_time only; we do not request or sort by modified_time.
+        - Response dates (created_time, etc.) come back as { "value": epoch_ms, "display_value": "..." };
+          we store them in metadata as-is.
         """
         list_info: Dict[str, Any] = {
             "row_count": min(limit, 100),
@@ -222,9 +224,9 @@ class ManageEngineTicketFetcher:
             # Some SDP builds reject modified_time in list_info; created_time is a safe, documented field.
             "sort_field": "created_time",
             "sort_order": "desc",
-            # Explicitly request fields we care about so that description and CI/asset
-            # details are available when normalizing tickets.
-            # SDP will ignore unknown fields, so this list is conservative.
+            # Explicitly request a minimal, widely supported set of fields.
+            # Previous attempts with modified_time/resource/asset caused 400s on this instance,
+            # so we avoid those here.
             "fields_required": [
                 "id",
                 "subject",
@@ -232,12 +234,9 @@ class ManageEngineTicketFetcher:
                 "status",
                 "priority",
                 "created_time",
-                "modified_time",
                 "requester",
                 "technician",
                 "site",
-                "resource",
-                "asset",
                 "assets",
             ],
         }
