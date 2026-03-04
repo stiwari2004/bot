@@ -222,6 +222,24 @@ class ManageEngineTicketFetcher:
             # Some SDP builds reject modified_time in list_info; created_time is a safe, documented field.
             "sort_field": "created_time",
             "sort_order": "desc",
+            # Explicitly request fields we care about so that description and CI/asset
+            # details are available when normalizing tickets.
+            # SDP will ignore unknown fields, so this list is conservative.
+            "fields_required": [
+                "id",
+                "subject",
+                "description",
+                "status",
+                "priority",
+                "created_time",
+                "modified_time",
+                "requester",
+                "technician",
+                "site",
+                "resource",
+                "asset",
+                "assets",
+            ],
         }
         if since:
             since_ms = str(int(since.timestamp() * 1000))
@@ -273,6 +291,33 @@ class ManageEngineTicketFetcher:
         }
         normalized_status = status_map.get(status_name, "open")
         
+        # Try to extract basic CI / asset info (IP, OS, name) for better context
+        ci_ip = None
+        ci_os = None
+        ci_name = None
+
+        resource = request.get("resource") or request.get("asset")
+        assets = request.get("assets")
+        if not resource and isinstance(assets, list) and assets:
+            resource = assets[0]
+
+        if isinstance(resource, dict):
+            ci_ip = (
+                resource.get("ip_address")
+                or resource.get("ipAddress")
+                or resource.get("ip")
+            )
+            ci_os = (
+                resource.get("os")
+                or resource.get("operating_system")
+                or resource.get("os_name")
+            )
+            ci_name = (
+                resource.get("name")
+                or resource.get("display_name")
+                or resource.get("host_name")
+            )
+
         return {
             "external_id": str(request_id),
             "title": subject,
@@ -286,7 +331,10 @@ class ManageEngineTicketFetcher:
                 "manageengine_priority": priority_name,
                 "manageengine_created_time": request.get("created_time") or request.get("createdTime"),
                 "manageengine_modified_time": request.get("modified_time") or request.get("modifiedTime"),
-                "manageengine_technician": request.get("technician", {}).get("name") if isinstance(request.get("technician"), dict) else None
+                "manageengine_technician": request.get("technician", {}).get("name") if isinstance(request.get("technician"), dict) else None,
+                "ci_name": ci_name,
+                "ci_ip_address": ci_ip,
+                "ci_os": ci_os,
             }
         }
     
