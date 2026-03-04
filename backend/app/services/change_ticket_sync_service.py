@@ -247,22 +247,222 @@ class ChangeTicketSyncService:
         connection: TicketingToolConnection,
         meta_data: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Fetch change tickets from ManageEngine"""
+        """
+        Fetch change tickets from ManageEngine ServiceDesk Plus (v3 API).
+        
+        MVP implementation:
+        - Uses the v3 `/api/v3/changes` list endpoint
+        - Filters to changes whose scheduled start is within the last 7 days (or in the future)
+        - Maps a small, robust subset of fields into our internal change ticket format
+        """
+        import httpx
+        
         try:
-            # ManageEngine change management - similar structure
-            # Query changes from last 7 days and future
+            # Time window: last 7 days and upcoming changes
             since = datetime.now(timezone.utc) - timedelta(days=7)
-            
-            api_url = connection.api_base_url or meta_data.get("api_base_url", "")
-            
-            # Use ManageEngine fetcher to query changes
-            # Note: This is a placeholder - actual implementation depends on ManageEngine API structure
-            # For now, return empty list as ManageEngine change API structure may differ
-            logger.warning("ManageEngine change ticket fetching not yet fully implemented")
-            return []
-            
+            since_ms = str(int(since.timestamp() * 1000))
+
+            # Normalize API base URL
+            api_base_url = connection.api_base_url or meta_data.get("api_base_url", "")
+            if not api_base_url:
+                logger.warning("ManageEngine change sync: api_base_url is not set; skipping.")
+                return []
+            if not api_base_url.startswith("http"):
+                api_base_url = f"https://{api_base_url}"
+            api_base_url = api_base_url.rstrip("/")
+
+            api_url = f"{api_base_url}/api/v3/changes"
+
+            # Authentication: use v3 API key/authtoken (same as ticket fetcher)
+            key = (
+                connection.api_key
+                or meta_data.get("api_key")
+                or meta_data.get("authtoken")
+            )
+            if not key:
+                logger.warning(
+                    f"ManageEngine change sync for connection {connection.id} "
+                    f"skipped: missing api_key/authtoken"
+                )
+                return []
+
+            headers = {
+                "authtoken": key,
+                "Accept": "application/vnd.manageengine.sdp.v3+json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            }
+
+            # Build list_info for Get List Changes.
+            # We keep this intentionally simple and conservative for MVP.
+            list_info: Dict[str, Any] = {
+                "row_count": 100,
+                "start_index": 1,
+                # Use scheduled_start_time when available; fall back to created_time
+                "sort_field": "scheduled_start_time",
+                "sort_order": "asc",
+                "search_criteria": [
+                    {
+                        "field": "scheduled_start_time.value",
+                        "condition": "greater than",
+                        "value": since_ms,
+                    }
+                ],
+            }
+
+            input_data = {"list_info": list_info}
+            params = {"input_data": json.dumps(input_data)}
+
+            # Respect SSL flags from meta_data, same pattern as request fetcher
+            ssl_verify = meta_data.get("ssl_verify", True)
+            if meta_data.get("skip_ssl_verify") is True:
+                ssl_verify = False
+
+            logger.info(
+                f"Fetching ManageEngine changes from {api_url} "
+                f"with list_info={list_info}"
+            )
+
+            if ssl_verify:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(api_url, headers=headers, params=params)
+            else:
+                async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                    response = await client.get(api_url, headers=headers, params=params)
+
+            if response.status_code != 200:
+                snippet = response.text[:500] if hasattr(response, "text") else ""
+                logger.error(
+                    f"ManageEngine change API error {response.status_code}: {snippet}"
+                )
+                return []
+
+            data = response.json()
+
+            # Response shape: typically { "changes": [ ... ] }, but be tolerant.
+            changes_raw: List[Dict[str, Any]]
+            if isinstance(data, dict) and "changes" in data and isinstance(
+                data["changes"], list
+            ):
+                changes_raw = data["changes"]
+            elif isinstance(data, list):
+                changes_raw = data
+            else:
+                logger.warning(
+                    f"Unexpected ManageEngine change list response shape: {type(data)}"
+                )
+                return []
+
+            result: List[Dict[str, Any]] = []
+
+            for ch in changes_raw:
+                try:
+                    external_id = str(ch.get("id") or ch.get("change_id") or "")
+                    if not external_id:
+                        logger.debug(f"Skipping change without id: {ch}")
+                        continue
+
+                    title = (
+                        ch.get("subject")
+                        or ch.get("title")
+                        or "Change Request"
+                    )
+                    description = ch.get("description") or ""
+
+                    # Status mapping – keep it simple and robust
+                    raw_status = ch.get("status", {})
+                    if isinstance(raw_status, dict):
+                        status_name = raw_status.get("name") or ""
+                    else:
+                        status_name = str(raw_status or "")
+                    status_name_lower = status_name.lower()
+                    status_map = {
+                        "scheduled": "scheduled",
+                        "in progress": "in_progress",
+                        "in-progress": "in_progress",
+                        "implementing": "in_progress",
+                        "completed": "completed",
+                        "closed": "completed",
+                        "canceled": "cancelled",
+                        "cancelled": "cancelled",
+                    }
+                    status = status_map.get(status_name_lower, "scheduled")
+
+                    # Parse scheduled start / end times
+                    def _parse_me_datetime(field_name: str) -> Optional[datetime]:
+                        val = ch.get(field_name)
+                        # Many v3 datetime fields are objects with {"value": <ms>, "display_value": "..."}
+                        if isinstance(val, dict) and "value" in val:
+                            try:
+                                ms = int(val["value"])
+                                return datetime.fromtimestamp(
+                                    ms / 1000.0, tz=timezone.utc
+                                )
+                            except Exception:
+                                return None
+                        # Fallback: ISO/string timestamp
+                        if isinstance(val, str) and val:
+                            try:
+                                # Try a few common formats; if all fail, ignore
+                                from dateutil import parser  # type: ignore
+
+                                dt = parser.parse(val)
+                                if dt.tzinfo is None:
+                                    dt = dt.replace(tzinfo=timezone.utc)
+                                return dt
+                            except Exception:
+                                return None
+                        return None
+
+                    start_time = (
+                        _parse_me_datetime("scheduled_start_time")
+                        or _parse_me_datetime("planned_start_time")
+                    )
+                    end_time = (
+                        _parse_me_datetime("scheduled_end_time")
+                        or _parse_me_datetime("planned_end_time")
+                    )
+
+                    if not start_time or not end_time:
+                        # Without a sane window, suppression behaviour is ambiguous – skip for MVP
+                        logger.debug(
+                            f"Skipping change {external_id} - missing start/end time"
+                        )
+                        continue
+
+                    # For now we don't have structured affected services/environments from SDP change.
+                    # Default environments follow ServiceNow behaviour.
+                    affected_services: List[str] = []
+                    affected_environments: List[str] = ["prod", "staging", "dev"]
+
+                    result.append(
+                        {
+                            "external_id": external_id,
+                            "title": title,
+                            "description": description,
+                            "change_type": None,  # SDP change type mapping can be added later
+                            "status": status,
+                            "start_time": start_time,
+                            "end_time": end_time,
+                            "affected_services": affected_services,
+                            "affected_environments": affected_environments,
+                            "suppression_enabled": True,
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error normalizing ManageEngine change record: {e}", exc_info=True
+                    )
+                    continue
+
+            logger.info(
+                f"Fetched {len(result)} change tickets from ManageEngine for connection {connection.id}"
+            )
+            return result
+
         except Exception as e:
-            logger.error(f"Error fetching ManageEngine change tickets: {e}", exc_info=True)
+            logger.error(
+                f"Error fetching ManageEngine change tickets: {e}", exc_info=True
+            )
             return []
     
     def _parse_servicenow_date(self, date_str: Optional[str]) -> Optional[datetime]:

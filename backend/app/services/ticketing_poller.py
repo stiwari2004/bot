@@ -14,6 +14,7 @@ from app.services.ticketing_connectors.zoho import ZohoTicketFetcher
 from app.services.ticketing_connectors.manageengine import ManageEngineTicketFetcher
 from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
 from app.services.change_window_service import get_change_window_service
+from app.services.change_ticket_sync_service import get_change_ticket_sync_service
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -158,6 +159,41 @@ class TicketingPoller:
     async def _poll_connection(self, connection: TicketingToolConnection, db: Session):
         """Poll a single connection for tickets"""
         logger.info(f"Polling {connection.tool_name} connection {connection.id}")
+        
+        # First, try to sync change tickets for tools that support it (ServiceNow, ManageEngine).
+        try:
+            if connection.tool_name in ("servicenow", "manageengine"):
+                change_sync_service = get_change_ticket_sync_service()
+                sync_stats = await change_sync_service.sync_change_tickets(
+                    connection, db
+                )
+                logger.info(
+                    f"Change ticket sync for {connection.tool_name} connection {connection.id}: "
+                    f"{sync_stats.get('created_count', 0)} created, "
+                    f"{sync_stats.get('updated_count', 0)} updated, "
+                    f"{sync_stats.get('error_count', 0)} errors"
+                )
+                # After syncing changes, auto-unsuppress any tickets whose change windows have expired.
+                try:
+                    change_window_service = get_change_window_service()
+                    unsuppressed = change_window_service.auto_unsuppress_expired_changes(
+                        db, tenant_id=connection.tenant_id
+                    )
+                    if unsuppressed:
+                        logger.info(
+                            f"Auto-unsuppressed {unsuppressed} tickets for tenant "
+                            f"{connection.tenant_id} after change window updates"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to auto-unsuppress tickets after change sync: {e}"
+                    )
+        except Exception as e:
+            logger.error(
+                f"Error during change ticket sync for {connection.tool_name} connection "
+                f"{connection.id}: {e}",
+                exc_info=True,
+            )
         
         # Track if tokens were refreshed (so we can persist them even if fetch fails)
         tokens_refreshed = False
