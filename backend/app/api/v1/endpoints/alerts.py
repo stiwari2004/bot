@@ -23,6 +23,7 @@ class WebhookSource(str, Enum):
     SPLUNK = "splunk"
     PAGERDUTY = "pagerduty"
     SOLARWINDS = "solarwinds"
+    OP_MANAGER = "opmanager"
     CUSTOM = "custom"
 
 
