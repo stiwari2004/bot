@@ -15,6 +15,7 @@ from app.services.ticketing_connectors.manageengine import ManageEngineTicketFet
 from app.services.ticketing_connectors.servicenow import ServiceNowTicketFetcher
 from app.services.change_window_service import get_change_window_service
 from app.services.change_ticket_sync_service import get_change_ticket_sync_service
+from app.services.recurring_incident_service import update_recurring_metadata
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -410,6 +411,12 @@ class TicketingPoller:
                             change_window_service.check_and_suppress_ticket(db, new_ticket)
                         except Exception as e:
                             logger.warning(f"Failed to check ticket suppression: {e}")
+
+                        # Update recurring incident metadata (MVP)
+                        try:
+                            update_recurring_metadata(db, new_ticket)
+                        except Exception as e:
+                            logger.warning(f"Failed to update recurring metadata: {e}")
                         
                         # Track billing: ticket received
                         try:

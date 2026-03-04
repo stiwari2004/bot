@@ -61,6 +61,17 @@ class ContextCorrelationResponse(BaseModel):
     correlated_at: str
 
 
+class MarkProblemCandidateRequest(BaseModel):
+    """Request body for marking a ticket as a problem candidate."""
+    note: Optional[str] = None
+
+
+class MarkProblemCandidateResponse(BaseModel):
+    """Response after marking a ticket as a problem candidate."""
+    ticket_id: int
+    problem_candidate: Dict[str, Any]
+
+
 @router.get("/demo/tickets/{ticket_id}/recommendation", response_model=RecommendationResponse)
 @rate_limit("60/minute")
 async def get_recommendation(
@@ -92,6 +103,72 @@ async def get_recommendation(
     except Exception as e:
         logger.error(f"Error getting recommendation for ticket {ticket_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/demo/tickets/{ticket_id}/mark-problem-candidate",
+    response_model=MarkProblemCandidateResponse,
+)
+@rate_limit("60/minute")
+async def mark_problem_candidate(
+    ticket_id: int,
+    request: MarkProblemCandidateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Mark a ticket as a problem candidate.
+
+    This does not create an external Problem record in SDP/ServiceNow yet.
+    It stores a `problem_candidate` block in the ticket's meta_data so the UI
+    can surface it and humans can create/track the Problem in their ITSM.
+    """
+    try:
+        ticket = (
+            db.query(Ticket)
+            .filter(
+                Ticket.id == ticket_id,
+                Ticket.tenant_id == current_user.tenant_id,
+            )
+            .first()
+        )
+
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        meta = ticket.meta_data or {}
+        if not isinstance(meta, dict):
+            meta = {}
+
+        recurring = meta.get("recurring") or {}
+
+        problem_candidate = meta.get("problem_candidate", {}) or {}
+        now = datetime.now(timezone.utc)
+        problem_candidate.update(
+            {
+                "created_at": now.isoformat(),
+                "created_by": current_user.email,
+                "note": request.note,
+                "recurring": recurring,
+            }
+        )
+
+        meta["problem_candidate"] = problem_candidate
+        ticket.meta_data = meta
+
+        db.commit()
+
+        return MarkProblemCandidateResponse(
+            ticket_id=ticket.id,
+            problem_candidate=problem_candidate,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error marking ticket {ticket_id} as problem candidate: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to mark ticket as problem candidate"
+        )
 
 
 @router.get("/demo/tickets/{ticket_id}/patterns", response_model=List[PatternMatchResponse])

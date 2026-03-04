@@ -19,6 +19,7 @@ from app.services.execution import ExecutionEngine
 from app.services.config_service import ConfigService
 from app.services.decision import RecommendationEngine
 from app.services.change_window_service import get_change_window_service
+from app.services.recurring_incident_service import update_recurring_metadata
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -77,6 +78,12 @@ class TicketController(BaseController):
                     "status": "suppressed",
                     "message": "Ticket received but suppressed due to active change window"
                 }
+
+            # Update recurring incident metadata (MVP)
+            try:
+                update_recurring_metadata(self.db, ticket)
+            except Exception as e:
+                logger.warning(f"Failed to update recurring metadata for webhook ticket {ticket.id}: {e}")
             
             # Analyze ticket
             analysis_result = await self._analyze_ticket(ticket)
@@ -136,6 +143,12 @@ class TicketController(BaseController):
                     "status": "suppressed",
                     "message": "Ticket received but suppressed due to active change window"
                 }
+
+            # Update recurring incident metadata (MVP)
+            try:
+                update_recurring_metadata(self.db, ticket)
+            except Exception as e:
+                logger.warning(f"Failed to update recurring metadata for demo ticket {ticket.id}: {e}")
             
             # Analyze ticket
             analysis_result = await self._analyze_ticket(ticket)
