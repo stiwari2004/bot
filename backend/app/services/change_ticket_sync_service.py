@@ -258,9 +258,9 @@ class ChangeTicketSyncService:
         import httpx
         
         try:
-            # Time window: last 7 days and upcoming changes
+            # Time window: last 7 days and upcoming changes (applied client-side for SDP,
+            # because some builds reject list_info.search_criteria for changes).
             since = datetime.now(timezone.utc) - timedelta(days=7)
-            since_ms = str(int(since.timestamp() * 1000))
 
             # Normalize API base URL
             api_base_url = connection.api_base_url or meta_data.get("api_base_url", "")
@@ -293,20 +293,14 @@ class ChangeTicketSyncService:
             }
 
             # Build list_info for Get List Changes.
-            # We keep this intentionally simple and conservative for MVP.
+            # Keep this simple: sort only, no server-side search_criteria to avoid 400s
+            # on SDP builds that don't accept list_info.search_criteria for changes.
             list_info: Dict[str, Any] = {
                 "row_count": 100,
                 "start_index": 1,
                 # Use scheduled_start_time when available; fall back to created_time
                 "sort_field": "scheduled_start_time",
                 "sort_order": "asc",
-                "search_criteria": [
-                    {
-                        "field": "scheduled_start_time.value",
-                        "condition": "greater than",
-                        "value": since_ms,
-                    }
-                ],
             }
 
             input_data = {"list_info": list_info}
@@ -422,11 +416,14 @@ class ChangeTicketSyncService:
                         or _parse_me_datetime("planned_end_time")
                     )
 
+                    # Basic sanity checks: require a usable window and apply our since filter client-side.
                     if not start_time or not end_time:
-                        # Without a sane window, suppression behaviour is ambiguous – skip for MVP
                         logger.debug(
                             f"Skipping change {external_id} - missing start/end time"
                         )
+                        continue
+                    if start_time < since:
+                        # Older than our 7-day window; ignore for MVP.
                         continue
 
                     # For now we don't have structured affected services/environments from SDP change.
