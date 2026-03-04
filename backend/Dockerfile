@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 COPY discovery-agent /app/discovery-agent
 
-# Create upload directory (use Python to avoid depending on /bin/sh in edge-case bases)
-RUN python3 -c "import pathlib; pathlib.Path('/app/uploads').mkdir(parents=True, exist_ok=True)"
+# Create upload directory (use exec form so no /bin/sh required)
+RUN ["python3", "-c", "import pathlib; pathlib.Path('/app/uploads').mkdir(parents=True, exist_ok=True)"]
 
 # Create non-root user for security (MF-8) — exec form so no /bin/sh required
 RUN ["useradd", "-m", "-u", "1000", "appuser"]
