@@ -9,6 +9,23 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _runbook_search_query(description: Optional[str], title: Optional[str]) -> str:
+    """
+    Build search query for runbook matching: description-first, then title for context.
+    Matching must be driven by the full description (alarm message, entity, etc.);
+    title alone (e.g. "[OpManager][Attention] jump01") is too generic and causes wrong matches.
+    """
+    desc = (description or "").strip()
+    tit = (title or "").strip()
+    if desc and tit:
+        return f"{desc} Title: {tit}"
+    if desc:
+        return desc
+    if tit:
+        return tit
+    return " "
+
+
 class RunbookMatchingService:
     """Service for finding and matching runbooks to tickets"""
     
@@ -20,19 +37,23 @@ class RunbookMatchingService:
         tenant_id: int,
         classification: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Find matching runbooks for a ticket using semantic and keyword search"""
+        """Find matching runbooks for a ticket using semantic and keyword search.
+        Uses description-first query so matching is driven by full alarm/issue text, not just title.
+        """
         matched_runbooks = []
         
         # Skip if explicitly false positive
         if classification == "false_positive":
             return matched_runbooks
         
+        search_query = _runbook_search_query(ticket_description, ticket_title)
+        
         try:
             # Import lazily to avoid loading embedding model unless needed
             from app.services.runbook_search import RunbookSearchService
             runbook_search_service = RunbookSearchService()
             matching_runbooks = await runbook_search_service.search_similar_runbooks(
-                issue_description=ticket_description or ticket_title,
+                issue_description=search_query,
                 tenant_id=tenant_id,
                 db=db,
                 top_k=5,
@@ -63,7 +84,7 @@ class RunbookMatchingService:
         # Fallback: Keyword matching if no semantic matches
         if len(matched_runbooks) == 0:
             matched_runbooks = self._keyword_match_runbooks(
-                db, ticket_description or ticket_title, tenant_id
+                db, search_query, tenant_id
             )
         
         return matched_runbooks
@@ -132,10 +153,16 @@ class RunbookMatchingService:
         if not stored_runbooks or not isinstance(stored_runbooks, list):
             return matched_runbooks
         
+        runbook_feedback = ticket_meta_data.get("runbook_feedback") or {}
+        if not isinstance(runbook_feedback, dict):
+            runbook_feedback = {}
         for stored_rb in stored_runbooks:
             if isinstance(stored_rb, dict):
                 rb_id = stored_rb.get("id") or stored_rb.get("runbook_id")
                 if rb_id:
+                    # Exclude runbooks user marked as "does not match"
+                    if runbook_feedback.get(str(rb_id), {}).get("matches") is False:
+                        continue
                     # Include archived runbooks if they were previously matched (they're still valid)
                     # Only filter by status="approved" to ensure they're valid runbooks
                     runbook = db.query(Runbook).filter(

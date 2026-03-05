@@ -2,6 +2,7 @@
 Decision-making API endpoints
 Provides recommendations, pattern matching, and decision logic
 """
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -70,6 +71,77 @@ class MarkProblemCandidateResponse(BaseModel):
     """Response after marking a ticket as a problem candidate."""
     ticket_id: int
     problem_candidate: Dict[str, Any]
+
+
+class RunbookFeedbackRequest(BaseModel):
+    """Request body for marking a runbook as (not) matching the ticket."""
+    runbook_id: int
+    matches: bool  # False = "this runbook does not match the ticket"
+
+
+class RunbookFeedbackResponse(BaseModel):
+    """Response after submitting runbook feedback."""
+    ticket_id: int
+    runbook_id: int
+    matches: bool
+    message: str
+
+
+@router.post(
+    "/demo/tickets/{ticket_id}/runbook-feedback",
+    response_model=RunbookFeedbackResponse,
+)
+@rate_limit("60/minute")
+async def submit_runbook_feedback(
+    ticket_id: int,
+    request: RunbookFeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Submit feedback that a runbook does or does not match the ticket.
+    Use matches=false to record "this runbook does not match this ticket".
+    Stored in ticket meta_data.runbook_feedback for UI and future ranking.
+    """
+    try:
+        ticket = (
+            db.query(Ticket)
+            .filter(
+                Ticket.id == ticket_id,
+                Ticket.tenant_id == current_user.tenant_id,
+            )
+            .first()
+        )
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        meta = ticket.meta_data or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        feedback = meta.get("runbook_feedback") or {}
+        if not isinstance(feedback, dict):
+            feedback = {}
+        feedback[str(request.runbook_id)] = {
+            "matches": request.matches,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "by": current_user.email,
+        }
+        meta["runbook_feedback"] = feedback
+        ticket.meta_data = meta
+        db.commit()
+
+        msg = "Runbook marked as matching this ticket." if request.matches else "Runbook marked as not matching this ticket."
+        return RunbookFeedbackResponse(
+            ticket_id=ticket.id,
+            runbook_id=request.runbook_id,
+            matches=request.matches,
+            message=msg,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting runbook feedback for ticket {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to submit runbook feedback")
 
 
 @router.get("/demo/tickets/{ticket_id}/recommendation", response_model=RecommendationResponse)

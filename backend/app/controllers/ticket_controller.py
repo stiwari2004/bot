@@ -227,7 +227,15 @@ class TicketController(BaseController):
                 self.tenant_id,
                 analysis_result["classification"]
             )
-            
+            # Exclude runbooks user marked as "does not match" (runbook_feedback[id].matches == False)
+            meta = getattr(ticket, "meta_data", None) or {}
+            if isinstance(meta, dict):
+                feedback = meta.get("runbook_feedback") or {}
+                if isinstance(feedback, dict):
+                    matched_runbooks = [
+                        rb for rb in matched_runbooks
+                        if feedback.get(str(rb.get("id")), {}).get("matches", True) is not False
+                    ]
             if matched_runbooks:
                 self.ticket_repo.update_ticket_metadata(
                     ticket_id=ticket.id,
@@ -235,13 +243,27 @@ class TicketController(BaseController):
                     meta_data={"matched_runbooks": matched_runbooks}
                 )
                 logger.info(f"Found {len(matched_runbooks)} matching runbooks for ticket {ticket.id}")
+            else:
+                # All matches filtered out by feedback, or none found
+                # No match: store fallback so UI can show "No matching runbook" and suggest generating one
+                self.ticket_repo.update_ticket_metadata(
+                    ticket_id=ticket.id,
+                    tenant_id=self.tenant_id,
+                    meta_data={
+                        "matched_runbooks": [],
+                        "no_match_suggestion": "No matching runbook found. Consider generating a new runbook for this issue."
+                    }
+                )
+                logger.info(f"No matching runbooks for ticket {ticket.id}; stored no_match_suggestion")
     
     async def _auto_execute_if_eligible(self, ticket: Ticket):
         """Auto-start execution if conditions are met"""
         if not ticket.meta_data or not isinstance(ticket.meta_data, dict):
             return
-        
-        matched_runbooks = ticket.meta_data.get("matched_runbooks", [])
+        # Use feedback-aware list (excludes runbooks user marked as "does not match")
+        matched_runbooks = self.matching_service.get_matched_runbooks_from_meta(
+            self.db, ticket.meta_data, self.tenant_id
+        )
         if not matched_runbooks or len(matched_runbooks) == 0:
             return
         

@@ -95,8 +95,9 @@ class RecommendationEngine:
             "severity": ticket.severity,
         }
         
-        # Find matching patterns
-        issue_description = ticket.description or ticket.title
+        # Find matching patterns: use description-first so matching is driven by full alarm/issue text
+        from app.services.ticket.runbook_matching_service import _runbook_search_query
+        issue_description = _runbook_search_query(ticket.description, ticket.title)
         matching_patterns = self.pattern_matching_service.find_matching_patterns(
             issue_description,
             context,
@@ -163,10 +164,13 @@ class RecommendationEngine:
                 detailed_explanation=detailed_explanation
             )
         else:
-            # No good pattern found
+            # No good pattern found: explicit fallback so UI can offer "Generate runbook"
             return Recommendation(
                 confidence=0.0,
-                reasoning="No matching patterns found. Manual review recommended.",
+                reasoning=(
+                    "No matching runbook found for this ticket. "
+                    "Consider generating a new runbook or reviewing similar runbooks manually."
+                ),
                 should_escalate=True,
                 context_signals=context_data["signals"]
             )
