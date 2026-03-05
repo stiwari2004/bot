@@ -300,7 +300,7 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
               <div className="mt-3 flex items-center gap-2">
                 <Button
                   variant="primary"
-                  size="xs"
+                  size="sm"
                   onClick={() => {
                     setSelectedTicket(newTicketId);
                     setShowNewTicketToast(false);
@@ -310,7 +310,7 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="sm"
                   onClick={() => setShowNewTicketToast(false)}
                 >
                   Dismiss

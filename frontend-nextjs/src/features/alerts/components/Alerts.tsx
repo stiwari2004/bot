@@ -290,7 +290,7 @@ export function Alerts() {
               <div className="mt-3 flex items-center gap-2">
                 <Button
                   variant="primary"
-                  size="xs"
+                  size="sm"
                   onClick={() => {
                     setSelectedAlert(newAlertId);
                     setShowNewAlertToast(false);
@@ -300,7 +300,7 @@ export function Alerts() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="sm"
                   onClick={() => setShowNewAlertToast(false)}
                 >
                   Dismiss

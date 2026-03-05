@@ -387,7 +387,7 @@ export function Changes() {
               <div className="mt-3 flex items-center gap-2">
                 <Button
                   variant="primary"
-                  size="xs"
+                  size="sm"
                   onClick={() => {
                     setSelectedChange(newChangeId);
                     setShowNewChangeToast(false);
@@ -397,7 +397,7 @@ export function Changes() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="sm"
                   onClick={() => setShowNewChangeToast(false)}
                 >
                   Dismiss
