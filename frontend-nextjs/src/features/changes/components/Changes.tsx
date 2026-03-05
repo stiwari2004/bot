@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ClockIcon,
   MagnifyingGlassIcon,
@@ -10,6 +10,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   XMarkIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { useChangesData } from '../hooks/useChangesData';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -32,6 +33,9 @@ export function Changes() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [unsuppressing, setUnsuppressing] = useState<number | null>(null);
+  const [newChangeId, setNewChangeId] = useState<number | null>(null);
+  const [showNewChangeToast, setShowNewChangeToast] = useState(false);
+  const hasInitializedRef = useRef(false);
 
   // Filter changes by search query
   const filteredChanges = changes.filter((change) => {
@@ -59,6 +63,30 @@ export function Changes() {
       setUnsuppressing(null);
     }
   };
+
+  // Detect new changes (active change windows) from polling results and show a toast.
+  useEffect(() => {
+    if (!filteredChanges || filteredChanges.length === 0) {
+      return;
+    }
+    const latest = filteredChanges[0];
+    if (!latest) {
+      return;
+    }
+
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      setNewChangeId(latest.id);
+      return;
+    }
+
+    if (newChangeId !== null && latest.id === newChangeId) {
+      return;
+    }
+
+    setNewChangeId(latest.id);
+    setShowNewChangeToast(true);
+  }, [filteredChanges, newChangeId]);
 
   const getStatusColor = (status: string): 'success' | 'warning' | 'primary' | 'error' => {
     switch (status) {
@@ -120,7 +148,7 @@ export function Changes() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 relative">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.4em] text-neutral-500 font-bold mb-1">Change Management</p>
@@ -341,6 +369,42 @@ export function Changes() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* New Change Toast */}
+      {showNewChangeToast && newChangeId && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="max-w-sm bg-white shadow-lg rounded-lg border border-primary-200 p-4 flex items-start gap-3">
+            <div className="mt-0.5">
+              <InformationCircleIcon className="h-5 w-5 text-primary-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-neutral-900">New change window detected</p>
+              <p className="text-xs text-neutral-600 mt-1 line-clamp-2">
+                {filteredChanges.find((c: ChangeTicket) => c.id === newChangeId)?.title || 'A new change window is active or scheduled.'}
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="xs"
+                  onClick={() => {
+                    setSelectedChange(newChangeId);
+                    setShowNewChangeToast(false);
+                  }}
+                >
+                  View change
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setShowNewChangeToast(false)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

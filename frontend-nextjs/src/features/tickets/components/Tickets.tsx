@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   TicketIcon,
   MagnifyingGlassIcon,
@@ -23,6 +23,9 @@ interface TicketsProps {
 export function Tickets({ onSessionLaunched }: TicketsProps) {
   const [executing, setExecuting] = useState<number | null>(null);
   const [showGenerateRunbook, setShowGenerateRunbook] = useState(false);
+  const [newTicketId, setNewTicketId] = useState<number | null>(null);
+  const [showNewTicketToast, setShowNewTicketToast] = useState(false);
+  const hasInitializedRef = useRef(false);
 
   const {
     tickets,
@@ -57,6 +60,32 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
     }
   };
 
+  // Detect new tickets based on polling results and show a lightweight toast.
+  useEffect(() => {
+    if (!filteredTickets || filteredTickets.length === 0) {
+      return;
+    }
+    const latest = filteredTickets[0];
+    if (!latest) {
+      return;
+    }
+
+    // Skip notification on first load to avoid spurious toasts
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      setNewTicketId(latest.id);
+      return;
+    }
+
+    // If the most recent ticket has changed, show a toast
+    if (newTicketId !== null && latest.id === newTicketId) {
+      return;
+    }
+
+    setNewTicketId(latest.id);
+    setShowNewTicketToast(true);
+  }, [filteredTickets, newTicketId]);
+
   if (loading) {
     return (
       <div className="p-6">
@@ -69,7 +98,7 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 relative">
       <div>
         <div className="flex items-center gap-3 mb-2">
           <div className="p-2 rounded-xl bg-gradient-to-br from-primary-100 to-primary-200">
@@ -254,6 +283,42 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
             }
           }}
         />
+      )}
+
+      {/* New Ticket Toast */}
+      {showNewTicketToast && newTicketId && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="max-w-sm bg-white shadow-lg rounded-lg border border-primary-200 p-4 flex items-start gap-3">
+            <div className="mt-0.5">
+              <InformationCircleIcon className="h-5 w-5 text-primary-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-neutral-900">New ticket received</p>
+              <p className="text-xs text-neutral-600 mt-1 line-clamp-2">
+                {filteredTickets.find((t: Ticket) => t.id === newTicketId)?.title || 'A new ticket has been created.'}
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="xs"
+                  onClick={() => {
+                    setSelectedTicket(newTicketId);
+                    setShowNewTicketToast(false);
+                  }}
+                >
+                  View ticket
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setShowNewTicketToast(false)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -120,6 +120,9 @@ export function useChangesData() {
 
   useEffect(() => {
     fetchChanges();
+    // Poll for updates every 10 seconds so new changes are detected automatically
+    const interval = setInterval(fetchChanges, 10000);
+    return () => clearInterval(interval);
   }, [fetchChanges]);
 
   useEffect(() => {

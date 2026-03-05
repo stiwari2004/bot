@@ -1,17 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   BellIcon,
   MagnifyingGlassIcon,
   ExclamationTriangleIcon,
   ArrowRightIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { AlertDetailModal } from './AlertDetailModal';
 import { useAlertsData } from '../hooks/useAlertsData';
 import type { Alert } from '../types';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 export function Alerts() {
   const {
@@ -38,6 +40,34 @@ export function Alerts() {
     filteredAlerts,
   } = useAlertsData();
 
+  const [newAlertId, setNewAlertId] = useState<number | null>(null);
+  const [showNewAlertToast, setShowNewAlertToast] = useState(false);
+  const hasInitializedRef = useRef(false);
+
+  // Detect new alerts from polling results and show a toast when a new one arrives.
+  useEffect(() => {
+    if (!filteredAlerts || filteredAlerts.length === 0) {
+      return;
+    }
+    const latest = filteredAlerts[0];
+    if (!latest) {
+      return;
+    }
+
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      setNewAlertId(latest.id);
+      return;
+    }
+
+    if (newAlertId !== null && latest.id === newAlertId) {
+      return;
+    }
+
+    setNewAlertId(latest.id);
+    setShowNewAlertToast(true);
+  }, [filteredAlerts, newAlertId]);
+
   const handleUpdateAlert = async (alertId: number, status: string, notes?: string) => {
     try {
       await updateAlert(alertId, status, notes);
@@ -61,7 +91,7 @@ export function Alerts() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 relative">
       <div>
         <div className="flex items-center gap-3 mb-2">
           <div className="p-2 rounded-xl bg-gradient-to-br from-warning-100 to-warning-200">
@@ -242,6 +272,42 @@ export function Alerts() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* New Alert Toast */}
+      {showNewAlertToast && newAlertId && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="max-w-sm bg-white shadow-lg rounded-lg border border-warning-200 p-4 flex items-start gap-3">
+            <div className="mt-0.5">
+              <InformationCircleIcon className="h-5 w-5 text-warning-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-neutral-900">New alert received</p>
+              <p className="text-xs text-neutral-600 mt-1 line-clamp-2">
+                {filteredAlerts.find((a: Alert) => a.id === newAlertId)?.title || 'A new alert has been received.'}
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="xs"
+                  onClick={() => {
+                    setSelectedAlert(newAlertId);
+                    setShowNewAlertToast(false);
+                  }}
+                >
+                  View alert
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setShowNewAlertToast(false)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
