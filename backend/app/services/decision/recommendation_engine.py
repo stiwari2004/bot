@@ -95,9 +95,15 @@ class RecommendationEngine:
             "severity": ticket.severity,
         }
         
-        # Find matching patterns: use description-first so matching is driven by full alarm/issue text
-        from app.services.ticket.runbook_matching_service import _runbook_search_query
-        issue_description = _runbook_search_query(ticket.description, ticket.title)
+        # Find matching patterns: use CAG-style description (EventType + Message) when available
+        from app.services.ticket.runbook_matching_service import (
+            _runbook_search_query,
+            _extract_cag_issue_and_phrases,
+        )
+        cag_summary, _ = _extract_cag_issue_and_phrases(ticket.description)
+        issue_description = _runbook_search_query(
+            ticket.description, ticket.title, cag_summary=cag_summary or None
+        )
         matching_patterns = self.pattern_matching_service.find_matching_patterns(
             issue_description,
             context,

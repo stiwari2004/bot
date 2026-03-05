@@ -250,6 +250,7 @@ const createEndpoints = (baseUrl: string) => ({
     patternFeedback: (patternId: number) => `${baseUrl}/api/v1/decision/demo/patterns/${patternId}/feedback`,
     recommendationFeedback: () => `${baseUrl}/api/v1/decision/demo/recommendations/feedback`,
     ticketFeedback: (ticketId: number) => `${baseUrl}/api/v1/decision/demo/tickets/${ticketId}/feedback`,
+    runbookFeedback: (ticketId: number) => `${baseUrl}/api/v1/decision/demo/tickets/${ticketId}/runbook-feedback`,
     deprecatePattern: (patternId: number) => `${baseUrl}/api/v1/decision/demo/patterns/${patternId}/deprecate`,
     restorePattern: (patternId: number) => `${baseUrl}/api/v1/decision/demo/patterns/${patternId}/restore`,
     qualityReport: (minScore?: number, includeDeprecated?: boolean) => {

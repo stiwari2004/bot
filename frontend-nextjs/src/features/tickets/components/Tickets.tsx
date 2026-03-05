@@ -236,6 +236,7 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
           onExecute={handleExecute}
           executing={executing}
           onGenerateRunbook={() => setShowGenerateRunbook(true)}
+          onRefresh={() => selectedTicket && fetchTicketDetail(selectedTicket)}
           onSessionLaunched={onSessionLaunched}
         />
       )}

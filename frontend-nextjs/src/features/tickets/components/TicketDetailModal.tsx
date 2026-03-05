@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { PlayIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { PlayIcon, PlusIcon, XMarkIcon, NoSymbolIcon } from '@heroicons/react/24/outline';
 
 import type { TicketDetail } from '@/features/tickets/types';
 import { DecisionRecommendationPanel } from './DecisionRecommendationPanel';
@@ -11,6 +11,8 @@ import { ContextCorrelationView } from './ContextCorrelationView';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 
 interface TicketDetailModalProps {
   ticket: TicketDetail | null;
@@ -19,6 +21,7 @@ interface TicketDetailModalProps {
   onExecute: (ticketId: number, runbookId: number) => Promise<void>;
   executing: number | null;
   onGenerateRunbook: () => void;
+  onRefresh?: () => void;
   onSessionLaunched?: (sessionId: number) => void;
 }
 
@@ -29,9 +32,11 @@ export function TicketDetailModal({
   onExecute,
   executing,
   onGenerateRunbook,
+  onRefresh,
   onSessionLaunched,
 }: TicketDetailModalProps) {
   const [mounted, setMounted] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -40,6 +45,29 @@ export function TicketDetailModal({
       document.body.style.overflow = 'unset';
     };
   }, []);
+
+  const handleRunbookNotRelevant = async (runbookId: number) => {
+    if (!ticket?.id || !onRefresh) return;
+    setFeedbackSubmitting(runbookId);
+    try {
+      const url = apiConfig.endpoints.decision.runbookFeedback(ticket.id);
+      const res = await authFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runbook_id: runbookId, matches: false }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail || `Failed to submit feedback`);
+      }
+      onRefresh();
+    } catch (err) {
+      console.error('Runbook feedback failed:', err);
+      // Optionally show a toast; for now we don't block
+    } finally {
+      setFeedbackSubmitting(null);
+    }
+  };
 
   if (!mounted) {
     return null;
@@ -97,6 +125,8 @@ export function TicketDetailModal({
   const matchedRunbooks = ticket.matched_runbooks || [];
   const executionSessions = ticket.execution_sessions || [];
   const recommendation = (ticket as any).recommendation || null;
+  const metaData = ticket.meta_data && typeof ticket.meta_data === 'object' ? ticket.meta_data : {};
+  const noMatchSuggestion = metaData.no_match_suggestion as string | undefined;
 
   return renderModal(
     <CardContent padding="lg" className="space-y-6">
@@ -166,8 +196,16 @@ export function TicketDetailModal({
       </div>
 
       <Card variant="elevated">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
           <h4 className="font-semibold text-neutral-900">Matched Runbooks</h4>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onGenerateRunbook}
+            leftIcon={<PlusIcon className="h-4 w-4" />}
+          >
+            Create new runbook
+          </Button>
         </CardHeader>
         <CardContent padding="md">
           {matchedRunbooks.length > 0 ? (
@@ -182,16 +220,28 @@ export function TicketDetailModal({
                       </Badge>
                     </div>
                     <p className="text-sm text-neutral-600 mb-4">{runbook.reasoning || 'No reasoning provided'}</p>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => onExecute(ticket.id, runbook.id)}
-                      disabled={executing === runbook.id}
-                      isLoading={executing === runbook.id}
-                      leftIcon={<PlayIcon className="h-4 w-4" />}
-                    >
-                      {executing === runbook.id ? 'Executing...' : 'Execute Runbook'}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => onExecute(ticket.id, runbook.id)}
+                        disabled={executing === runbook.id}
+                        isLoading={executing === runbook.id}
+                        leftIcon={<PlayIcon className="h-4 w-4" />}
+                      >
+                        {executing === runbook.id ? 'Executing...' : 'Execute Runbook'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRunbookNotRelevant(runbook.id)}
+                        disabled={feedbackSubmitting === runbook.id}
+                        leftIcon={<NoSymbolIcon className="h-4 w-4" />}
+                        className="text-neutral-600 hover:text-error-600"
+                      >
+                        {feedbackSubmitting === runbook.id ? 'Submitting...' : 'Not relevant'}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -199,13 +249,16 @@ export function TicketDetailModal({
           ) : (
             <Card variant="outlined" className="border-warning-200 bg-warning-50">
               <CardContent padding="md">
-                <p className="text-sm text-warning-800 mb-4 font-medium">No matching runbooks found for this ticket.</p>
+                <p className="text-sm text-warning-800 mb-2 font-medium">No matching runbooks found for this ticket.</p>
+                {noMatchSuggestion && (
+                  <p className="text-sm text-warning-700 mb-4">{noMatchSuggestion}</p>
+                )}
                 <Button
                   variant="warning"
                   onClick={onGenerateRunbook}
                   leftIcon={<PlusIcon className="h-4 w-4" />}
                 >
-                  Generate New Runbook
+                  Create new runbook
                 </Button>
               </CardContent>
             </Card>
