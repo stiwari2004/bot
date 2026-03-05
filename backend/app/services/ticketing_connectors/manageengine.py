@@ -225,8 +225,9 @@ class ManageEngineTicketFetcher:
             "sort_field": "created_time",
             "sort_order": "desc",
             # Explicitly request a minimal, widely supported set of fields.
-            # Previous attempts with modified_time/resource/asset caused 400s on this instance,
-            # so we avoid those here.
+            # NOTE: This particular SDP instance rejects "assets" in fields_required with
+            # 400 Invalid Input / fields: ["assets"], so we must not request it here.
+            # We still try to read assets/resource if the server includes them by default.
             "fields_required": [
                 "id",
                 "subject",
@@ -237,7 +238,6 @@ class ManageEngineTicketFetcher:
                 "requester",
                 "technician",
                 "site",
-                "assets",
             ],
         }
         if since:
