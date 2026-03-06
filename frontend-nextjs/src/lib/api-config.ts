@@ -85,6 +85,11 @@ const createEndpoints = (baseUrl: string) => ({
     stepUpdateCommand: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/steps/command`,
     stepRegenerate: (runbookId: number) => `${baseUrl}/api/v1/runbooks/demo/${runbookId}/steps/regenerate`,
   },
+  provisioning: {
+    list: () => `${baseUrl}/api/v1/provisioning/projects`,
+    provision: () => `${baseUrl}/api/v1/provisioning/provision`,
+    project: (id: number) => `${baseUrl}/api/v1/provisioning/projects/${id}`,
+  },
   analytics: {
     runbookQuality: (days?: number) => {
       const query = days ? `?days=${days}` : '';
