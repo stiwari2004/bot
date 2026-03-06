@@ -388,15 +388,8 @@ export function MainDashboard({ initialTab = 'tickets' }: MainDashboardProps) {
                 <div className="space-y-2">
                   <div className="inline-flex items-center gap-2 rounded-full bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700 border border-primary-200">
                     <SparklesIcon className="h-4 w-4" />
-                    <span>Autonomous Resolution Assistant</span>
+                    <span>Dashboard</span>
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-neutral-900">
-                    Manage incidents, automations, and insights
-                  </h1>
-                  <p className="text-sm text-neutral-600 max-w-2xl">
-                    Connect your ticketing and monitoring tools, then let the AI agent correlate alerts, suggest runbooks,
-                    and automate safe remediation while keeping you in control.
-                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-2 lg:grid-cols-2">
                   {statusIndicators.map((stat) => (
