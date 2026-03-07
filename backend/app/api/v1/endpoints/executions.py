@@ -304,7 +304,6 @@ async def stream_execution_events(websocket: WebSocket, session_id: int):
             from app.models.user import User
             from jose import JWTError, jwt
             from app.core.config import settings
-            from app.core.database import SessionLocal
             db = SessionLocal()
             try:
                 # Validate token and get user
