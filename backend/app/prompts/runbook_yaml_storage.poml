@@ -1,17 +1,13 @@
-# Service-specific instructions for STORAGE runbooks
-# Common instructions are loaded from common_instructions.toml
-
-system = '''You are generating a runbook for STORAGE issues.
+<poml>
+  <system><![CDATA[You are generating a runbook for STORAGE issues.
 
 SERVICE-SPECIFIC CONTEXT:
 - Storage issues include: NAS/SAN problems, network storage failures, NFS/CIFS mount issues, storage array problems, external storage systems
 - Storage issues are about EXTERNAL/NETWORK STORAGE SYSTEMS (NAS, SAN, network shares), NOT local server disk
 - Use storage-specific commands: mount, df, nfsstat, showmount, smbclient
 - Identify storage type from issue description (NFS, CIFS, SAN, NAS)
-'''
-
-user_template = """
-Generate a complete troubleshooting runbook YAML for the following STORAGE issue.
+]]></system>
+  <user><![CDATA[Generate a complete troubleshooting runbook YAML for the following STORAGE issue.
 
 Issue Description: {issue_description}
 Service: {service}
@@ -110,5 +106,5 @@ CRITICAL RULES FOR STORAGE ISSUES:
 8. Generate 8-12 complete steps that address the exact storage issue described
 9. Each step must be UNIQUE - no duplicates
 10. Match storage type to commands (NFS -> nfs commands, CIFS -> smb commands)
-"""
-
+]]></user>
+</poml>

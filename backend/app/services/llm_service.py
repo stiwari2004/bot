@@ -1,6 +1,6 @@
 """
 LLM Service for AI-powered runbook generation using llama.cpp or Perplexity.
-Supports both local llama.cpp server and Perplexity API.
+Uses POML templates for runbook prompts. Supports both local llama.cpp server and Perplexity API.
 """
 
 import asyncio
@@ -221,14 +221,15 @@ class LlamaCppLLMService:
         os_type: Optional[str] = None,
     ) -> str:
         """Ask the model to return an agent-executable YAML runbook following our schema.
-        Uses centralized prompt templates (TOML) via prompt_store.
+        Uses POML templates from prompt_store.
         Selects service-specific prompt based on service_type.
         """
         from app.services.prompt_store import PromptNotFound
+        from app.services.poml_parser import POMLParseError
         
         ctx = context[:800] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
-        logger.info(f"[PROMPT_LOAD] Loading prompt template: {prompt_id}.toml for service_type={service_type}, os_type={os_type}")
+        logger.info(f"[PROMPT_LOAD] Loading prompt template: {prompt_id} for service_type={service_type}, os_type={os_type}")
         
         # Determine OS type if not provided
         if not os_type:
@@ -254,14 +255,11 @@ class LlamaCppLLMService:
             prompt_context["os_type"] = os_type or "Windows"
         
         try:
-            rendered = render_prompt(
-                prompt_id,
-                prompt_context,
-            )
-            logger.info(f"[PROMPT_LOAD] Successfully loaded prompt template: {prompt_id}.toml (system prompt length: {len(rendered.get('system', ''))}, user prompt length: {len(rendered.get('user', ''))})")
-        except PromptNotFound:
-            logger.error(f"Service-specific prompt '{prompt_id}' not found for service_type '{service_type}'. Available services: server, database, web, storage, network")
-            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.toml' exists in the prompts directory.")
+            rendered = render_prompt(prompt_id, prompt_context)
+            logger.info(f"[PROMPT_LOAD] Loaded POML prompt: {prompt_id} (system length: {len(rendered.get('system', ''))}, user length: {len(rendered.get('user', ''))})")
+        except (PromptNotFound, POMLParseError):
+            logger.error(f"Service-specific prompt '{prompt_id}' not found or invalid for service_type '{service_type}'. Available services: server, database, web, storage, network")
+            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.poml' exists in the prompts directory.")
         system_msg = rendered.get("system", "You are a precise YAML generator.")
         user_msg = rendered.get("user", "")
 
@@ -448,6 +446,7 @@ class PerplexityLLMService:
         os_type: Optional[str] = None,
     ) -> str:
         """Generate YAML runbook using Perplexity with centralized prompts.
+        Uses POML templates from prompt_store.
         Selects service-specific prompt based on service_type.
         
         Args:
@@ -455,6 +454,7 @@ class PerplexityLLMService:
                     For other CI types (network, database, web, etc.), this is ignored.
         """
         from app.services.prompt_store import PromptNotFound
+        from app.services.poml_parser import POMLParseError
         
         ctx = context[:800] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
@@ -473,13 +473,10 @@ class PerplexityLLMService:
             prompt_context["os_type"] = os_type
         
         try:
-            rendered = render_prompt(
-                prompt_id,
-                prompt_context,
-            )
-        except PromptNotFound:
-            logger.error(f"Service-specific prompt '{prompt_id}' not found for service_type '{service_type}'. Available services: server, database, web, storage, network")
-            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.toml' exists in the prompts directory.")
+            rendered = render_prompt(prompt_id, prompt_context)
+        except (PromptNotFound, POMLParseError):
+            logger.error(f"Service-specific prompt '{prompt_id}' not found or invalid for service_type '{service_type}'. Available services: server, database, web, storage, network")
+            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.poml' exists in the prompts directory.")
         system_msg = rendered.get("system", "You are a precise YAML generator.")
         user_msg = rendered.get("user", "")
         

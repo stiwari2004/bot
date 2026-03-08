@@ -1,13 +1,11 @@
-# Service-specific instructions for SERVER runbooks
-# Common instructions are loaded from common_instructions.toml
-
-system = '''You are generating a runbook for SERVER issues.
+<poml>
+  <system><![CDATA[You are generating a runbook for SERVER issues.
 
 SERVICE-SPECIFIC CONTEXT:
 - Server issues include: CPU/memory/disk/network utilization, process issues, service failures
 - Use OS-specific commands: Windows (PowerShell) or Linux (shell commands)
 - Get-Counter format: Get-Counter -Counter '\Processor(_Total)\% Processor Time' (single quotes, single backslashes)
-- Use {{server_name}} placeholder for server names
+- Use __SERVER_NAME__ placeholder for server names
 
 COMMAND FORMATTING (single command per step; 5 min max resolution):
 - One command per step. No chaining (no "cmd1 && cmd2"); use separate steps instead.
@@ -26,9 +24,8 @@ REMEDIATION COMMANDS (Linux):
 - systemctl restart <service> (restart service)
 - rm -rf <path> (delete files/folders)
 - truncate -s 0 <logfile> (clear log file)
-'''
-
-user_template = '''Generate a troubleshooting runbook YAML for this SERVER issue.
+]]></system>
+  <user><![CDATA[Generate a troubleshooting runbook YAML for this SERVER issue.
 
 ISSUE: {issue_description}
 SERVICE: {service}
@@ -50,6 +47,8 @@ PLAN (5 min max resolution; single command per step; keep runbook light):
 - Steps: 3-10 steps. Each step has exactly ONE command. Follow diagnose -> remediate -> diagnose -> remediate -> verify. At least 2 remediation steps. Escalate if not fixed within 5 min.
 - Postcheck: 1 check with ONE command to verify fix.
 - Inputs: ONE input only: server_name. Use literals in commands (e.g. grep 9100) for ports.
+
+For "device down", "not responding", or "probably down or busy" issues: FIRST verify connectivity (ping for Linux, Test-Connection for Windows). Only after confirming the host is reachable, proceed to check if the server is busy (load, processes). Order must be: (1) connectivity check, (2) then busy/load check.
 
 BRANCHING RECOMMENDATION:
 For complex issues, use branching to try alternative fixes:
@@ -126,5 +125,5 @@ postchecks:
 - description: [Verify the metric from issue is now normal]
   command: [Same metric check as precheck 1]
   expected_output: [Metric is now below threshold]
-'''
-
+]]></user>
+</poml>

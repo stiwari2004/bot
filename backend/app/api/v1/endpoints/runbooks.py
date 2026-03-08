@@ -99,14 +99,13 @@ async def generate_agent_runbook(
     """Generate an agent-ready YAML runbook (atomic, executable).
     
     Note: The 'service' parameter represents CI Type (server, database, web, etc.).
-    For servers, OS type (Windows/Linux) is auto-detected from issue description.
-    For backward compatibility, 'Windows' or 'Linux' are accepted and treated as 'server' CI type.
+    For servers, passing 'Windows' or 'Linux' sets OS type for step generation; do not normalize
+    to 'server' so the generator receives the user's OS choice.
     """
-    # Normalize service for backward compatibility
+    # Pass service as-is so generator gets Windows/Linux for os_type (runbook_generator_core
+    # treats Windows/Linux as server CI type and sets os_type for prompts/validation).
     service_value = request.service.value
-    if service_value in ["Windows", "Linux"]:
-        service_value = "server"
-    
+
     import asyncio
     from app.core.logging import get_logger
     from app.services.llm_budget_manager import LLMRateLimitExceeded, LLMBudgetExceeded

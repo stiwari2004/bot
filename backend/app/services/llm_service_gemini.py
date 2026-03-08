@@ -1,7 +1,7 @@
 """
-Google Gemini 2.5 Flash LLM Service using official google-genai SDK
-Optimized for accurate runbook generation with shorter, contextual prompts
-Supports model priority selection based on complexity
+Google Gemini 2.5 Flash LLM Service using official google-genai SDK.
+Uses POML templates for runbook prompts. Optimized for accurate runbook generation with shorter, contextual prompts.
+Supports model priority selection based on complexity.
 """
 import os
 import json
@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 from app.core.logging import get_logger
 from app.services.prompt_store import render_prompt, PromptNotFound
+from app.services.poml_parser import POMLParseError
 from app.services.model_selector import ModelSelector
 
 logger = get_logger(__name__)
@@ -188,7 +189,7 @@ class GeminiLLMService:
         ctx = context[:500] if context else ""  # Reduced from 800 to 500
         
         prompt_id = f"runbook_yaml_{service_type}"
-        logger.info(f"[GEMINI] Loading prompt: {prompt_id}.toml for service_type={service_type}, os_type={os_type}")
+        logger.info(f"[GEMINI] Loading prompt: {prompt_id} for service_type={service_type}, os_type={os_type}")
         
         # Determine OS type if not provided
         if not os_type:
@@ -227,9 +228,9 @@ class GeminiLLMService:
         
         try:
             rendered = render_prompt(prompt_id, prompt_context)
-        except PromptNotFound:
-            logger.error(f"Prompt '{prompt_id}' not found")
-            raise ValueError(f"No prompt template found for service type '{service_type}'")
+        except (PromptNotFound, POMLParseError):
+            logger.error(f"Prompt '{prompt_id}' not found or invalid for service type '{service_type}'")
+            raise ValueError(f"No prompt template found for service type '{service_type}'. Please ensure the prompt file 'runbook_yaml_{service_type}.poml' exists in the prompts directory.")
         
         system_msg = rendered.get("system", "You are a precise YAML generator.")
         user_msg = rendered.get("user", "")

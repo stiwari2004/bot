@@ -1,7 +1,5 @@
-# Service-specific instructions for DATABASE runbooks
-# Common instructions are loaded from common_instructions.toml
-
-system = '''You are generating a runbook for DATABASE issues.
+<poml>
+  <system><![CDATA[You are generating a runbook for DATABASE issues.
 
 SERVICE-SPECIFIC CONTEXT:
 - Database issues include: transaction log full, connection pool exhausted, query performance, database locks, backup failures
@@ -13,10 +11,8 @@ DATABASE-SPECIFIC COMMANDS:
 - MSSQL/SQL Server: sys.databases, DBCC, BACKUP LOG, xp_fixeddrives, sqlcmd, SELECT, sp_who2
 - PostgreSQL: pg_stat_activity, pg_locks, pg_database, psql, pg_terminate_backend, SELECT
 - MySQL: SHOW PROCESSLIST, INFORMATION_SCHEMA, mysql, mysqladmin, SELECT
-'''
-
-user_template = """
-Generate a complete troubleshooting runbook YAML for the following DATABASE issue.
+]]></system>
+  <user><![CDATA[Generate a complete troubleshooting runbook YAML for the following DATABASE issue.
 
 Issue Description: {issue_description}
 Service: {service}
@@ -185,5 +181,5 @@ CRITICAL RULES FOR DATABASE ISSUES:
 13. POSTCHECK MUST verify the issue is resolved using the same metric as the precheck
 14. Generate EXACTLY 3 precheck steps (no more, no less)
 15. Generate EXACTLY 1 postcheck step (no more, no less)
-"""
-
+]]></user>
+</poml>

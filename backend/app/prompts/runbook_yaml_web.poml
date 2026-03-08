@@ -1,17 +1,13 @@
-# Service-specific instructions for WEB APPLICATION runbooks
-# Common instructions are loaded from common_instructions.toml
-
-system = '''You are generating a runbook for WEB APPLICATION issues.
+<poml>
+  <system><![CDATA[You are generating a runbook for WEB APPLICATION issues.
 
 SERVICE-SPECIFIC CONTEXT:
 - Web application issues include: HTTP errors (404, 500), slow response times, web server down, API failures, load balancer issues
 - Web application issues are about WEB SERVERS and WEB APPS (nginx, Apache, IIS, web services), NOT databases, servers, or network
 - Use web-specific commands: curl, wget, systemctl (for web servers), netstat, lsof
 - Identify web server type from issue description (nginx, Apache, IIS)
-'''
-
-user_template = """
-Generate a complete troubleshooting runbook YAML for the following WEB APPLICATION issue.
+]]></system>
+  <user><![CDATA[Generate a complete troubleshooting runbook YAML for the following WEB APPLICATION issue.
 
 Issue Description: {issue_description}
 Service: {service}
@@ -174,5 +170,5 @@ To achieve this:
 - If remediation fails or postcheck shows issue persists -> Escalate ticket
 
 NEVER generate runbooks that only do health checks without fixing anything!
-"""
-
+]]></user>
+</poml>

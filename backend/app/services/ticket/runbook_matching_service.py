@@ -23,6 +23,7 @@ def _extract_cag_issue_and_phrases(description: Optional[str]) -> Tuple[str, Lis
         return "", []
     event_type = ""
     message = ""
+    entity = ""
     # Parse "Key: Value" pairs from pipe- or newline-delimited description
     for part in re.split(r"\s*\|\s*|\n", desc):
         part = part.strip()
@@ -35,8 +36,12 @@ def _extract_cag_issue_and_phrases(description: Optional[str]) -> Tuple[str, Lis
                 event_type = val
             elif key == "message":
                 message = val
-    # Build CAG-style summary for semantic search (focus on issue, not AlarmID/Category/Server)
+            elif key == "entity":
+                entity = val
+    # Build CAG-style summary for semantic search (include Entity so device/host is available for matching and generation)
     parts = []
+    if entity:
+        parts.append(f"Entity: {entity}")
     if event_type:
         parts.append(f"EventType: {event_type}")
     if message:
@@ -136,7 +141,9 @@ class RunbookMatchingService:
                 min_confidence=0.65  # Require stronger match to avoid e.g. Device Down → low memory
             )
             
-            # Store all matching runbooks
+            # Store all matching runbooks; exclude OS mismatch (e.g. Windows runbook when ticket doesn't say Windows)
+            ticket_text_for_os = f"{(ticket_description or '').lower()} {(ticket_title or '').lower()}"
+            ticket_mentions_windows = "windows" in ticket_text_for_os
             if matching_runbooks and len(matching_runbooks) > 0:
                 for match in matching_runbooks:
                     runbook_id = match.get("id") or match.get("runbook_id")
@@ -148,6 +155,9 @@ class RunbookMatchingService:
                             Runbook.is_active == "active"
                         ).first()
                         if runbook:
+                            title_lower = (runbook.title or "").lower()
+                            if "windows" in title_lower and not ticket_mentions_windows:
+                                continue  # Skip Windows-specific runbook when ticket has no Windows indication
                             matched_runbooks.append({
                                 "id": runbook_id,
                                 "title": match.get("title") or runbook.title,
@@ -160,11 +170,15 @@ class RunbookMatchingService:
         # Fallback: phrase-based string match first, then keyword matching
         if len(matched_runbooks) == 0:
             matched_runbooks = self._phrase_match_runbooks(
-                db, tenant_id, issue_phrases
+                db, tenant_id, issue_phrases,
+                ticket_description=ticket_description,
+                ticket_title=ticket_title,
             )
         if len(matched_runbooks) == 0:
             matched_runbooks = self._keyword_match_runbooks(
-                db, search_query, tenant_id
+                db, search_query, tenant_id,
+                ticket_description=ticket_description,
+                ticket_title=ticket_title,
             )
         
         return matched_runbooks
@@ -174,14 +188,18 @@ class RunbookMatchingService:
         db: Session,
         tenant_id: int,
         phrases: List[str],
+        ticket_description: Optional[str] = None,
+        ticket_title: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Match runbooks by requiring ticket issue phrases (e.g. 'device down', 'not responding') to appear in runbook title or issue_description. Uses strings, not single keywords."""
+        """Match runbooks by requiring ticket issue phrases (e.g. 'device down', 'not responding') to appear in runbook title or issue_description. Uses strings, not single keywords. Excludes OS-mismatch: e.g. runbooks with 'Windows' in title when ticket does not mention Windows."""
         if not phrases:
             return []
         # Only consider phrases that are at least 5 chars or multi-word so we don't match on 'down' alone
         meaningful = [p for p in phrases if len(p) >= 5 and (" " in p or len(p) > 6)]
         if not meaningful:
             return []
+        ticket_text = f"{(ticket_description or '').lower()} {(ticket_title or '').lower()}"
+        ticket_mentions_windows = "windows" in ticket_text
         matched_runbooks = []
         try:
             runbooks = db.query(Runbook).filter(
@@ -191,6 +209,9 @@ class RunbookMatchingService:
             ).all()
             for runbook in runbooks:
                 title_lower = (runbook.title or "").lower()
+                # Exclude Windows-specific runbooks when ticket does not mention Windows (e.g. Category: Server, Entity: host_Poll)
+                if "windows" in title_lower and not ticket_mentions_windows:
+                    continue
                 issue_desc = ""
                 if runbook.meta_data:
                     try:
@@ -217,27 +238,33 @@ class RunbookMatchingService:
         self,
         db: Session,
         ticket_text: str,
-        tenant_id: int
+        tenant_id: int,
+        ticket_description: Optional[str] = None,
+        ticket_title: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Fallback keyword matching for runbooks. Uses stoplist and requires 2+ matches to avoid false positives (e.g. 'Server' matching 'Windows server')."""
+        """Fallback keyword matching for runbooks. Uses stoplist and requires 2+ matches to avoid false positives (e.g. 'Server' matching 'Windows server'). Excludes Windows-titled runbooks when ticket does not mention Windows."""
         matched_runbooks = []
-        
+        ticket_combined = f"{(ticket_description or '').lower()} {(ticket_title or '').lower()} {(ticket_text or '').lower()}"
+        ticket_mentions_windows = "windows" in ticket_combined
+
         try:
             ticket_text_lower = (ticket_text or "").lower()
             raw_words = [w for w in ticket_text_lower.split() if len(w) > 4]
             keywords = [w for w in raw_words if w not in _KEYWORD_STOPLIST]
-            
+
             if len(keywords) < 2:
                 return matched_runbooks  # Need at least 2 meaningful keywords to consider
-            
+
             all_active_runbooks = db.query(Runbook).filter(
                 Runbook.tenant_id == tenant_id,
                 Runbook.is_active == "active",
                 Runbook.status == "approved"
             ).all()
-            
+
             for runbook in all_active_runbooks:
-                runbook_title_lower = runbook.title.lower()
+                runbook_title_lower = (runbook.title or "").lower()
+                if "windows" in runbook_title_lower and not ticket_mentions_windows:
+                    continue
                 matches = [kw for kw in keywords if kw in runbook_title_lower]
                 if len(matches) >= 2:  # Require at least 2 keyword matches to reduce false positives
                     matched_runbooks.append({
@@ -250,7 +277,7 @@ class RunbookMatchingService:
                         break
         except Exception as e:
             logger.warning(f"Keyword matching failed: {e}")
-        
+
         return matched_runbooks
     
     def get_matched_runbooks_from_meta(

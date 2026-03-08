@@ -1,7 +1,5 @@
-# Service-specific instructions for NETWORK runbooks
-# Common instructions are loaded from common_instructions.toml
-
-system = '''You are generating a runbook for NETWORK issues.
+<poml>
+  <system><![CDATA[You are generating a runbook for NETWORK issues.
 
 SERVICE-SPECIFIC CONTEXT:
 - Network issues include: connectivity problems, DNS resolution failures, routing issues, firewall problems, network device failures
@@ -10,10 +8,8 @@ SERVICE-SPECIFIC CONTEXT:
 - For NETWORK DEVICES (routers, switches, firewalls): Use device-specific commands (Cisco IOS/NX-OS, Juniper JunOS, etc.)
 - Identify network component from issue description (DNS, routing, firewall, switch, router, VLAN, port, interface)
 - If issue mentions a specific device (router, switch, firewall), include device_name and device_ip in inputs
-'''
-
-user_template = """
-Generate a complete troubleshooting runbook YAML for the following NETWORK issue.
+]]></system>
+  <user><![CDATA[Generate a complete troubleshooting runbook YAML for the following NETWORK issue.
 
 Issue Description: {issue_description}
 Service: {service}
@@ -130,5 +126,5 @@ CRITICAL RULES FOR NETWORK ISSUES:
 8. Generate 8-12 complete steps that address the exact network issue described
 9. Each step must be UNIQUE - no duplicates
 10. Match network component to commands (DNS -> nslookup/dig, routing -> traceroute/route, interface -> ip/nmcli)
-"""
-
+]]></user>
+</poml>
