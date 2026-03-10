@@ -174,3 +174,169 @@ class CommandLearningService:
         except Exception as e:
             logger.warning(f"Failed to find similar fix: {e}")
             return None
+
+    def save_success(
+        self,
+        db: Session,
+        tenant_id: int,
+        command: str,
+        output_text: Optional[str] = None,
+        connector_type: str = "local",
+        session_id: Optional[int] = None,
+        runbook_id: Optional[int] = None,
+        step_number: Optional[int] = None,
+        step_type: Optional[str] = None,
+        issue_description: Optional[str] = None,
+    ) -> Optional[int]:
+        """
+        Save a successful remediation command to the learning store.
+        Reuses ExecutionCommandLearning table: fix_applied=command, success_after_fix=True.
+        These are later surfaced as known-good commands during runbook generation context building.
+        """
+        if not command or not command.strip():
+            return None
+        try:
+            os_type = _detect_os_from_connector(connector_type)
+            rec = ExecutionCommandLearning(
+                tenant_id=tenant_id,
+                session_id=session_id,
+                runbook_id=runbook_id,
+                step_number=step_number,
+                step_type=step_type,
+                command=(command or "").strip()[:2000],
+                error_text=None,  # No error — this was a success
+                output_text=(output_text or "")[:4000] if output_text else None,
+                connector_type=connector_type,
+                os_type=os_type,
+                fix_applied=(command or "").strip()[:2000],  # Command itself is the proven fix
+                fix_source="execution_success",
+                success_after_fix=True,
+                issue_description=(issue_description or "")[:2000] if issue_description else None,
+            )
+            db.add(rec)
+            db.flush()
+            learning_id = rec.id
+            logger.info(
+                f"Saved successful command to learning (id={learning_id}): "
+                f"connector={connector_type}, os={os_type}, cmd={command[:60]}"
+            )
+            return learning_id
+        except Exception as e:
+            logger.warning(f"Failed to save command success to learning: {e}")
+            return None
+
+    def get_known_good_commands(
+        self,
+        db: Session,
+        tenant_id: int,
+        issue_description: str,
+        os_type: Optional[str] = None,
+        limit: int = 8,
+    ) -> list:
+        """
+        Retrieve commands known to work for similar issues.
+        Used to build KAG context for runbook generation.
+        Returns list of dicts: {command, issue_description, os_type}
+        """
+        if not issue_description:
+            return []
+        try:
+            q = (
+                db.query(ExecutionCommandLearning)
+                .filter(
+                    ExecutionCommandLearning.tenant_id == tenant_id,
+                    ExecutionCommandLearning.success_after_fix == True,
+                    ExecutionCommandLearning.fix_source == "execution_success",
+                    ExecutionCommandLearning.command.isnot(None),
+                )
+            )
+            if os_type:
+                q = q.filter(ExecutionCommandLearning.os_type == os_type.lower())
+
+            candidates = q.order_by(
+                ExecutionCommandLearning.created_at.desc()
+            ).limit(limit * 4).all()
+
+            # Score by keyword overlap with issue_description
+            issue_words = set(issue_description.lower().split())
+            scored = []
+            for rec in candidates:
+                rec_issue = (rec.issue_description or "").lower()
+                rec_words = set(rec_issue.split())
+                overlap = len(issue_words & rec_words) / max(1, len(issue_words))
+                if overlap > 0 or not rec_issue:
+                    scored.append((overlap, rec))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            results = []
+            seen_commands = set()
+            for _, rec in scored[:limit]:
+                cmd = (rec.command or "").strip()
+                if cmd and cmd not in seen_commands:
+                    seen_commands.add(cmd)
+                    results.append({
+                        "command": cmd,
+                        "issue_description": rec.issue_description or "",
+                        "os_type": rec.os_type or "",
+                    })
+            return results
+        except Exception as e:
+            logger.warning(f"Failed to get known good commands: {e}")
+            return []
+
+    def get_known_bad_commands(
+        self,
+        db: Session,
+        tenant_id: int,
+        issue_description: str,
+        os_type: Optional[str] = None,
+        limit: int = 5,
+    ) -> list:
+        """
+        Retrieve commands known to fail for similar issues (no successful fix found).
+        Used to build KAG context to steer LLM away from broken commands.
+        Returns list of dicts: {command, error_text, issue_description}
+        """
+        if not issue_description:
+            return []
+        try:
+            q = (
+                db.query(ExecutionCommandLearning)
+                .filter(
+                    ExecutionCommandLearning.tenant_id == tenant_id,
+                    ExecutionCommandLearning.error_text.isnot(None),
+                    ExecutionCommandLearning.success_after_fix.isnot(True),
+                    ExecutionCommandLearning.command.isnot(None),
+                )
+            )
+            if os_type:
+                q = q.filter(ExecutionCommandLearning.os_type == os_type.lower())
+
+            candidates = q.order_by(
+                ExecutionCommandLearning.created_at.desc()
+            ).limit(limit * 4).all()
+
+            issue_words = set(issue_description.lower().split())
+            scored = []
+            for rec in candidates:
+                rec_issue = (rec.issue_description or "").lower()
+                rec_words = set(rec_issue.split())
+                overlap = len(issue_words & rec_words) / max(1, len(issue_words))
+                scored.append((overlap, rec))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            results = []
+            seen_commands = set()
+            for _, rec in scored[:limit]:
+                cmd = (rec.command or "").strip()
+                if cmd and cmd not in seen_commands:
+                    seen_commands.add(cmd)
+                    results.append({
+                        "command": cmd,
+                        "error_text": (rec.error_text or "")[:200],
+                        "issue_description": rec.issue_description or "",
+                    })
+            return results
+        except Exception as e:
+            logger.warning(f"Failed to get known bad commands: {e}")
+            return []

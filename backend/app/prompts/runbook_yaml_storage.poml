@@ -1,110 +1,42 @@
 <poml>
   <system><![CDATA[You are generating a runbook for STORAGE issues.
 
-SERVICE-SPECIFIC CONTEXT:
-- Storage issues include: NAS/SAN problems, network storage failures, NFS/CIFS mount issues, storage array problems, external storage systems
-- Storage issues are about EXTERNAL/NETWORK STORAGE SYSTEMS (NAS, SAN, network shares), NOT local server disk
-- Use storage-specific commands: mount, df, nfsstat, showmount, smbclient
-- Identify storage type from issue description (NFS, CIFS, SAN, NAS)
+DOMAIN CONTEXT:
+Storage issues involve: NFS/CIFS mount failures, NAS/SAN unavailability, storage array full or degraded, network share access problems, stale mounts, or storage service failures.
+
+This is EXTERNAL/NETWORK STORAGE — not local server disk.
+
+STORAGE AWARENESS:
+- Identify storage type from the issue: NFS, CIFS/SMB, iSCSI, NAS, SAN, network share
+- Use storage-appropriate commands: mount, umount, df, nfsstat, showmount, smbclient, iscsiadm
+- For NFS: nfs-utils commands, exportfs, nfsstat
+- For CIFS/SMB: smbclient, mount.cifs, net commands
 ]]></system>
-  <user><![CDATA[Generate a complete troubleshooting runbook YAML for the following STORAGE issue.
+  <user><![CDATA[Generate a troubleshooting runbook YAML for this STORAGE issue.
 
-Issue Description: {issue_description}
-Service: {service}
-Environment: {env}
-Risk Level: {risk}
+ISSUE: {issue_description}
+SERVICE: {service}
+ENV: {env}
+RISK: {risk}
 
-Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
+CONTEXT — similar past runbooks and known-good commands (use these to inform your approach):
 {context}
 
-CRITICAL - THIS IS A STORAGE ISSUE:
-- Storage issues include: NAS/SAN problems, network storage failures, NFS/CIFS mount issues, storage array problems, external storage systems
-- Storage issues are about EXTERNAL/NETWORK STORAGE SYSTEMS (NAS, SAN, network shares), NOT local server disk
-- Use storage-specific commands: mount, df, nfsstat, showmount, smbclient
-- Identify storage type from issue description (NFS, CIFS, SAN, NAS)
+WHAT TO GENERATE:
+1. Identify storage type (NFS, CIFS, SAN, NAS) from the issue description
+2. Prechecks: verify the storage issue exists (mount state, connectivity to storage server, disk usage)
+3. Steps: diagnose why storage is failing, then remediate (remount, restart NFS/SMB service, kill stale mounts, clear locks, fix permissions)
+4. Postcheck: confirm storage is accessible and healthy
 
-YAML STRUCTURE:
+Think about the issue type:
+- Mount failure → check if mountpoint exists, verify storage server reachable, attempt remount
+- Stale mount → kill processes using mount, force unmount, remount cleanly
+- Storage full → identify largest consumers, clean up, verify space freed
+- NFS service down → restart nfs-server or nfs-client, re-export, remount
+- SMB access denied → check credentials, permissions, service state
 
-runbook_id: rb-storage-[issue-keyword]
-version: 1.0.0
-title: Fix [EXACT match to issue description - e.g., "Fix NFS Mount Failure"]
-service: {service}
-env: {env}
-risk: {risk}
-description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT STORAGE ISSUE and its impact. DO NOT mention databases, web applications, or servers unless the issue description specifically mentions them.]
+Use mount_point and storage_server as inputs.
 
-INPUTS SECTION - STORAGE-SPECIFIC:
-For STORAGE issues, you typically need mount_point and storage_server.
-
-inputs:
-- name: mount_point
-  type: string
-  required: true
-  description: Filesystem mount point to check
-- name: storage_server
-  type: string
-  required: true
-  description: Storage server hostname or IP address
-- name: threshold_percent
-  type: string
-  required: false
-  default: "80"
-  description: Disk usage threshold percentage
-
-CRITICAL - MATCH INPUTS TO ISSUE:
-- If issue says "NFS mount failed" -> Include mount_point and storage_server
-- If issue says "storage array full" -> Include storage_server and threshold_percent
-- NEVER include database_name for pure storage issues
-
-prechecks:
-- description: Check if mount point exists
-  command: test -d {{mount_point}}
-  expected_output: 0
-
-- description: Verify storage server is reachable
-  command: ping -c 2 {{storage_server}}
-  expected_output: 0% packet loss
-
-steps:
-[Generate 5-6 UNIQUE steps that directly address the EXACT STORAGE issue described above. Use storage-specific commands.]
-
-EACH STEP MUST INCLUDE:
-- name: [Step name]
-  type: command
-  command: [Storage command]
-  description: [What this step does]
-  expected_output: [Expected result]
-  purpose: diagnose OR remediate OR verify (MANDATORY - see rules below)
-  severity: safe OR moderate OR high
-  skip_in_auto_mode: false
-
-PURPOSE FIELD RULES - CRITICAL:
-The "purpose:" field is MANDATORY and must be set correctly:
-- purpose: diagnose - For steps that ONLY check status (df -h, mount, showmount, nfsstat, smbclient -L)
-- purpose: remediate - For steps that FIX issues (mount, umount, systemctl restart nfs, systemctl restart smb, fuser -km, lsof +D, rm -rf)
-- purpose: verify - For the final step that confirms the issue is resolved
-
-EXAMPLES:
-- "df -h /mount" -> purpose: diagnose (only checks disk usage)
-- "mount -t nfs server:/path /mount" -> purpose: remediate (mounts filesystem)
-- "umount /mount && mount -t nfs server:/path /mount" -> purpose: remediate (remounts to fix issue)
-- "systemctl restart nfs-server" -> purpose: remediate (restarts NFS service)
-- "fuser -km /mount && umount /mount" -> purpose: remediate (kills processes and unmounts)
-- "rm -rf /mount/lockfile" -> purpose: remediate (removes lock file)
-- Final mount check after fixes -> purpose: verify
-
-CRITICAL: At least 4 of your 5-6 steps MUST have "purpose: remediate". Storage issues require ACTIVE FIXES (remount, restart services, kill processes, remove locks), not just status checks.
-
-CRITICAL RULES FOR STORAGE ISSUES:
-1. Title MUST match the EXACT issue description - if issue says "NFS mount failed", title must say "NFS mount failed"
-2. Description MUST explain the STORAGE issue, not database, web application, or server issues
-3. Use storage-specific commands (mount, df, nfsstat, showmount, smbclient)
-4. NEVER generate database commands (SELECT, DBCC) for pure storage issues
-5. NEVER generate web application commands (curl, nginx) for pure storage issues
-6. NEVER hardcode values - ALWAYS use {{mount_point}}, {{storage_server}}, {{threshold_percent}} placeholders
-7. Inputs should include mount_point and storage_server
-8. Generate 8-12 complete steps that address the exact storage issue described
-9. Each step must be UNIQUE - no duplicates
-10. Match storage type to commands (NFS -> nfs commands, CIFS -> smb commands)
+Output raw YAML only following the schema in the system prompt.
 ]]></user>
 </poml>

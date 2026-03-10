@@ -304,7 +304,31 @@ class StepExecutionService:
             # This ensures step state is persisted before we proceed
             db.commit()
             db.refresh(step)
-            
+
+            # Learning loop: save successful remediation commands as known-good patterns
+            try:
+                if result["success"]:
+                    step_purpose = (step.command_payload or {}).get("purpose", "")
+                    step_type_val = step.step_type or ""
+                    # Save if this is a remediation step (main step with remediate purpose)
+                    if step_purpose == "remediate" or (step_type_val == "main" and not step_purpose):
+                        issue_desc = session.meta_data.get("issue_description", "") if isinstance(session.meta_data, dict) else ""
+                        connector_type_for_learning = connector_type
+                        self.command_learning.save_success(
+                            db=db,
+                            tenant_id=session.tenant_id,
+                            command=step.command or "",
+                            output_text=output_text,
+                            connector_type=connector_type_for_learning,
+                            session_id=session.id,
+                            runbook_id=session.runbook_id,
+                            step_number=step.step_number,
+                            step_type=step_type_val,
+                            issue_description=issue_desc,
+                        )
+            except Exception as learning_err:
+                logger.debug(f"Non-critical: failed to save step success to learning: {learning_err}")
+
             # Track step in ticket metadata and external systems
             if session.ticket_id:
                 try:

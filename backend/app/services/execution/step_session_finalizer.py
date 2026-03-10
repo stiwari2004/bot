@@ -48,7 +48,14 @@ class StepSessionFinalizer:
         else:
             failed_step_numbers = []
             session.status = "completed"
-        
+
+        # Learning loop: promote runbook as golden example when execution fully succeeds
+        if session.status == "completed" and session.runbook_id:
+            try:
+                self._promote_golden_runbook(db, session)
+            except Exception as e:
+                logger.warning(f"Non-critical: failed to promote golden runbook: {e}")
+
         session.completed_at = datetime.now(timezone.utc)
         
         # Store execution pattern for learning
@@ -217,6 +224,71 @@ class StepSessionFinalizer:
         except Exception as cleanup_error:
             logger.warning(f"Final cleanup error: {cleanup_error}")
     
+    def _promote_golden_runbook(self, db: Session, session: ExecutionSession) -> None:
+        """
+        Mark a runbook as a proven golden example after successful execution.
+        Updates meta_data with golden_example=True and increments success_count.
+        This makes the runbook rank higher in RAG retrieval for similar future incidents.
+        """
+        from app.models.runbook import Runbook
+        import json as _json
+
+        runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
+        if not runbook:
+            return
+
+        # Parse existing meta_data
+        meta = {}
+        if runbook.meta_data:
+            try:
+                meta = _json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else runbook.meta_data
+            except Exception:
+                meta = {}
+
+        # Update golden example markers
+        meta["golden_example"] = True
+        meta["success_count"] = meta.get("success_count", 0) + 1
+        meta["last_successful_session"] = session.id
+        if session.total_duration_minutes is not None:
+            # Track resolution time for quality ranking
+            prev_times = meta.get("resolution_times_minutes", [])
+            prev_times.append(session.total_duration_minutes)
+            meta["resolution_times_minutes"] = prev_times[-10:]  # Keep last 10
+            meta["avg_resolution_minutes"] = sum(prev_times) / len(prev_times)
+
+        runbook.meta_data = _json.dumps(meta)
+        db.commit()
+
+        logger.info(
+            f"Promoted runbook {session.runbook_id} as golden example "
+            f"(success_count={meta['success_count']}, session={session.id})"
+        )
+
+        # Re-index for search so future RAG retrieval favours this proven runbook
+        try:
+            import asyncio
+            from app.services.runbook.generation.runbook_indexer import RunbookIndexer
+            indexer = RunbookIndexer()
+
+            async def _reindex():
+                from app.core.database import SessionLocal
+                reindex_db = SessionLocal()
+                try:
+                    await indexer.index_runbook_for_search(runbook, reindex_db)
+                    logger.info(f"Re-indexed golden runbook {runbook.id} for search")
+                except Exception as e:
+                    logger.warning(f"Non-critical: re-index of golden runbook failed: {e}")
+                finally:
+                    reindex_db.close()
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(_reindex())
+            else:
+                loop.run_until_complete(_reindex())
+        except Exception as e:
+            logger.warning(f"Non-critical: could not schedule golden runbook re-index: {e}")
+
     def _track_failure_for_quarantine(
         self,
         db: Session,

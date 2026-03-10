@@ -48,10 +48,10 @@ class RunbookQualityValidator:
         prechecks = spec.get(runbook_structure.SECTION_PRECHECKS, [])
         if not isinstance(prechecks, list):
             errors.append("CRITICAL: prechecks must be a list")
-        elif len(prechecks) != runbook_structure.PRECHECKS_COUNT:
+        elif not (runbook_structure.PRECHECKS_MIN <= len(prechecks) <= runbook_structure.PRECHECKS_MAX):
             errors.append(
-                f"CRITICAL: prechecks must have EXACTLY {runbook_structure.PRECHECKS_COUNT} steps, found {len(prechecks)}. "
-                f"This is a hard requirement - the runbook will be rejected if not exactly {runbook_structure.PRECHECKS_COUNT}."
+                f"prechecks must have between {runbook_structure.PRECHECKS_MIN} and {runbook_structure.PRECHECKS_MAX} steps, "
+                f"found {len(prechecks)}."
             )
 
         steps = spec.get(runbook_structure.SECTION_STEPS, [])
@@ -66,10 +66,10 @@ class RunbookQualityValidator:
         postchecks = spec.get(runbook_structure.SECTION_POSTCHECKS, [])
         if not isinstance(postchecks, list):
             errors.append("CRITICAL: postchecks must be a list")
-        elif len(postchecks) != runbook_structure.POSTCHECKS_COUNT:
+        elif not (runbook_structure.POSTCHECKS_MIN <= len(postchecks) <= runbook_structure.POSTCHECKS_MAX):
             errors.append(
-                f"CRITICAL: postchecks must have EXACTLY {runbook_structure.POSTCHECKS_COUNT} step, found {len(postchecks)}. "
-                f"This is a hard requirement - the runbook will be rejected if not exactly {runbook_structure.POSTCHECKS_COUNT}."
+                f"postchecks must have between {runbook_structure.POSTCHECKS_MIN} and {runbook_structure.POSTCHECKS_MAX} steps, "
+                f"found {len(postchecks)}."
             )
 
         issue_lower = issue_description.lower()
@@ -173,16 +173,15 @@ class RunbookQualityValidator:
                 )
             else:
                 step_phase = phase_order.get(purpose, current_phase)
-                if step_phase < current_phase:
-                    errors.append(
-                        f"CRITICAL: step {idx + 1} ('{step.get('name', 'unknown')}') with purpose '{purpose}' "
-                        f"appears after a later-phase step. Steps must flow diagnose → remediate → verify."
-                    )
-                current_phase = max(current_phase, step_phase)
+                # Only block verify/postcheck before any remediation — allow diagnose after remediate (iterative pattern)
                 if purpose in {"verify", "postcheck"} and remediation_count == 0:
                     errors.append(
-                        "CRITICAL: verification/postcheck steps cannot appear before remediation steps."
+                        f"CRITICAL: step {idx + 1} ('{step.get('name', 'unknown')}') — "
+                        "verify/postcheck steps cannot appear before any remediation steps."
                     )
+                # Allow diagnose steps to appear after remediate steps (diagnose→remediate→diagnose→remediate→verify is valid)
+                # Only block if a verify step appears before the end
+                current_phase = max(current_phase, step_phase) if purpose not in {"diagnose", "precheck"} else current_phase
 
             command_text = str(step.get("command", "")).lower()
             name_text = str(step.get("name", "")).lower()

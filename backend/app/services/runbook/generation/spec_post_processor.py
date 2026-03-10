@@ -417,196 +417,74 @@ class SpecPostProcessor:
     
     def _auto_fix_step_ordering(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Auto-fix: Reorder steps to follow correct phase order (diagnose → remediate → verify).
-        Also handles logical dependencies (e.g., "After Firewall Change" should come after firewall remediation).
-        Preserves branching logic by updating step_number and on_success/on_failure references.
+        Auto-fix: Only reorder steps when there is a clear structural violation.
+        Preserves iterative diagnose→remediate→diagnose→remediate→verify patterns.
+        Only intervenes when: verify appears before any remediate step.
         """
         from app.config import runbook_validation
-        
+
         if "steps" not in spec or not isinstance(spec["steps"], list):
             return spec
-        
+
         steps = spec["steps"]
         if not steps:
             return spec
-        
+
         phase_order = runbook_validation.PHASE_ORDER
-        
-        # Group steps by purpose
-        diagnose_steps = []
-        remediate_steps = []
+
+        # Detect if there is a structural violation: verify before any remediate
+        first_verify_idx = None
+        first_remediate_idx = None
+        for idx, step in enumerate(steps):
+            if not isinstance(step, dict):
+                continue
+            purpose = str(step.get("purpose", "")).strip().lower()
+            phase = phase_order.get(purpose, 1)
+            if phase == 2 and first_verify_idx is None:  # verify/postcheck
+                first_verify_idx = idx
+            if phase == 1 and first_remediate_idx is None:  # remediate
+                first_remediate_idx = idx
+
+        # No violation: preserve LLM's ordering exactly
+        if first_verify_idx is None or first_remediate_idx is None:
+            return spec
+        if first_verify_idx > first_remediate_idx:
+            return spec  # verify comes after remediate — correct order, no change needed
+
+        # Violation detected: verify appears before any remediate step
+        # Move verify steps to the end, preserve everything else in order
+        logger.info(
+            f"Auto-fix: verify step found at index {first_verify_idx} before first remediate at "
+            f"{first_remediate_idx}. Moving verify steps to end."
+        )
+
+        non_verify_steps = []
         verify_steps = []
-        other_steps = []
-        
         for step in steps:
             if not isinstance(step, dict):
-                other_steps.append(step)
+                non_verify_steps.append(step)
                 continue
-            
             purpose = str(step.get("purpose", "")).strip().lower()
-            phase = phase_order.get(purpose, 1)  # Default to remediate if unknown
-            
-            if phase == 0:  # diagnose
-                diagnose_steps.append(step)
-            elif phase == 1:  # remediate
-                remediate_steps.append(step)
-            elif phase == 2:  # verify
+            phase = phase_order.get(purpose, 1)
+            if phase == 2:  # verify/postcheck
                 verify_steps.append(step)
             else:
-                other_steps.append(step)
-        
-        # Detect logical dependencies: steps that reference other steps by name/description
-        # Example: "Re-ping VPN Server After Firewall Change" should come after "Temporarily Disable Local Firewall"
-        diagnose_with_deps = []  # Diagnose steps that depend on remediate steps
-        diagnose_standalone = []  # Diagnose steps that don't depend on remediate steps
-        
-        for diag_step in diagnose_steps:
-            if not isinstance(diag_step, dict):
-                diagnose_standalone.append(diag_step)
-                continue
-            
-            # Check if this diagnose step references a remediate step
-            step_name = str(diag_step.get("name", "")).lower()
-            step_desc = str(diag_step.get("description", "")).lower()
-            step_text = f"{step_name} {step_desc}"
-            
-            # Look for dependency keywords: "after", "following", "post-", "re-", etc.
-            has_dependency = False
-            dependency_keywords = ["after", "following", "post-", "re-", "recheck", "retest", "verify after"]
-            
-            for keyword in dependency_keywords:
-                if keyword in step_text:
-                    # Check if any remediate step matches the referenced action
-                    for rem_step in remediate_steps:
-                        if not isinstance(rem_step, dict):
-                            continue
-                        rem_name = str(rem_step.get("name", "")).lower()
-                        rem_desc = str(rem_step.get("description", "")).lower()
-                        rem_text = f"{rem_name} {rem_desc}"
-                        
-                        # Extract the action being referenced (e.g., "firewall change", "restart")
-                        # Common patterns: "after [action]", "re-[action]", "post-[action]"
-                        if "firewall" in step_text and "firewall" in rem_text:
-                            has_dependency = True
-                            break
-                        elif "restart" in step_text and "restart" in rem_text:
-                            has_dependency = True
-                            break
-                        elif "service" in step_text and "service" in rem_text:
-                            has_dependency = True
-                            break
-                        elif "network" in step_text and "network" in rem_text:
-                            has_dependency = True
-                            break
-                        elif "dns" in step_text and "dns" in rem_text:
-                            has_dependency = True
-                            break
-                    
-                    if has_dependency:
-                        break
-            
-            if has_dependency:
-                diagnose_with_deps.append(diag_step)
-            else:
-                diagnose_standalone.append(diag_step)
-        
-        # Check if reordering is needed
-        original_order = [step.get("purpose", "").lower() for step in steps if isinstance(step, dict)]
-        expected_order = ["diagnose"] * len(diagnose_steps) + ["remediate"] * len(remediate_steps) + ["verify"] * len(verify_steps)
-        
-        # Only reorder if there's a mismatch
-        needs_reordering = False
-        if len(original_order) == len(expected_order):
-            for i, (orig, exp) in enumerate(zip(original_order, expected_order)):
-                if orig != exp:
-                    needs_reordering = True
-                    break
-        
-        # Also check if we have diagnose steps with dependencies that need reordering
-        if diagnose_with_deps:
-            needs_reordering = True
-        
-        if not needs_reordering and len(diagnose_steps) + len(remediate_steps) + len(verify_steps) == len([s for s in steps if isinstance(s, dict)]):
-            # Already in correct order
-            return spec
-        
-        # Reorder: standalone diagnose → remediate → diagnose-with-deps → verify → other
-        # This ensures diagnostic steps that depend on remediation come after the remediation
-        reordered_steps = diagnose_standalone + remediate_steps + diagnose_with_deps + verify_steps + other_steps
-        
-        # Build mapping from old step_number to new step_number
-        old_to_new_map = {}
+                non_verify_steps.append(step)
+
+        reordered_steps = non_verify_steps + verify_steps
+
+        # Renumber step_number fields sequentially
         for new_idx, step in enumerate(reordered_steps, 1):
-            if not isinstance(step, dict):
-                continue
-            
-            old_step_num = step.get("step_number")
-            if old_step_num is None:
-                # If no explicit step_number, use original index
-                try:
-                    old_idx = steps.index(step) + 1
-                    old_to_new_map[old_idx] = new_idx
-                except ValueError:
-                    # Step not found in original list, skip mapping
-                    pass
-            else:
-                old_to_new_map[old_step_num] = new_idx
-            
-            # Update step_number to new sequential number
-            step["step_number"] = new_idx
-        
-        # Update on_success and on_failure references
-        for step in reordered_steps:
-            if not isinstance(step, dict):
-                continue
-            
-            # Update on_success
-            if "on_success" in step and step["on_success"] is not None:
-                old_target = step["on_success"]
-                if old_target in old_to_new_map:
-                    new_target = old_to_new_map[old_target]
-                    if new_target != step["on_success"]:
-                        logger.info(
-                            f"Auto-fix: Updated on_success from step {step.get('step_number')} "
-                            f"(old target: {old_target} → new target: {new_target})"
-                        )
-                        step["on_success"] = new_target
-                else:
-                    logger.warning(
-                        f"Auto-fix: Could not map on_success target {old_target} for step {step.get('step_number')}"
-                    )
-            
-            # Update on_failure (and legacy on_fail)
-            for key in ["on_failure", "on_fail"]:
-                if key in step and step[key] is not None:
-                    old_target = step[key]
-                    if old_target in old_to_new_map:
-                        new_target = old_to_new_map[old_target]
-                        if new_target != step[key]:
-                            logger.info(
-                                f"Auto-fix: Updated {key} from step {step.get('step_number')} "
-                                f"(old target: {old_target} → new target: {new_target})"
-                            )
-                            step[key] = new_target
-                    else:
-                        logger.warning(
-                            f"Auto-fix: Could not map {key} target {old_target} for step {step.get('step_number')}"
-                        )
-        
-        # Update spec with reordered steps
+            if isinstance(step, dict):
+                step["step_number"] = new_idx
+
         spec["steps"] = reordered_steps
-        
-        if needs_reordering:
-            logger.info(
-                f"Auto-fix: Reordered {len(steps)} steps. "
-                f"New order: {len(diagnose_standalone)} standalone diagnose → "
-                f"{len(remediate_steps)} remediate → {len(diagnose_with_deps)} diagnose-with-deps → "
-                f"{len(verify_steps)} verify"
-            )
-        
+        logger.info(
+            f"Auto-fix: Reordered steps — {len(non_verify_steps)} non-verify + {len(verify_steps)} verify at end."
+        )
         return spec
-    
-    def _auto_fix_step_purposes(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+
+        def _auto_fix_step_purposes(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """
         Auto-fix: Correct step purposes based on command and name keywords.
         Detects mismatches like:

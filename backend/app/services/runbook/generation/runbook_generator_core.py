@@ -17,6 +17,7 @@ from app.services.llm_budget_manager import LLMBudgetExceeded, LLMRateLimitExcee
 from app.core.logging import get_logger
 
 from app.services.runbook.generation.service_classifier import ServiceClassifier
+from app.services.runbook.generation.tiered_generation_service import TieredGenerationService
 from app.services.runbook.generation.content_builder import ContentBuilder
 from app.services.runbook.generation.yaml_processor import YamlProcessor
 from app.services.runbook.generation.runbook_indexer import RunbookIndexer
@@ -41,6 +42,7 @@ class RunbookGeneratorService:
         # VectorStoreService created lazily only when needed (to avoid loading embedding model)
         self._vector_service = None
         self.service_classifier = ServiceClassifier()
+        self.tiered_service = TieredGenerationService()
         self.content_builder = ContentBuilder()
         self.yaml_processor = YamlProcessor()
         self.runbook_indexer = RunbookIndexer()
@@ -162,6 +164,21 @@ class RunbookGeneratorService:
         # Use CI type for prompt selection (not OS type)
         service = ci_type
 
+        # Tiered generation: check for Tier 0 (reuse) or Tier 1 (adapt) before full Tier 2 generation
+        tiered_response = await self.tiered_service.select_tier_and_execute(
+            issue_description=issue_description,
+            tenant_id=tenant_id,
+            db=db,
+            service=service,
+            env=env,
+            risk=risk,
+            os_type=os_type,
+        )
+        if tiered_response is not None:
+            generation_mode = tiered_response.meta_data.get("generation_mode", "tier_reuse")
+            logger.info(f"Tiered generation: returning {generation_mode} result (runbook_id={tiered_response.id})")
+            return tiered_response
+
         # RAG: retrieve runbook + document context (KAG)
         try:
             search_results = await self.vector_service.hybrid_search(
@@ -178,6 +195,20 @@ class RunbookGeneratorService:
             logger.warning(f"RAG search failed, generating without context: {e}")
             search_results = []
             context = ""
+
+        # KAG: inject proven/failed commands from execution learning store
+        try:
+            learned_context = self._build_learned_command_context(
+                db=db,
+                tenant_id=tenant_id,
+                issue_description=issue_description,
+                os_type=os_type if service == "server" else None,
+            )
+            if learned_context:
+                context = learned_context + ("\n\n" + context if context else "")
+                logger.info("KAG: injected learned command context into generation prompt")
+        except Exception as e:
+            logger.debug(f"Non-critical: KAG learned context failed: {e}")
 
         # Phase 1: Generate YAML from LLM
         ai_yaml = await self.yaml_pipeline.generate_yaml_from_llm(
@@ -540,7 +571,22 @@ class RunbookGeneratorService:
             if remediation_steps:
                 relevant_parts.extend([f"  Remediation Step: {step}" for step in remediation_steps[:2]])
             if relevant_parts:
-                context_parts.append(f"[Runbook] {i}: {title} (similarity: {score:.2f}, remediation steps: {rem_count})")
+                golden_tag = ""
+                try:
+                    import json as _json
+                    rb_meta = result.meta_data if hasattr(result, "meta_data") else {}
+                    if isinstance(rb_meta, str):
+                        rb_meta = _json.loads(rb_meta)
+                    if isinstance(rb_meta, dict) and rb_meta.get("golden_example"):
+                        success_count = rb_meta.get("success_count", 1)
+                        avg_mins = rb_meta.get("avg_resolution_minutes")
+                        golden_tag = f" ✓ PROVEN ({success_count}x"
+                        if avg_mins:
+                            golden_tag += f", avg {avg_mins:.0f}min"
+                        golden_tag += ")"
+                except Exception:
+                    pass
+                context_parts.append(f"[Runbook] {i}: {title} (similarity: {score:.2f}, remediation steps: {rem_count}{golden_tag})")
                 context_parts.extend(relevant_parts)
                 context_parts.append("")
 
@@ -562,7 +608,66 @@ class RunbookGeneratorService:
                     context_parts.append("")
 
         return "\n".join(context_parts).strip() if context_parts else "No similar runbooks or documents with remediation found."
-    
+
+    def _build_learned_command_context(
+        self,
+        db,
+        tenant_id: int,
+        issue_description: str,
+        os_type: Optional[str] = None,
+    ) -> str:
+        """
+        Build KAG context from the execution learning store.
+        Returns known-good and known-bad commands for the given issue type.
+        Called separately from _format_runbook_context so it can be injected
+        into the generation context alongside RAG runbook context.
+        """
+        from app.services.execution.command_learning_service import CommandLearningService
+
+        if db is None:
+            return ""
+
+        learning = CommandLearningService()
+        parts = []
+
+        try:
+            good_cmds = learning.get_known_good_commands(
+                db=db,
+                tenant_id=tenant_id,
+                issue_description=issue_description,
+                os_type=os_type,
+                limit=6,
+            )
+            if good_cmds:
+                parts.append("Commands proven to work in past executions for similar issues (prefer these):")
+                for entry in good_cmds:
+                    parts.append(f"  [PROVEN] {entry['command']}")
+                    if entry.get("issue_description"):
+                        parts.append(f"    (context: {entry['issue_description'][:80]})")
+                parts.append("")
+        except Exception as e:
+            logger.debug(f"Could not fetch known-good commands: {e}")
+
+        try:
+            bad_cmds = learning.get_known_bad_commands(
+                db=db,
+                tenant_id=tenant_id,
+                issue_description=issue_description,
+                os_type=os_type,
+                limit=4,
+            )
+            if bad_cmds:
+                parts.append("Commands known to FAIL for similar issues (avoid these):")
+                for entry in bad_cmds:
+                    parts.append(f"  [AVOID] {entry['command']}")
+                    if entry.get("error_text"):
+                        parts.append(f"    (error: {entry['error_text'][:80]})")
+                parts.append("")
+        except Exception as e:
+            logger.debug(f"Could not fetch known-bad commands: {e}")
+
+        return "\n".join(parts).strip()
+
     def _validate_generated_runbook(
         self, 
         spec: Dict[str, Any], 

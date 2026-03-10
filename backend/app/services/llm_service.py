@@ -227,7 +227,7 @@ class LlamaCppLLMService:
         from app.services.prompt_store import PromptNotFound
         from app.services.poml_parser import POMLParseError
         
-        ctx = context[:800] if context else ""
+        ctx = context[:4000] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
         logger.info(f"[PROMPT_LOAD] Loading prompt template: {prompt_id} for service_type={service_type}, os_type={os_type}")
         
@@ -456,7 +456,7 @@ class PerplexityLLMService:
         from app.services.prompt_store import PromptNotFound
         from app.services.poml_parser import POMLParseError
         
-        ctx = context[:800] if context else ""
+        ctx = context[:4000] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
         
         # Build prompt context - only include os_type for server CI types

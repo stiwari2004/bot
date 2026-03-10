@@ -313,6 +313,7 @@ class RunbookController(BaseController):
                         "ticket_id": ticket_id,
                         "tenant_id": self.tenant_id,
                         "status": "success",
+                        "generation_mode": (runbook.meta_data or {}).get("generation_mode", "tier2_generated"),
                     },
                     tenant_id=self.tenant_id,
                 )

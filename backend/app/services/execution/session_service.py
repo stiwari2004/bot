@@ -67,7 +67,11 @@ class SessionService:
                 command_payload["timeout_seconds"] = int(step_data["timeout"])
             except (TypeError, ValueError):
                 pass
-        
+
+        # Store purpose for learning loop (diagnose/remediate/verify)
+        if step_data.get("purpose"):
+            command_payload["purpose"] = step_data.get("purpose")
+
         step = ExecutionStep(
             session_id=session_id,
             step_number=step_number,

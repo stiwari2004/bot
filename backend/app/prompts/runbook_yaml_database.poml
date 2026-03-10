@@ -1,185 +1,41 @@
 <poml>
   <system><![CDATA[You are generating a runbook for DATABASE issues.
 
-SERVICE-SPECIFIC CONTEXT:
-- Database issues include: transaction log full, connection pool exhausted, query performance, database locks, backup failures
-- Identify database type from issue description: MSSQL/SQL Server, PostgreSQL, MySQL
-- Use database-specific commands based on type
-- NEVER mix database types - if MSSQL is mentioned, use ONLY MSSQL commands
+DOMAIN CONTEXT:
+Database issues involve: transaction log full, connection pool exhausted, query performance degradation, deadlocks, replication lag, backup failures, or database crashes.
 
-DATABASE-SPECIFIC COMMANDS:
-- MSSQL/SQL Server: sys.databases, DBCC, BACKUP LOG, xp_fixeddrives, sqlcmd, SELECT, sp_who2
-- PostgreSQL: pg_stat_activity, pg_locks, pg_database, psql, pg_terminate_backend, SELECT
-- MySQL: SHOW PROCESSLIST, INFORMATION_SCHEMA, mysql, mysqladmin, SELECT
+DATABASE AWARENESS:
+- Identify the database engine from the issue description: MSSQL/SQL Server, PostgreSQL, MySQL, MongoDB, Redis
+- Use ONLY commands and queries appropriate for the identified database engine
+- Never mix database types — if MSSQL is identified, use only MSSQL tools (sqlcmd, DBCC, sys.* views)
+- If PostgreSQL, use only psql, pg_* system views, pg_terminate_backend
+- If MySQL, use only mysql client, SHOW commands, INFORMATION_SCHEMA
 ]]></system>
-  <user><![CDATA[Generate a complete troubleshooting runbook YAML for the following DATABASE issue.
+  <user><![CDATA[Generate a troubleshooting runbook YAML for this DATABASE issue.
 
-Issue Description: {issue_description}
-Service: {service}
-Environment: {env}
-Risk Level: {risk}
+ISSUE: {issue_description}
+SERVICE: {service}
+ENV: {env}
+RISK: {risk}
 
-Context (use for technical reference ONLY - do not copy examples from here if they don't match the issue type):
+CONTEXT — similar past runbooks and known-good commands (use these to inform your approach):
 {context}
 
-CRITICAL - READ THE ISSUE DESCRIPTION CAREFULLY:
-Read the issue description word-by-word:
-- If it says "transaction log" -> Generate transaction log steps
-- If it says "connection pool" -> Generate connection pool steps
-- If it says "MSSQL" or "SQL Server" -> Use ONLY MSSQL commands
-- If it says "PostgreSQL" -> Use ONLY PostgreSQL commands
-- If it says "MySQL" -> Use ONLY MySQL commands
-- NEVER mix types. NEVER mix issues.
+WHAT TO GENERATE:
+1. Identify the database engine from the issue description
+2. Prechecks: verify the reported database metric is actually in a bad state (log usage, connection count, query time, lock status)
+3. Steps: diagnose the root cause using database-specific tools, then remediate it (backup logs, terminate connections, kill blocking queries, restart service, resize pool)
+4. Postcheck: confirm the metric has returned to a healthy state using the same check as precheck
 
-CRITICAL - IDENTIFY COMMAND TYPE:
-- If issue mentions "MSSQL", "SQL Server", "Microsoft SQL" -> Use ONLY: sys.databases, DBCC, BACKUP LOG, xp_fixeddrives, sqlcmd
-- If issue mentions "PostgreSQL", "Postgres" -> Use ONLY: pg_stat_activity, pg_locks, pg_database, psql, pg_terminate_backend
-- If issue mentions "MySQL" -> Use ONLY: SHOW PROCESSLIST, INFORMATION_SCHEMA, mysql, mysqladmin
-- NEVER mix: If MSSQL identified, NEVER use psql, pg_stat_activity, or PostgreSQL commands
+Think about the issue type:
+- Transaction log full → check log space, back up log, shrink if appropriate
+- Connection pool exhausted → check active connections, terminate idle/stale ones
+- Query performance → identify slow queries, kill long-running ones, check indexes
+- Deadlocks → identify blocking sessions, terminate blockers
+- Database down → check why it stopped, restart the service, verify connectivity
 
-CRITICAL - MATCH TITLE TO ISSUE:
-- If issue says "transaction log is 95% full" -> Title MUST be "Fix Transaction Log Full" or similar
-- If issue says "connection pool exhausted" -> Title MUST be "Fix Connection Pool Exhausted" or similar
-- The title MUST match the EXACT issue described, not a different issue type
+Use ONLY commands appropriate for the identified database engine. Include both server_name and database_name as inputs.
 
-CRITICAL - MATCH STEPS TO ISSUE:
-- If issue is "transaction log full" -> Generate: Check log space, Check active transactions, Take log backup, Shrink log
-- If issue is "connection pool exhausted" -> Generate: Check connections, List connections, Terminate idle connections
-- DO NOT generate connection pool steps for transaction log issues
-- DO NOT generate transaction log steps for connection pool issues
-
-YAML STRUCTURE:
-
-runbook_id: rb-database-[issue-keyword]
-version: 1.0.0
-title: Fix [EXACT match to issue description - if issue says "transaction log full", title must say "transaction log full"]
-service: {service}
-env: {env}
-risk: {risk}
-description: [READ THE ISSUE DESCRIPTION ABOVE: "{issue_description}". Write 2-3 sentences explaining THIS EXACT DATABASE ISSUE and its impact. DO NOT copy anything from the inputs section below. The description explains WHAT the problem is, not what parameters are needed.]
-
-MANDATORY INPUTS SECTION:
-The inputs section below is REQUIRED and MUST be included in your YAML output. You MUST include BOTH server_name AND database_name.
-
-inputs:
-- name: server_name
-  type: string
-  required: true
-  description: Target server hostname or IP address
-- name: database_name
-  type: string
-  required: true
-  description: Database name (input parameter for execution)
-
-CRITICAL - DESCRIPTION FIELD:
-The description field at the top explains the ISSUE from "{issue_description}", NOT the input parameters.
-
-WRONG: description: Database name (input parameter for execution) - This is from inputs!
-RIGHT: description: The transaction log is 95% full in the MSSQL database, causing application connections to fail and preventing new transactions. This requires immediate attention to prevent data loss and service disruption.
-
-CRITICAL - SERVER_NAME MUST BE INCLUDED:
-If your prechecks or steps use {{server_name}}, you MUST include server_name in inputs. You MUST include BOTH server_name AND database_name.
-
-CRITICAL - INPUT DESCRIPTION FORMAT:
-The description field for each input MUST be proper descriptive text. NEVER use "Parameter: X" format.
-
-WRONG: description: 'Parameter: server_name'
-RIGHT: description: Target server hostname or IP address
-
-CRITICAL - PRECHECKS MUST CHECK THE ACTUAL ISSUE:
-The precheck MUST verify the actual issue reported in "{issue_description}":
-- If issue says "transaction log full" -> Precheck MUST check transaction log space
-- If issue says "connection pool exhausted" -> Precheck MUST check connection count
-- If issue says "CPU high" or "CPU utilization" -> Precheck MUST check CPU usage
-- NEVER use generic checks - you MUST check the actual metric/status
-
-RIGHT precheck for transaction log full:
-- description: Check transaction log space to verify issue
-  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '{{database_name}}'
-  expected_output: Transaction log status
-
-prechecks:
-- description: [Check the actual metric from issue - transaction log, connections, CPU, etc.]
-  command: [Database-specific command to check the actual metric]
-  expected_output: [Metric value]
-- description: [Validate database connectivity]
-  command: [Connection test command]
-  expected_output: [Connection successful]
-- description: [Additional validation]
-  command: [Relevant check]
-  expected_output: [Expected result]
-
-steps:
-[Generate 5-6 steps that directly address the EXACT DATABASE issue described above. Use database-specific commands based on database type.]
-
-EACH STEP MUST INCLUDE:
-- name: [Step name]
-  type: command
-  command: [Database command]
-  description: [What this step does]
-  expected_output: [Expected result]
-  purpose: diagnose OR remediate OR verify (MANDATORY - see rules below)
-  severity: safe OR moderate OR high
-  skip_in_auto_mode: false
-
-PURPOSE FIELD RULES - CRITICAL:
-The "purpose:" field is MANDATORY and must be set correctly:
-- purpose: diagnose - For steps that ONLY check status (SELECT queries to check space, connections, locks, status)
-- purpose: remediate - For steps that FIX issues (BACKUP LOG, DBCC SHRINKFILE, KILL session, ALTER DATABASE, DELETE, TRUNCATE)
-- purpose: verify - For the final step that confirms the issue is resolved
-
-EXAMPLES:
-- "SELECT log_reuse_wait_desc FROM sys.databases" -> purpose: diagnose (only checks status)
-- "BACKUP LOG database TO disk" -> purpose: remediate (backs up log to fix log full issue)
-- "DBCC SHRINKFILE(logfile, 100)" -> purpose: remediate (shrinks log file)
-- "KILL session_id" -> purpose: remediate (terminates blocking connection)
-- "ALTER DATABASE SET RECOVERY SIMPLE" -> purpose: remediate (changes recovery mode)
-- Final check after fixes -> purpose: verify
-
-CRITICAL - MAIN STEPS MUST INCLUDE REMEDIATION:
-The main steps MUST do MORE than just diagnose - they MUST FIX the issue:
-- Steps should: Diagnose -> Identify root cause -> REMEDIATE -> Verify
-- NEVER generate only diagnostic steps - you MUST include remediation steps
-- The goal is to RESOLVE the ticket or ESCALATE, not just gather information
-- At least 4 of your 5-6 steps MUST have "purpose: remediate"
-
-STEP STRUCTURE REQUIREMENTS:
-1. First 1-2 steps: DIAGNOSE (identify the problem) - purpose: diagnose
-2. Next 3-4 steps: REMEDIATE (fix the problem - backup logs, shrink logs, terminate connections, etc.) - purpose: remediate
-3. Last 1 step: VERIFY (confirm the fix worked) - purpose: verify
-
-CRITICAL - POSTCHECKS MUST VERIFY RESOLUTION:
-The postcheck MUST verify that the EXACT issue from "{issue_description}" is RESOLVED:
-- If issue was "transaction log full" -> Postcheck MUST check log space is now normal
-- If issue was "connection pool exhausted" -> Postcheck MUST check connection count is now normal
-- If issue was "CPU high" -> Postcheck MUST check CPU is now normal
-- The postcheck MUST use the SAME metric as the precheck to compare before/after
-
-RIGHT postcheck for transaction log:
-- description: Verify transaction log space is now normal
-  command: SELECT name, log_reuse_wait_desc FROM sys.databases WHERE name = '{{database_name}}'
-  expected_output: Log space normal
-
-postchecks:
-- description: Verify [ISSUE FROM DESCRIPTION] has been resolved
-  command: [SAME COMMAND AS PRECHECK TO COMPARE BEFORE/AFTER]
-  expected_output: [METRIC VALUE INDICATING RESOLUTION]
-
-CRITICAL RULES FOR DATABASE ISSUES:
-1. Title MUST match the EXACT issue description - if issue says "transaction log full", title must say "transaction log full"
-2. Description MUST explain the DATABASE issue, not server, web application, or network issues
-3. Use database-specific commands based on database type (MSSQL, PostgreSQL, MySQL)
-4. NEVER mix database types - if MSSQL identified, use ONLY MSSQL commands
-5. NEVER generate server commands (top, free, df) for pure database issues
-6. NEVER generate web application commands (curl, nginx) for pure database issues
-7. NEVER hardcode values - ALWAYS use {{server_name}}, {{database_name}} placeholders
-8. Inputs MUST include BOTH server_name AND database_name
-9. Generate EXACTLY 5-6 complete steps (no more, no less) that address the exact database issue described
-10. Each step must be UNIQUE - no duplicates
-11. PRECHECK MUST check the actual metric from the issue description (transaction log, connections, etc.) - NOT just database status
-12. MAIN STEPS MUST include remediation steps, not just diagnostics - the goal is to FIX the issue
-13. POSTCHECK MUST verify the issue is resolved using the same metric as the precheck
-14. Generate EXACTLY 3 precheck steps (no more, no less)
-15. Generate EXACTLY 1 postcheck step (no more, no less)
+Output raw YAML only following the schema in the system prompt.
 ]]></user>
 </poml>

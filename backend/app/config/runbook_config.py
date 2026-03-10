@@ -15,17 +15,27 @@ class RunbookStructureConfig:
     SECTION_STEPS: str = "steps"
     SECTION_POSTCHECKS: str = "postchecks"
     SECTION_INPUTS: str = "inputs"
-    
-    # Required counts (5 min max resolution time - keep runbooks light)
+
+    # Precheck count range (flexible — issue complexity determines count)
+    PRECHECKS_MIN: int = 1
+    PRECHECKS_MAX: int = 5
+
+    # Step count range
+    STEPS_MIN: int = 3
+    STEPS_MAX: int = 12
+
+    # Postcheck count range
+    POSTCHECKS_MIN: int = 1
+    POSTCHECKS_MAX: int = 3
+
+    # Remediation requirements
+    MIN_REMEDIATION_STEPS: int = 2
+    MAX_DIAGNOSTIC_ONLY_STEPS: int = None
+    REMEDIATION_RATIO: float = 0.3  # Relaxed from 0.4 — complex issues have more diagnosis steps
+
+    # Keep for backward compatibility (used in some places still)
     PRECHECKS_COUNT: int = 3
-    STEPS_MIN: int = 3  # Minimum for basic issues
-    STEPS_MAX: int = 10  # Max 10 steps for ~5 min resolution (single command per step)
     POSTCHECKS_COUNT: int = 1
-    
-    # Remediation requirements (relaxed for iterative troubleshooting)
-    MIN_REMEDIATION_STEPS: int = 2  # At least 2 fixes required (was 4)
-    MAX_DIAGNOSTIC_ONLY_STEPS: int = None  # No hard limit, but ensure remediation ratio
-    REMEDIATION_RATIO: float = 0.4  # At least 40% of steps must be remediation
 
 
 @dataclass

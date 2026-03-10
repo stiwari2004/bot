@@ -1,29 +1,17 @@
 <poml>
-  <system><![CDATA[You are generating a runbook for SERVER issues.
+  <system><![CDATA[You are generating a runbook for SERVER or HOST issues.
 
-SERVICE-SPECIFIC CONTEXT:
-- Server issues include: CPU/memory/disk/network utilization, process issues, service failures
-- Use OS-specific commands: Windows (PowerShell) or Linux (shell commands)
-- Get-Counter format: Get-Counter -Counter '\Processor(_Total)\% Processor Time' (single quotes, single backslashes)
-- Use __SERVER_NAME__ placeholder for server names
+DOMAIN CONTEXT:
+Server issues involve: CPU utilization, memory pressure, disk space, network throughput, process crashes, service failures, or the host being unreachable.
 
-COMMAND FORMATTING (single command per step; 5 min max resolution):
-- One command per step. No chaining (no "cmd1 && cmd2"); use separate steps instead.
-- NEVER use ssh in commands. The system connects to the server; you provide only the RAW command (e.g. systemctl status node_exporter, ss -tulpn | grep 9100).
-- Windows: PowerShell (Get-Counter, Get-Process, Stop-Process, Restart-Service, etc.)
-- Linux: Shell (top, ps, free, df, kill, systemctl, journalctl, etc.)
+OS AWARENESS:
+- Target OS for this runbook: {os_type}
+- Windows: use PowerShell cmdlets (Get-Process, Stop-Process, Restart-Service, Get-Counter, etc.)
+- Linux: use shell commands (top, ps, free, df, kill, systemctl, journalctl, ss, etc.)
+- If OS is unknown, default to Linux shell commands
 
-REMEDIATION COMMANDS (Windows):
-- Stop-Process -Id <pid> -Force (kill process)
-- Restart-Service <name> (restart service)
-- Clear-EventLog -LogName <name> (clear logs)
-- Remove-Item -Path <path> -Recurse -Force (delete files/folders)
-
-REMEDIATION COMMANDS (Linux):
-- kill -9 <pid> (kill process)
-- systemctl restart <service> (restart service)
-- rm -rf <path> (delete files/folders)
-- truncate -s 0 <logfile> (clear log file)
+KEY CONSTRAINT: Never use ssh in commands. Provide raw commands only — the executor connects.
+Use {{server_name}} as the placeholder for the target host where needed.
 ]]></system>
   <user><![CDATA[Generate a troubleshooting runbook YAML for this SERVER issue.
 
@@ -31,99 +19,25 @@ ISSUE: {issue_description}
 SERVICE: {service}
 ENV: {env}
 RISK: {risk}
-OS TYPE: {os_type}
+OS: {os_type}
 
-CONTEXT (similar runbooks for reference):
+CONTEXT — similar past runbooks and known-good commands (use these to inform your approach):
 {context}
 
-THINK:
-1. What metric is mentioned? (CPU/memory/disk/network)
-2. What OS? (Windows/Linux)
-3. What's the problem? (high utilization, full, slow, error)
-4. What commands should I use? (Windows: Get-Counter/Get-Process, Linux: top/ps/free/df)
+WHAT TO GENERATE:
+1. Prechecks: verify the reported metric (CPU/memory/disk/network/service) is actually in a bad state
+2. Steps: identify root cause then fix it — derive the appropriate commands for {os_type} based on the issue type
+3. Postcheck: confirm the metric has returned to a healthy state
 
-PLAN (5 min max resolution; single command per step; keep runbook light):
-- Prechecks: 3 checks, each with ONE command (e.g. systemctl status, ss/grep, ping).
-- Steps: 3-10 steps. Each step has exactly ONE command. Follow diagnose -> remediate -> diagnose -> remediate -> verify. At least 2 remediation steps. Escalate if not fixed within 5 min.
-- Postcheck: 1 check with ONE command to verify fix.
-- Inputs: ONE input only: server_name. Use literals in commands (e.g. grep 9100) for ports.
+Think about the issue type first:
+- High CPU → find top consumers, terminate or throttle, verify CPU drops
+- High memory → find memory hogs, free memory or restart service, verify memory normalizes
+- Low disk → find what is consuming space, clean up or extend, verify disk frees up
+- Service down → check why it failed, restart or repair, verify service is running
+- Host unreachable → verify connectivity first, then investigate if host is busy
 
-For "device down", "not responding", or "probably down or busy" issues: FIRST verify connectivity (ping for Linux, Test-Connection for Windows). Only after confirming the host is reachable, proceed to check if the server is busy (load, processes). Order must be: (1) connectivity check, (2) then busy/load check.
+Use commands appropriate for {os_type} that are known to exist and work. Derive commands from the issue and context — do not fabricate commands.
 
-BRANCHING RECOMMENDATION:
-For complex issues, use branching to try alternative fixes:
-- Step 1: Try primary fix (on_success: 2, on_failure: 3)
-- Step 2: Verify primary fix worked
-- Step 3: Try alternative fix (on_success: 4, on_failure: 5)
-- Step 4: Verify alternative fix worked
-- Step 5: Escalate if both failed
-
-EACH STEP MUST INCLUDE:
-- name: [Step name]
-  type: command
-  command: [OS-specific command]
-  description: [What this step does]
-  expected_output: [Expected result]
-  purpose: diagnose OR remediate OR verify (MANDATORY - see rules below)
-  severity: safe OR moderate OR high
-  skip_in_auto_mode: false
-- requires_metric: which metric it uses (cpu, memory_percent, disk_free, network_latency, etc.) - optional
-- captures_variable: optional variable name to store data
-- depends_on: optional list of variables this step needs
-
-PURPOSE FIELD RULES - CRITICAL:
-The "purpose:" field is MANDATORY and must be set correctly:
-- purpose: diagnose - For steps that ONLY gather information (Get-Process, Get-Counter, top, ps, free, df, systemctl status, journalctl)
-- purpose: remediate - For steps that FIX issues (Stop-Process, Restart-Service, kill, systemctl restart, rm, truncate, clear)
-- purpose: verify - For the final step that confirms the issue is resolved
-
-EXAMPLES:
-Windows:
-- "Get-Process | Sort-Object CPU -Descending" -> purpose: diagnose (only lists processes)
-- "Stop-Process -Id 1234 -Force" -> purpose: remediate (kills process)
-- "Restart-Service w3svc" -> purpose: remediate (restarts service)
-- "Clear-EventLog -LogName Application" -> purpose: remediate (clears logs)
-
-Linux:
-- "ps aux | grep process" -> purpose: diagnose (only lists processes)
-- "kill -9 1234" -> purpose: remediate (kills process)
-- "systemctl restart nginx" -> purpose: remediate (restarts service)
-- "truncate -s 0 /var/log/app.log" -> purpose: remediate (clears log file)
-
-MANDATORY: At least 2 of your steps MUST have "purpose: remediate". At least 40% of steps should be remediation. You can have multiple diagnostic steps for iterative troubleshooting. Diagnostic-only runbooks will be REJECTED.
-
-Generate the YAML following the structure:
-runbook_id: rb-server-[keyword]
-version: 1.0.0
-title: Fix [issue summary]
-service: {service}
-env: {env}
-risk: {risk}
-description: [Single-line description of issue and impact]
-
-inputs:
-- name: server_name
-  type: string
-  required: true
-  description: Target server hostname or IP address
-
-prechecks:
-- description: [Check the actual metric from issue]
-  command: [OS-specific command to check metric]
-  expected_output: [What to expect]
-- description: [Validate connectivity/system state]
-  command: [ping or system check]
-  expected_output: [Expected result]
-- description: [Additional validation]
-  command: [Relevant check]
-  expected_output: [Expected result]
-
-steps:
-[Generate 3-10 steps. Single command per step (no chaining). Max 5 min resolution. Example: - name: Check node exporter; type: command; command: systemctl status node_exporter; purpose: diagnose. Then remediate (e.g. systemctl restart node_exporter), then verify. Use branching only if needed.]
-
-postchecks:
-- description: [Verify the metric from issue is now normal]
-  command: [Same metric check as precheck 1]
-  expected_output: [Metric is now below threshold]
+Output raw YAML only following the schema in the system prompt. Use {{server_name}} for the target server input.
 ]]></user>
 </poml>
