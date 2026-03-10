@@ -257,7 +257,7 @@ class StepSessionFinalizer:
             meta["avg_resolution_minutes"] = sum(prev_times) / len(prev_times)
 
         runbook.meta_data = _json.dumps(meta)
-        db.commit()
+        # db.commit() intentionally omitted — caller (finalize_session) commits after this returns
 
         logger.info(
             f"Promoted runbook {session.runbook_id} as golden example "

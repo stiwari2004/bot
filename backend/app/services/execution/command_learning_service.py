@@ -225,6 +225,12 @@ class CommandLearningService:
             logger.warning(f"Failed to save command success to learning: {e}")
             return None
 
+    def _keyword_overlap_score(self, issue_description: str, record_description: str) -> float:
+        """Calculate keyword overlap score between two issue descriptions."""
+        issue_words = set(issue_description.lower().split())
+        rec_words = set((record_description or "").lower().split())
+        return len(issue_words & rec_words) / max(1, len(issue_words))
+
     def get_known_good_commands(
         self,
         db: Session,
@@ -258,13 +264,10 @@ class CommandLearningService:
             ).limit(limit * 4).all()
 
             # Score by keyword overlap with issue_description
-            issue_words = set(issue_description.lower().split())
             scored = []
             for rec in candidates:
-                rec_issue = (rec.issue_description or "").lower()
-                rec_words = set(rec_issue.split())
-                overlap = len(issue_words & rec_words) / max(1, len(issue_words))
-                if overlap > 0 or not rec_issue:
+                overlap = self._keyword_overlap_score(issue_description, rec.issue_description or "")
+                if overlap > 0 or not rec.issue_description:
                     scored.append((overlap, rec))
 
             scored.sort(key=lambda x: x[0], reverse=True)
@@ -316,12 +319,9 @@ class CommandLearningService:
                 ExecutionCommandLearning.created_at.desc()
             ).limit(limit * 4).all()
 
-            issue_words = set(issue_description.lower().split())
             scored = []
             for rec in candidates:
-                rec_issue = (rec.issue_description or "").lower()
-                rec_words = set(rec_issue.split())
-                overlap = len(issue_words & rec_words) / max(1, len(issue_words))
+                overlap = self._keyword_overlap_score(issue_description, rec.issue_description or "")
                 scored.append((overlap, rec))
 
             scored.sort(key=lambda x: x[0], reverse=True)

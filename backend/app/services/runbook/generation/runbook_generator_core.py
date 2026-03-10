@@ -5,6 +5,7 @@ import json
 import re
 import traceback
 import yaml
+from collections import OrderedDict
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -30,9 +31,39 @@ from app.services.runbook.generation.spec_post_processor import SpecPostProcesso
 from app.services.runbook.generation.citation_manager import CitationManager
 from app.services.runbook.generation.yaml_generation_pipeline import YamlGenerationPipeline
 from app.services.runbook.generation.validation_pipeline import ValidationPipeline
+from app.services.execution.command_learning_service import CommandLearningService
 from app.config import runbook_structure
+from app.core.config import settings
 
 logger = get_logger(__name__)
+
+# Shared keyword lists used by multiple methods (define once, reference everywhere)
+_REMEDIATION_KEYWORDS = [
+    "stop-process", "restart-service", "kill", "systemctl restart",
+    "clear", "delete", "remove", "fix", "repair", "resolve", "restart", "stop"
+]
+_DIAGNOSTIC_KEYWORDS = [
+    "get-process", "get-counter", "get-service", "get-eventlog",
+    "top", "ps", "free", "df", "select-object", "where-object", "sort-object"
+]
+
+# Canonical section order for runbook YAML serialization
+_SPEC_SECTION_ORDER = [
+    "runbook_id", "version", "title", "service", "env", "risk", "description",
+    "owner", "last_tested", "review_required", "inputs", "prechecks", "steps", "postchecks",
+]
+
+
+def _order_spec_fields(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Return spec dict with sections in canonical order."""
+    ordered = OrderedDict()
+    for key in _SPEC_SECTION_ORDER:
+        if key in spec:
+            ordered[key] = spec[key]
+    for key, value in spec.items():
+        if key not in ordered:
+            ordered[key] = value
+    return dict(ordered)
 
 
 class RunbookGeneratorService:
@@ -57,6 +88,7 @@ class RunbookGeneratorService:
         # Pipeline modules
         self.yaml_pipeline = YamlGenerationPipeline()
         self.validation_pipeline = ValidationPipeline()
+        self.learning_service = CommandLearningService()
     
     @property
     def vector_service(self):
@@ -93,8 +125,6 @@ class RunbookGeneratorService:
         confidence = self.content_builder.calculate_confidence(search_results)
         
         # Step 4: Create runbook record
-        # Determine environment based on ENVIRONMENT config
-        from app.core.config import settings
         runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
         
         runbook = Runbook(
@@ -175,7 +205,7 @@ class RunbookGeneratorService:
             os_type=os_type,
         )
         if tiered_response is not None:
-            generation_mode = tiered_response.meta_data.get("generation_mode", "tier_reuse")
+            generation_mode = tiered_response.meta_data.get("generation_mode", "tier0_reuse")
             logger.info(f"Tiered generation: returning {generation_mode} result (runbook_id={tiered_response.id})")
             return tiered_response
 
@@ -235,23 +265,8 @@ class RunbookGeneratorService:
             
             # YAML should already be fixed by yaml_processor.sanitize_command_strings
             
-            # Try parsing YAML using YamlParser
-            logger.info(f"[PHASE 3 - YAML PARSING] Attempting to parse YAML, length={len(ai_yaml)}")
-            
-            # CRITICAL: Log the actual YAML content before parsing to diagnose issues
-            yaml_lines = ai_yaml.split('\n')
-            logger.info(f"[PHASE 3 - YAML PARSING] Total lines: {len(yaml_lines)}")
-            logger.info(f"[PHASE 3 - YAML PARSING] First 10 lines:")
-            for i, line in enumerate(yaml_lines[:10], 1):
-                logger.info(f"  Line {i:3d}: {repr(line)}")
-            
-            # Log lines 50-60 (where the error typically occurs)
-            if len(yaml_lines) > 50:
-                logger.info(f"[PHASE 3 - YAML PARSING] Lines 50-60 (error zone):")
-                for i in range(49, min(60, len(yaml_lines))):
-                    logger.info(f"  Line {i+1:3d}: {repr(yaml_lines[i])}")
-            
             # Parse YAML using YamlParser (handles errors and recovery internally)
+            logger.debug(f"Parsing YAML ({len(ai_yaml)} chars)")
             try:
                 spec = self.yaml_parser.parse_yaml(ai_yaml)
                 logger.info(f"[PHASE 3 - YAML PARSING] Parse SUCCESSFUL!")
@@ -265,14 +280,7 @@ class RunbookGeneratorService:
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 raise ValueError(f"YAML parsing failed: {e}") from e
-            
-            # Legacy error handling block removed - now handled by YamlParser
-            # Keeping this comment block for reference during transition
-            if False:  # Disabled - using YamlParser now
-                pass
-            # Original error handling code was here (lines 319-583)
-            # Now handled by YamlParser.parse_yaml()
-            
+
             # Post-process spec using SpecPostProcessor
             spec = self.spec_post_processor.post_process(spec, issue_description, env, risk)
             
@@ -306,27 +314,7 @@ class RunbookGeneratorService:
             except Exception as e:
                 logger.warning(f"Runbook validation failed but continuing: {type(e).__name__}: {e}")
             
-            # Ensure correct section order: prechecks → steps → postchecks
-            from collections import OrderedDict
-            ordered_spec = OrderedDict()
-            
-            # Add all fields in correct order
-            for key in ['runbook_id', 'version', 'title', 'service', 'env', 'risk', 'description', 
-                       'owner', 'last_tested', 'review_required', 'inputs', 'prechecks', 'steps', 'postchecks']:
-                if key in spec:
-                    ordered_spec[key] = spec[key]
-            
-            # Add any remaining fields
-            for key, value in spec.items():
-                if key not in ordered_spec:
-                    ordered_spec[key] = value
-            
-            # Convert OrderedDict to regular dict for YAML serialization
-            # (yaml.safe_dump can't serialize OrderedDict directly)
-            spec_dict = dict(ordered_spec)
-            
-            runbook_yaml = yaml.safe_dump(spec_dict, sort_keys=False, default_flow_style=False, width=120)
-            
+            runbook_yaml = yaml.safe_dump(_order_spec_fields(spec), sort_keys=False, default_flow_style=False, width=120)
             generation_mode = "ai"
         except Exception as e:
             # Log the full error with context
@@ -365,26 +353,7 @@ class RunbookGeneratorService:
                 except Exception as ve:
                     logger.warning(f"Validation after autofix failed but continuing: {type(ve).__name__}: {ve}")
 
-                # Ensure correct section order: prechecks → steps → postchecks
-                from collections import OrderedDict
-                ordered_spec = OrderedDict()
-                
-                # Add all fields in correct order
-                for key in ['runbook_id', 'version', 'title', 'service', 'env', 'risk', 'description', 
-                           'owner', 'last_tested', 'review_required', 'inputs', 'prechecks', 'steps', 'postchecks']:
-                    if key in spec:
-                        ordered_spec[key] = spec[key]
-                
-                # Add any remaining fields
-                for key, value in spec.items():
-                    if key not in ordered_spec:
-                        ordered_spec[key] = value
-                
-                # Convert OrderedDict to regular dict for YAML serialization
-                # (yaml.safe_dump can't serialize OrderedDict directly)
-                spec_dict = dict(ordered_spec)
-                
-                runbook_yaml = yaml.safe_dump(spec_dict, sort_keys=False, default_flow_style=False, width=120)
+                runbook_yaml = yaml.safe_dump(_order_spec_fields(spec), sort_keys=False, default_flow_style=False, width=120)
                 generation_mode = "ai-autofix"
                 logger.info("YAML auto-fix succeeded")
             except Exception as e2:
@@ -407,10 +376,8 @@ class RunbookGeneratorService:
 ```
 """
 
-        # Determine environment based on ENVIRONMENT config
-        from app.core.config import settings
         runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
-        
+
         runbook = Runbook(
             tenant_id=tenant_id,
             title=f"Runbook: {spec.get('title')}",
@@ -437,25 +404,18 @@ class RunbookGeneratorService:
         if search_results:
             self.citation_manager.store_citations(db, runbook, search_results)
 
-        # Create response with error handling
         try:
-            logger.info(f"[DEBUG] Creating RunbookResponse object")
-            meta_data_parsed = json.loads(runbook.meta_data) if runbook.meta_data else {}
-            response = RunbookResponse(
+            return RunbookResponse(
                 id=runbook.id,
                 title=runbook.title,
                 body_md=runbook.body_md,
                 confidence=runbook.confidence,
-                meta_data=meta_data_parsed,
+                meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
                 created_at=runbook.created_at,
                 updated_at=runbook.updated_at
             )
-            logger.info(f"[DEBUG] RunbookResponse created successfully")
-            return response
         except Exception as e:
-            logger.error(f"[DEBUG] Failed to create RunbookResponse: {type(e).__name__}: {str(e)}")
-            logger.error(f"[DEBUG] Runbook fields: id={runbook.id}, title={runbook.title}, confidence={runbook.confidence}")
-            logger.error(f"[DEBUG] RunbookResponse creation traceback: {traceback.format_exc()}")
+            logger.error(f"Failed to create RunbookResponse: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}")
             raise
     
     # _post_process_spec method removed - now handled by SpecPostProcessor
@@ -469,15 +429,6 @@ class RunbookGeneratorService:
         if not isinstance(steps, list) or len(steps) < 3:
             return spec
         
-        remediation_keywords = [
-            "stop-process", "restart-service", "kill", "systemctl restart",
-            "clear", "delete", "remove", "fix", "repair", "resolve", "restart", "stop"
-        ]
-        diagnostic_keywords = [
-            "get-process", "get-counter", "get-service", "get-eventlog",
-            "top", "ps", "free", "df", "select-object", "where-object", "sort-object"
-        ]
-        
         remediation_count = 0
         diagnostic_only_count = 0
         
@@ -488,8 +439,8 @@ class RunbookGeneratorService:
             cmd = str(step.get("command", "")).lower()
             name = str(step.get("name", "")).lower()
             
-            has_remediation = any(kw in cmd or kw in name for kw in remediation_keywords)
-            is_diagnostic = any(kw in cmd or kw in name for kw in diagnostic_keywords)
+            has_remediation = any(kw in cmd or kw in name for kw in _REMEDIATION_KEYWORDS)
+            is_diagnostic = any(kw in cmd or kw in name for kw in _DIAGNOSTIC_KEYWORDS)
             
             if has_remediation:
                 remediation_count += 1
@@ -530,20 +481,13 @@ class RunbookGeneratorService:
         document_results = [r for r in search_results if _is_document(r)]
 
         context_parts = []
-        remediation_keywords = [
-            "stop-process", "restart-service", "kill", "systemctl restart",
-            "clear", "delete", "remove", "fix", "repair", "resolve"
-        ]
-        diagnostic_keywords = [
-            "get-process", "get-counter", "get-service", "top", "ps", "free", "df"
-        ]
 
         # Runbook section: filter and prioritize runbooks with remediation
         filtered_results = []
         for result in runbook_results[:6]:
             text = result.text.lower()
-            remediation_count = sum(1 for kw in remediation_keywords if kw in text)
-            diagnostic_count = sum(1 for kw in diagnostic_keywords if kw in text)
+            remediation_count = sum(1 for kw in _REMEDIATION_KEYWORDS if kw in text)
+            diagnostic_count = sum(1 for kw in _DIAGNOSTIC_KEYWORDS if kw in text)
             if remediation_count >= 1:
                 filtered_results.append((result, remediation_count, diagnostic_count))
         filtered_results.sort(key=lambda x: x[1], reverse=True)
@@ -553,12 +497,11 @@ class RunbookGeneratorService:
             score = result.score
             text = result.text
             relevant_parts = []
-            import re
             command_pattern = r'(?:command|Command):\s*(.+?)(?:\n|$)'
             all_commands = re.findall(command_pattern, text, re.IGNORECASE)
             remediation_commands = [
                 cmd.strip() for cmd in all_commands[:8]
-                if any(kw in cmd.lower() for kw in remediation_keywords)
+                if any(kw in cmd.lower() for kw in _REMEDIATION_KEYWORDS)
             ]
             if remediation_commands:
                 relevant_parts.extend([f"  Remediation Command: {cmd}" for cmd in remediation_commands[:3]])
@@ -622,12 +565,10 @@ class RunbookGeneratorService:
         Called separately from _format_runbook_context so it can be injected
         into the generation context alongside RAG runbook context.
         """
-        from app.services.execution.command_learning_service import CommandLearningService
-
         if db is None:
             return ""
 
-        learning = CommandLearningService()
+        learning = self.learning_service
         parts = []
 
         try:

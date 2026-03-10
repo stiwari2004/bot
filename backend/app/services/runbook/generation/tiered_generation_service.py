@@ -7,6 +7,7 @@ Tier 2 (score < 0.70 or no match): Full generation (handled by caller).
 """
 import json
 import yaml
+from collections import OrderedDict
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 
@@ -131,13 +132,12 @@ class TieredGenerationService:
             db.commit()
             db.refresh(runbook)
 
-            meta_parsed = json.loads(runbook.meta_data) if runbook.meta_data else {}
             return RunbookResponse(
                 id=runbook.id,
                 title=runbook.title,
                 body_md=runbook.body_md,
                 confidence=min(1.0, score + 0.05),  # Slightly boosted for proven match
-                meta_data=meta_parsed,
+                meta_data=meta,
                 created_at=runbook.created_at,
                 updated_at=runbook.updated_at,
             )
@@ -242,13 +242,12 @@ class TieredGenerationService:
                 new_runbook.id, source_runbook_id, score,
             )
 
-            meta_parsed = json.loads(new_runbook.meta_data) if new_runbook.meta_data else {}
             return RunbookResponse(
                 id=new_runbook.id,
                 title=new_runbook.title,
                 body_md=new_runbook.body_md,
                 confidence=new_runbook.confidence,
-                meta_data=meta_parsed,
+                meta_data=json.loads(new_runbook.meta_data),
                 created_at=new_runbook.created_at,
                 updated_at=new_runbook.updated_at,
             )
@@ -265,7 +264,6 @@ class TieredGenerationService:
                 meta = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else runbook.meta_data
                 spec = meta.get("runbook_spec")
                 if spec and isinstance(spec, dict) and "steps" in spec:
-                    from collections import OrderedDict
                     order = ["runbook_id", "version", "title", "service", "env", "risk",
                              "description", "inputs", "prechecks", "steps", "postchecks"]
                     ordered = OrderedDict()
