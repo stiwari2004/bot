@@ -8,6 +8,41 @@ from typing import Any, Dict, List, Optional, Set
 from app.core.logging import get_logger
 from app.config import runbook_structure, runbook_validation
 
+# Expected command hints per issue type — used to validate that prechecks/postchecks
+# are actually relevant to the detected problem. Keeps false-positive rejections low
+# by checking domain-appropriate commands rather than matching the exact metric keyword.
+_ISSUE_TYPE_COMMAND_HINTS: Dict[str, List[str]] = {
+    "high_cpu":             ["cpu", "processor", "top", "ps ", "get-counter", "get-process", "load", "uptime", "htop", "mpstat"],
+    "high_memory":          ["memory", "mem", "free", "ram", "get-counter", "vmstat", "available", "commit", "pagefile"],
+    "low_disk":             ["disk", " df ", "df\n", "df -", " du ", "du -", "get-psdrive", "filesystem", "space", "blocks", "inodes"],
+    "service_down":         ["status", "systemctl", "sc query", "get-service", "service", "running", "active", "inactive"],
+    "host_unreachable":     ["ping", "traceroute", "connect", "telnet", "nc ", "nmap", "ssh", "tracert"],
+    "server_performance":   ["cpu", "memory", "disk", "top", "ps", "load", "stat"],
+    "db_slow_query":        ["query", "slow", "explain", "performance", "processlist", "pg_stat", "activity", "elapsed"],
+    "db_connection_failure":["connect", "connection", "pool", "pg_hba", "netstat", "port", "listen"],
+    "db_disk_full":         ["disk", " df ", "du ", "tablespace", "log", "space", "size"],
+    "db_deadlock":          ["lock", "deadlock", "transaction", "processlist", "pg_locks", "kill", "blocking"],
+    "db_replication_lag":   ["replication", "replica", "slave", "lag", "sync", "binlog", "wal"],
+    "db_general":           ["database", "db", "sql", "query", "connect", "status"],
+    "web_5xx":              ["status", "error", "log", "curl", "health", "response", "http", "access_log", "error_log"],
+    "web_high_latency":     ["latency", "response", "slow", "curl", "time", "ab ", "load", "performance"],
+    "web_cert_expired":     ["ssl", "cert", "certificate", "openssl", "tls", "expire", "x509"],
+    "web_service_down":     ["status", "running", "process", "port", "listen", "curl", "http", "service"],
+    "web_general":          ["http", "web", "nginx", "apache", "iis", "status"],
+    "dns_failure":          ["dns", "nslookup", "dig", "resolve", "nameserver", "host "],
+    "firewall_block":       ["firewall", "iptables", "ufw", "nsg", "rule", "policy", "acl"],
+    "interface_down":       ["interface", "ifconfig", "ip link", "show interface", "eth", "nic", "link"],
+    "high_network_latency": ["ping", "latency", "packet", "traceroute", "mtr", "iperf"],
+    "network_unreachable":  ["ping", "traceroute", "connect", "route", "gateway", "arp"],
+    "network_general":      ["network", "connect", "ping", "port", "interface"],
+    "nfs_mount_failure":    ["mount", "nfs", "df", "showmount", "nfsstat", "exportfs"],
+    "stale_mount":          ["mount", "umount", "fuser", "lsof", "nfs", "stale"],
+    "storage_full":         ["df", "du", "quota", "space", "capacity", "usage"],
+    "storage_access_denied":["permission", "access", "credential", "auth", "mount", "chmod"],
+    "storage_general":      ["mount", "df", "storage", "disk", "space"],
+    "general_issue":        [],  # No specific hints — skip hint validation
+}
+
 
 class RunbookQualityValidator:
     """Validate generated runbook specs before persisting/executing them."""
@@ -15,7 +50,7 @@ class RunbookQualityValidator:
     def __init__(self) -> None:
         self.logger = get_logger(__name__)
 
-    def validate(self, spec: Dict[str, Any], issue_description: str) -> tuple[bool, List[str]]:
+    def validate(self, spec: Dict[str, Any], issue_description: str, issue_type: Optional[str] = None) -> tuple[bool, List[str]]:
         """Validate generated runbook structure and content."""
         errors: List[str] = []
 
@@ -72,32 +107,30 @@ class RunbookQualityValidator:
                 f"found {len(postchecks)}."
             )
 
-        issue_lower = issue_description.lower()
-        metric_keywords = runbook_validation.METRIC_KEYWORDS
+        # Issue-type-aware precheck/postcheck validation.
+        # If issue_type is known, verify that prechecks and postchecks use domain-appropriate
+        # commands (e.g. "low_disk" expects df/du commands, not hdparm or disk format utilities).
+        # This replaces the old metric-keyword approach which had too many false positives.
+        detected_metric: Optional[str] = None  # kept for _validate_step_metadata compat
 
-        detected_metric: Optional[str] = None
-        for metric, keywords in metric_keywords.items():
-            if any(keyword in issue_lower for keyword in keywords):
-                detected_metric = metric
-                break
+        if issue_type and issue_type != "general_issue":
+            hints = _ISSUE_TYPE_COMMAND_HINTS.get(issue_type, [])
+            if hints:
+                precheck_commands = [str(p.get("command", "")).lower() for p in prechecks if isinstance(p, dict)]
+                if precheck_commands and not any(h in cmd for h in hints for cmd in precheck_commands):
+                    errors.append(
+                        f"precheck commands do not appear relevant to issue type '{issue_type}'. "
+                        f"Prechecks should use commands appropriate for this problem "
+                        f"(e.g. {', '.join(hints[:4])})."
+                    )
 
-        if detected_metric:
-            precheck_commands = [str(p.get("command", "")).lower() for p in prechecks if isinstance(p, dict)]
-            metric_found = self._contains_metric(precheck_commands, metric_keywords.get(detected_metric, []))
-            if not metric_found:
-                errors.append(
-                    f"precheck should check the actual metric '{detected_metric}' mentioned in issue, "
-                    f"but no precheck command mentions it"
-                )
-
-        if detected_metric and postchecks:
-            postcheck_commands = [str(p.get("command", "")).lower() for p in postchecks if isinstance(p, dict)]
-            metric_found = self._contains_metric(postcheck_commands, metric_keywords.get(detected_metric, []))
-            if not metric_found:
-                errors.append(
-                    f"postcheck should verify resolution of '{detected_metric}', "
-                    f"but postcheck command doesn't mention it"
-                )
+                postcheck_commands = [str(p.get("command", "")).lower() for p in postchecks if isinstance(p, dict)]
+                if postcheck_commands and not any(h in cmd for h in hints for cmd in postcheck_commands):
+                    errors.append(
+                        f"postcheck commands do not appear relevant to issue type '{issue_type}'. "
+                        f"Postchecks should verify resolution using appropriate commands "
+                        f"(e.g. {', '.join(hints[:4])})."
+                    )
 
         (
             remediation_count,

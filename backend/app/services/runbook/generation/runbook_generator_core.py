@@ -194,6 +194,10 @@ class RunbookGeneratorService:
         # Use CI type for prompt selection (not OS type)
         service = ci_type
 
+        # Extract specific issue type (free — keyword-based, zero LLM cost)
+        issue_type = self.service_classifier.detect_issue_type(issue_description, service)
+        logger.info(f"Detected issue_type={issue_type} for service={service}")
+
         # Tiered generation: check for Tier 0 (reuse) or Tier 1 (adapt) before full Tier 2 generation
         tiered_response = await self.tiered_service.select_tier_and_execute(
             issue_description=issue_description,
@@ -228,10 +232,12 @@ class RunbookGeneratorService:
 
         # KAG: inject proven/failed commands from execution learning store
         try:
+            # Augment the search query with issue_type for better keyword overlap scoring
+            kag_query = f"{issue_description} {issue_type}" if issue_type != "general_issue" else issue_description
             learned_context = self._build_learned_command_context(
                 db=db,
                 tenant_id=tenant_id,
-                issue_description=issue_description,
+                issue_description=kag_query,
                 os_type=os_type if service == "server" else None,
             )
             if learned_context:
@@ -250,6 +256,7 @@ class RunbookGeneratorService:
             context=context,
             os_type=os_type if service == "server" else None,
             operational_context=operational_context,
+            issue_type=issue_type,
         )
         
         # Phase 2: Extract and clean YAML
@@ -287,9 +294,9 @@ class RunbookGeneratorService:
             # Post-processing: Detect and flag diagnostic-only sequences
             spec = self._detect_and_flag_diagnostic_only(spec)
             
-            # Phase 1: Validate runbook structure
+            # Phase 1: Validate runbook structure (issue_type-aware)
             is_valid, validation_errors = self.validation_pipeline.validate_structure(
-                spec, issue_description
+                spec, issue_description, issue_type=issue_type
             )
             
             # Phase 2: Validate commands
@@ -388,6 +395,7 @@ class RunbookGeneratorService:
                 "service": service,
                 "env": env,
                 "risk": risk,
+                "issue_type": issue_type,
                 "runbook_spec": spec,
                 "generation_mode": generation_mode
             }),

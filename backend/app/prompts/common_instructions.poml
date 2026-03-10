@@ -64,6 +64,15 @@ COMMAND RULES:
 - Every placeholder used in a command MUST be defined in the inputs section
 - Prefer one command per step; only chain (&&) when operations are truly inseparable
 
+ISSUE TYPE CONSTRAINT (critical):
+The ISSUE_TYPE field tells you the exact problem class. Generate commands ONLY for that problem.
+- issue_type=low_disk → disk space cleanup commands (df, du, find large files, clear logs). NOT hardware commands.
+- issue_type=high_cpu → process identification and termination. NOT disk or memory commands.
+- issue_type=high_memory → memory consumers and OOM. NOT CPU or disk commands.
+- issue_type=service_down → service status and restart. NOT resource investigation commands.
+- issue_type=db_deadlock → lock analysis and kill blocking query. NOT disk or CPU commands.
+If ISSUE_TYPE is unknown or general_issue, derive the problem class from the issue description.
+
 STEP STRUCTURE:
 Iterative troubleshooting is encouraged:
   diagnose → remediate → diagnose → remediate → verify

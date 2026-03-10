@@ -120,6 +120,103 @@ class ServiceClassifier:
                 
         return "server"  # Final fallback
     
+    def detect_issue_type(self, issue_description: str, service: str) -> str:
+        """
+        Detect the specific issue type within a service domain.
+        Returns a structured issue type used for prompt injection, RAG filtering,
+        and validation. Zero LLM cost — pure keyword matching.
+
+        Examples:
+          service=server, "disk space low"  → "low_disk"
+          service=server, "high CPU usage"  → "high_cpu"
+          service=database, "deadlock"      → "db_deadlock"
+        """
+        t = issue_description.lower()
+
+        if service == "server":
+            if any(k in t for k in ["high cpu", "cpu high", "cpu usage", "cpu load",
+                                     "cpu spike", "cpu utilization", "processor usage",
+                                     "100% cpu", "cpu 100"]):
+                return "high_cpu"
+            if any(k in t for k in ["out of memory", "oom", "memory high", "high memory",
+                                     "memory usage", "memory pressure", "memory leak",
+                                     "low memory", "available memory", "swap full"]):
+                return "high_memory"
+            if any(k in t for k in ["disk space", "disk full", "low disk", "disk usage",
+                                     "no space left", "filesystem full", "out of disk",
+                                     "disk capacity", "storage full", "running out of space"]):
+                return "low_disk"
+            if any(k in t for k in ["service down", "service failed", "service stopped",
+                                     "daemon failed", "daemon stopped", "process crash",
+                                     "process died", "application crash", "app crash",
+                                     "service not running", "service unavailable"]):
+                return "service_down"
+            if any(k in t for k in ["unreachable", "not responding", "host down",
+                                     "server down", "cannot connect", "connection refused",
+                                     "ping failed", "server timeout", "host timeout"]):
+                return "host_unreachable"
+            return "server_performance"
+
+        if service == "database":
+            if any(k in t for k in ["slow query", "query slow", "query timeout",
+                                     "long running query", "query performance", "slow sql"]):
+                return "db_slow_query"
+            if any(k in t for k in ["connection failed", "connection timeout", "cannot connect",
+                                     "connection pool", "too many connections", "connection refused"]):
+                return "db_connection_failure"
+            if any(k in t for k in ["disk full", "transaction log full", "log full",
+                                     "tablespace full", "no space", "disk space"]):
+                return "db_disk_full"
+            if any(k in t for k in ["deadlock", "lock wait", "lock timeout", "blocking query"]):
+                return "db_deadlock"
+            if any(k in t for k in ["replication", "replica lag", "slave lag", "sync delay",
+                                     "replication error"]):
+                return "db_replication_lag"
+            return "db_general"
+
+        if service == "web":
+            if any(k in t for k in ["500", "502", "503", "504", "5xx", "internal server error",
+                                     "bad gateway", "service unavailable", "gateway timeout"]):
+                return "web_5xx"
+            if any(k in t for k in ["slow response", "high latency", "response time",
+                                     "performance", "slow api", "timeout"]):
+                return "web_high_latency"
+            if any(k in t for k in ["ssl", "certificate", "cert expired", "tls", "https error"]):
+                return "web_cert_expired"
+            if any(k in t for k in ["down", "unreachable", "not responding", "404",
+                                     "connection refused", "web server down"]):
+                return "web_service_down"
+            return "web_general"
+
+        if service == "network":
+            if any(k in t for k in ["dns", "name resolution", "cannot resolve", "dns failure"]):
+                return "dns_failure"
+            if any(k in t for k in ["firewall", "blocked", "access denied", "port blocked",
+                                     "traffic blocked"]):
+                return "firewall_block"
+            if any(k in t for k in ["interface down", "port down", "link down", "interface error",
+                                     "nic down"]):
+                return "interface_down"
+            if any(k in t for k in ["latency", "packet loss", "slow network", "high ping"]):
+                return "high_network_latency"
+            if any(k in t for k in ["unreachable", "cannot connect", "connection lost",
+                                     "network down", "no route"]):
+                return "network_unreachable"
+            return "network_general"
+
+        if service == "storage":
+            if any(k in t for k in ["stale", "hung mount", "frozen", "stale handle"]):
+                return "stale_mount"
+            if any(k in t for k in ["nfs", "cifs", "mount", "smb", "network share"]):
+                return "nfs_mount_failure"
+            if any(k in t for k in ["full", "capacity", "quota", "no space"]):
+                return "storage_full"
+            if any(k in t for k in ["access denied", "permission denied", "authentication failed"]):
+                return "storage_access_denied"
+            return "storage_general"
+
+        return "general_issue"
+
     async def detect_os_type(self, issue_description: str) -> Optional[str]:
         """Detect OS type (Windows/Linux) from issue description."""
         issue_lower = issue_description.lower()

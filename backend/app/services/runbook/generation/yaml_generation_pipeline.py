@@ -31,6 +31,7 @@ class YamlGenerationPipeline:
         context: str,
         os_type: Optional[str] = None,
         operational_context: Optional[str] = None,
+        issue_type: Optional[str] = None,
     ) -> str:
         """
         Generate YAML from LLM with error handling.
@@ -59,6 +60,7 @@ class YamlGenerationPipeline:
                 risk=risk,
                 context=context,
                 os_type=os_type if service == "server" else None,
+                issue_type=issue_type,
             )
         except LLMRateLimitExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -78,25 +80,7 @@ class YamlGenerationPipeline:
                 detail="LLM returned empty response. Please check LLM connection and try again."
             )
         
-        logger.info(
-            f"[PHASE 1 - YAML GENERATION] LLM returned YAML length={len(ai_yaml) if ai_yaml else 0}"
-        )
-        logger.info(
-            f"[PHASE 1 - YAML GENERATION] First 200 chars: {repr(ai_yaml[:200]) if ai_yaml else 'None'}"
-        )
-        
-        # Check for newlines in first 200 chars
-        if ai_yaml:
-            for i, char in enumerate(ai_yaml[:200]):
-                if char == '\n':
-                    logger.error(
-                        f"[PHASE 1 - YAML GENERATION] FOUND NEWLINE at position {i} in first 200 chars!"
-                    )
-                    logger.error(
-                        f"[PHASE 1 - YAML GENERATION] Context: "
-                        f"{repr(ai_yaml[max(0, i-30):i+30])}"
-                    )
-        
+        logger.info(f"LLM returned YAML ({len(ai_yaml)} chars)")
         return ai_yaml
     
     def extract_and_clean_yaml(self, ai_yaml: str) -> str:
@@ -115,10 +99,7 @@ class YamlGenerationPipeline:
         # Fix newlines in YAML values that break parsing
         ai_yaml = self.yaml_extractor.fix_newlines_in_yaml(ai_yaml)
         
-        logger.debug(
-            f"[DEBUG] YAML before parse (first 3000 chars): "
-            f"{ai_yaml[:3000] if ai_yaml else 'None'}"
-        )
+        logger.debug(f"YAML after extraction ({len(ai_yaml)} chars)")
         
         return ai_yaml
     
@@ -129,115 +110,28 @@ class YamlGenerationPipeline:
         Returns:
             Preprocessed YAML string
         """
-        logger.info(f"[PHASE 2 - YAML CLEANUP] Starting cleanup, length={len(ai_yaml)}")
-        
+        logger.debug(f"YAML cleanup start ({len(ai_yaml)} chars)")
+
         # Pre-process: Fix common structural issues before parsing
         ai_yaml = self.yaml_processor.preprocess_yaml_structure(ai_yaml)
-        logger.info(
-            f"[PHASE 2 - YAML CLEANUP] After preprocess_yaml_structure, "
-            f"length={len(ai_yaml)}"
-        )
         
         # Sanitize command strings and quote {{placeholders}}
         try:
             ai_yaml = self.yaml_processor.sanitize_command_strings(ai_yaml)
-            logger.info(
-                f"[PHASE 2 - YAML CLEANUP] After sanitize_command_strings, "
-                f"length={len(ai_yaml)}"
-            )
-            # Check first line specifically
-            first_line = ai_yaml.split('\n')[0] if '\n' in ai_yaml else ai_yaml
-            if len(first_line) >= 101:
-                logger.error(
-                    f"[PHASE 2 - YAML CLEANUP] First line length={len(first_line)}, "
-                    f"char at 101: {repr(first_line[100])}"
-                )
-                logger.error(
-                    f"[PHASE 2 - YAML CLEANUP] First line (first 150 chars): "
-                    f"{repr(first_line[:150])}"
-                )
         except Exception as e:
-            logger.warning(
-                f"Command sanitization failed, continuing without it: "
-                f"{type(e).__name__}: {e}"
-            )
-        
-        # Fix YAML escape sequence issues
+            logger.warning(f"Command sanitization failed, continuing: {type(e).__name__}: {e}")
+
         ai_yaml = self.yaml_processor.fix_yaml_escape_sequences(ai_yaml)
-        logger.info(
-            f"[PHASE 2 - YAML CLEANUP] After fix_yaml_escape_sequences, "
-            f"length={len(ai_yaml)}"
-        )
-        
-        # Sanitize expected_output fields
+
         try:
             ai_yaml = self.yaml_processor.sanitize_expected_output_field(ai_yaml)
-            logger.info(
-                f"[PHASE 2 - YAML CLEANUP] After sanitize_expected_output_field, "
-                f"length={len(ai_yaml)}"
-            )
         except Exception as e:
-            logger.warning(
-                f"Expected output sanitization failed, continuing without it: "
-                f"{type(e).__name__}: {e}"
-            )
-        
-        # Fix standalone variable names
+            logger.warning(f"Expected output sanitization failed, continuing: {type(e).__name__}: {e}")
+
         try:
-            ai_yaml_before_fix = ai_yaml
-            logger.info(
-                f"[PHASE 2 - YAML CLEANUP] BEFORE fix_standalone_variable_names, "
-                f"length={len(ai_yaml)}"
-            )
-            
-            # Log lines 50-60 before fix
-            yaml_lines_before = ai_yaml_before_fix.split('\n')
-            if len(yaml_lines_before) > 50:
-                logger.info(f"[PHASE 2 - YAML CLEANUP] BEFORE fix - Lines 50-60:")
-                for i in range(49, min(60, len(yaml_lines_before))):
-                    logger.info(f"  Line {i+1:3d}: {repr(yaml_lines_before[i])}")
-            
             ai_yaml = self.yaml_processor.fix_standalone_variable_names(ai_yaml)
-            
-            if ai_yaml != ai_yaml_before_fix:
-                logger.info(
-                    f"[PHASE 2 - YAML CLEANUP] After fix_standalone_variable_names, "
-                    f"length={len(ai_yaml)} (CHANGED)"
-                )
-                # Log changes
-                before_lines = ai_yaml_before_fix.split('\n')
-                after_lines = ai_yaml.split('\n')
-                changes_found = False
-                for i, (before, after) in enumerate(zip(before_lines, after_lines)):
-                    if before != after:
-                        changes_found = True
-                        logger.info(
-                            f"[YAML FIX] Line {i+1} changed: "
-                            f"{repr(before[:100])} -> {repr(after[:100])}"
-                        )
-                
-                if not changes_found:
-                    logger.warning(
-                        f"[YAML FIX] YAML changed but no line differences detected "
-                        f"(length changed: {len(ai_yaml_before_fix)} -> {len(ai_yaml)})"
-                    )
-                
-                # Log lines 50-60 after fix
-                if len(after_lines) > 50:
-                    logger.info(f"[PHASE 2 - YAML CLEANUP] AFTER fix - Lines 50-60:")
-                    for i in range(49, min(60, len(after_lines))):
-                        logger.info(f"  Line {i+1:3d}: {repr(after_lines[i])}")
-            else:
-                logger.info(
-                    f"[PHASE 2 - YAML CLEANUP] After fix_standalone_variable_names, "
-                    f"length={len(ai_yaml)} (NO CHANGES)"
-                )
         except Exception as e:
-            logger.error(
-                f"Variable name fix failed with exception: {type(e).__name__}: {e}"
-            )
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-        
+            logger.error(f"Variable name fix failed: {type(e).__name__}: {e}", exc_info=True)
+
         return ai_yaml
 

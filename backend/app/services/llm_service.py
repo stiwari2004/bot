@@ -241,19 +241,20 @@ class LlamaCppLLMService:
             else:
                 os_type = env if env in ["Windows", "Linux"] else "Windows"  # Default to Windows
         
-        # Build prompt context - only include os_type for server CI types
+        # Build prompt context
         prompt_context = {
             "issue_description": issue_description,
             "service": service_type,
             "env": env,
             "risk": risk,
             "context": ctx,
+            "issue_type": issue_type or "general_issue",
         }
-        
+
         # Only add os_type for server CI types (not for network, database, web, etc.)
         if service_type == "server":
             prompt_context["os_type"] = os_type or "Windows"
-        
+
         try:
             rendered = render_prompt(prompt_id, prompt_context)
             logger.info(f"[PROMPT_LOAD] Loaded POML prompt: {prompt_id} (system length: {len(rendered.get('system', ''))}, user length: {len(rendered.get('user', ''))})")
@@ -444,30 +445,33 @@ class PerplexityLLMService:
         risk: str,
         context: str = "",
         os_type: Optional[str] = None,
+        issue_type: Optional[str] = None,
     ) -> str:
         """Generate YAML runbook using Perplexity with centralized prompts.
         Uses POML templates from prompt_store.
         Selects service-specific prompt based on service_type.
-        
+
         Args:
             os_type: Optional OS type (Windows/Linux). Only relevant for server CI types.
-                    For other CI types (network, database, web, etc.), this is ignored.
+            issue_type: Specific issue class (e.g. low_disk, high_cpu). Injected into prompt
+                        so LLM generates domain-appropriate commands.
         """
         from app.services.prompt_store import PromptNotFound
         from app.services.poml_parser import POMLParseError
-        
+
         ctx = context[:4000] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
-        
-        # Build prompt context - only include os_type for server CI types
+
+        # Build prompt context
         prompt_context = {
             "issue_description": issue_description,
             "service": service_type,
             "env": env,
             "risk": risk,
             "context": ctx,
+            "issue_type": issue_type or "general_issue",
         }
-        
+
         # Only add os_type for server CI types (not for network, database, web, etc.)
         if service_type == "server" and os_type:
             prompt_context["os_type"] = os_type

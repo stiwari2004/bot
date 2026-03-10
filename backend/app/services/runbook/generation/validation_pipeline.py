@@ -24,16 +24,17 @@ class ValidationPipeline:
     def validate_structure(
         self,
         spec: Dict[str, Any],
-        issue_description: str
+        issue_description: str,
+        issue_type: Optional[str] = None,
     ) -> tuple[bool, List[str]]:
         """
         Phase 1: Validate runbook structure and content
-        
+
         Returns:
             (is_valid, validation_errors)
         """
-        logger.info("Running runbook validation (structure, inputs, branching)...")
-        is_valid, validation_errors = self.quality_validator.validate(spec, issue_description)
+        logger.info(f"Running runbook validation (issue_type={issue_type})...")
+        is_valid, validation_errors = self.quality_validator.validate(spec, issue_description, issue_type=issue_type)
         logger.info(
             f"Validation complete: is_valid={is_valid}, "
             f"error_count={len(validation_errors)}"

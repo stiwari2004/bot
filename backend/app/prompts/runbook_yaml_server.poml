@@ -16,6 +16,7 @@ Use {{server_name}} as the placeholder for the target host where needed.
   <user><![CDATA[Generate a troubleshooting runbook YAML for this SERVER issue.
 
 ISSUE: {issue_description}
+ISSUE TYPE: {issue_type}
 SERVICE: {service}
 ENV: {env}
 RISK: {risk}
@@ -25,19 +26,19 @@ CONTEXT — similar past runbooks and known-good commands (use these to inform y
 {context}
 
 WHAT TO GENERATE:
-1. Prechecks: verify the reported metric (CPU/memory/disk/network/service) is actually in a bad state
-2. Steps: identify root cause then fix it — derive the appropriate commands for {os_type} based on the issue type
-3. Postcheck: confirm the metric has returned to a healthy state
+Focus exclusively on the detected ISSUE TYPE: {issue_type}
+1. Prechecks: confirm the {issue_type} condition exists (use commands specific to this problem class)
+2. Steps: diagnose root cause, then remediate — derive commands for {os_type} and {issue_type} only
+3. Postcheck: confirm the {issue_type} condition is resolved
 
-Think about the issue type first:
-- High CPU → find top consumers, terminate or throttle, verify CPU drops
-- High memory → find memory hogs, free memory or restart service, verify memory normalizes
-- Low disk → find what is consuming space, clean up or extend, verify disk frees up
-- Service down → check why it failed, restart or repair, verify service is running
-- Host unreachable → verify connectivity first, then investigate if host is busy
+ISSUE TYPE COMMAND GUIDANCE:
+- low_disk → df -h, du -sh /var /tmp /home, find / -size +500M, rm/truncate logs, verify df shows space freed
+- high_cpu → top -bn1 / Get-Counter \Processor, ps aux --sort=-%cpu, kill/nice the top process, verify CPU %
+- high_memory → free -m / Get-Counter \Memory, ps aux --sort=-%mem, kill/restart the hog, verify memory freed
+- service_down → systemctl status / sc query, journalctl -u, systemctl restart / net start, verify active/running
+- host_unreachable → ping / Test-Connection, check local CPU/mem load, verify host responds to ping
 
-Use commands appropriate for {os_type} that are known to exist and work. Derive commands from the issue and context — do not fabricate commands.
-
+Do NOT mix command types across issue domains. Use {issue_type} to select the right command set.
 Output raw YAML only following the schema in the system prompt. Use {{server_name}} for the target server input.
 ]]></user>
 </poml>
