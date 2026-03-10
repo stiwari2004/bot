@@ -68,3 +68,6 @@ logs/
 !frontend-nextjs/src/lib/
 !frontend-nextjs/src/lib/**
 
+# Claude Code local settings (may contain tokens/secrets)
+.claude/
+
