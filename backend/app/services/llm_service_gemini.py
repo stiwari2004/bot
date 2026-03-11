@@ -177,6 +177,8 @@ class GeminiLLMService:
         risk: str,
         context: str = "",
         os_type: Optional[str] = None,
+        issue_type: Optional[str] = None,
+        entities: Optional[str] = None,
         model_name: Optional[str] = None,
     ) -> str:
         """
@@ -220,8 +222,10 @@ class GeminiLLMService:
             "env": env,
             "risk": risk,
             "context": ctx,
+            "issue_type": issue_type or "general_issue",
+            "entities": entities or "",
         }
-        
+
         # Only add os_type for server CI types
         if service_type == "server":
             prompt_context["os_type"] = os_type or "Windows"

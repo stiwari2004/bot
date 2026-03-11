@@ -208,23 +208,44 @@ def _str_list(value: object) -> List[str]:
 
 
 def _parse_json(text: str) -> Optional[dict]:
-    """Extract and parse the first JSON object from LLM response."""
+    """
+    Extract and parse a dict from LLM response.
+    Handles JSON, YAML (Gemini auto-converts JSON→YAML), and markdown fences.
+    """
+    import yaml as _yaml
+
     text = text.strip()
-    # Strip markdown fences if present
+
+    # Strip markdown fences
     if "```" in text:
-        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        m = re.search(r"```(?:json|yaml)?\s*(.*?)\s*```", text, re.DOTALL)
         if m:
-            text = m.group(1)
-    # Try direct parse
+            text = m.group(1).strip()
+
+    # Try JSON first
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
     except json.JSONDecodeError:
         pass
-    # Find first {...} block
+
+    # Try finding a {...} JSON block embedded in prose
     m = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(0))
+            result = json.loads(m.group(0))
+            if isinstance(result, dict):
+                return result
         except json.JSONDecodeError:
             pass
+
+    # Fallback: try YAML (Gemini converts JSON responses to YAML)
+    try:
+        result = _yaml.safe_load(text)
+        if isinstance(result, dict):
+            return result
+    except Exception:
+        pass
+
     return None
