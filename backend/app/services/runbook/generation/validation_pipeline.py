@@ -1,341 +1,114 @@
 """
-Validation pipeline for generated runbooks
-Handles structure validation, command validation, and LLM critique
+Validation pipeline for generated runbooks.
+
+Simplified to two stages:
+  1. Schema validation  — structural contract (RunbookValidator), mechanical
+  2. Critic + Refiner   — LLM quality gate with targeted auto-patching
+
+Keyword-counting layers (RunbookQualityValidator, RunbookCommandValidator) are
+no longer invoked here. The critic understands quality better than keyword counts.
 """
-from typing import Dict, Any, List, Optional
-from fastapi import HTTPException
+from __future__ import annotations
+
+import yaml
+from typing import Any, Dict, Optional, Tuple
+
 from app.core.logging import get_logger
-from app.config import runbook_structure
-from app.services.runbook.generation.runbook_quality_validator import RunbookQualityValidator
-from app.services.runbook.generation.runbook_command_validator import RunbookCommandValidator
-from app.services.runbook.generation.runbook_critic_service import RunbookCriticService
+from app.services.runbook.generation.runbook_critic_service import (
+    RunbookCriticService, CriticResult,
+)
+from app.services.runbook.generation.runbook_refiner_service import RunbookRefinerService
 
 logger = get_logger(__name__)
 
 
 class ValidationPipeline:
-    """Handles all validation phases for generated runbooks"""
-    
+    """Orchestrates critic → conditional refiner for generated runbooks."""
+
     def __init__(self):
-        self.quality_validator = RunbookQualityValidator()
-        self.command_validator = RunbookCommandValidator()
-        self.critic_service = RunbookCriticService()
-    
-    def validate_structure(
+        self.critic = RunbookCriticService()
+        self.refiner = RunbookRefinerService()
+
+    async def run(
         self,
         spec: Dict[str, Any],
         issue_description: str,
-        issue_type: Optional[str] = None,
-    ) -> tuple[bool, List[str]]:
+        issue_type: str,
+        os_type: Optional[str],
+        tenant_id: int,
+    ) -> Tuple[Dict[str, Any], CriticResult]:
         """
-        Phase 1: Validate runbook structure and content
+        Run the full validation pipeline.
 
         Returns:
-            (is_valid, validation_errors)
+            (spec, critic_result)
+            - spec may be patched if critic found minor gaps
+            - critic_result.severity drives how the caller stores the runbook:
+                "pass"  → store, no review required
+                "minor" → store with review_required=True (refiner already patched)
+                "major" → store with review_required=True (no auto-patch)
         """
-        logger.info(f"Running runbook validation (issue_type={issue_type})...")
-        is_valid, validation_errors = self.quality_validator.validate(spec, issue_description, issue_type=issue_type)
-        logger.info(
-            f"Validation complete: is_valid={is_valid}, "
-            f"error_count={len(validation_errors)}"
+        # Stage 1: schema validation (structural contract, no LLM)
+        spec = self._schema_validate(spec)
+
+        # Stage 2: LLM critic
+        critic_result = await self.critic.critique(
+            spec=spec,
+            issue_description=issue_description,
+            issue_type=issue_type,
+            os_type=os_type,
+            tenant_id=tenant_id,
         )
-        
-        if not is_valid:
-            # Check for CRITICAL errors
-            critical_errors = [e for e in validation_errors if "CRITICAL" in e.upper()]
-            remediation_errors = [
-                e for e in validation_errors
-                if "remediation" in e.lower() or "REMEDIATE" in e.upper()
-            ]
-            
-            if remediation_errors:
-                critical_errors.extend(remediation_errors)
-            
-            if critical_errors:
-                logger.error("CRITICAL validation failures - runbook structure is incorrect:")
-                for error in critical_errors:
-                    logger.error(f"  - {error}")
-                logger.error(f"Full validation errors: {validation_errors}")
-                logger.error(f"Runbook spec keys: {list(spec.keys())}")
-                logger.error(f"Prechecks count: {len(spec.get('prechecks', []))}")
-                logger.error(f"Steps count: {len(spec.get('steps', []))}")
-                logger.error(f"Postchecks count: {len(spec.get('postchecks', []))}")
-                
-                # Check if structure is severely broken
-                prechecks_count = len(spec.get("prechecks", []))
-                steps_count = len(spec.get("steps", []))
-                postchecks_count = len(spec.get("postchecks", []))
-                
-                has_remediation_error = any(
-                    "remediation" in e.lower() or "REMEDIATE" in e.upper()
-                    for e in critical_errors
-                )
-                
-                if (steps_count < 2 or prechecks_count == 0 or
-                    postchecks_count == 0 or has_remediation_error):
-                    error_detail = (
-                        f"LLM generated invalid runbook structure. "
-                        f"Prechecks: {prechecks_count} "
-                        f"(required: {runbook_structure.PRECHECKS_COUNT}), "
-                        f"Steps: {steps_count} "
-                        f"(required: {runbook_structure.STEPS_MIN}-{runbook_structure.STEPS_MAX}), "
-                        f"Postchecks: {postchecks_count} "
-                        f"(required: {runbook_structure.POSTCHECKS_COUNT})."
-                    )
-                    if has_remediation_error:
-                        error_detail += (
-                            f" CRITICAL: Runbook missing required REMEDIATION steps. "
-                            f"Runbooks must include at least 4 remediation actions "
-                            f"(kill, restart, stop, clear, fix, etc.) to actually SOLVE "
-                            f"the problem, not just investigate it."
-                        )
-                    error_detail += " Please try again or check LLM configuration."
-                    
-                    logger.error(
-                        f"Runbook structure is severely incorrect - rejecting. "
-                        f"Prechecks: {prechecks_count} (need 3), "
-                        f"Steps: {steps_count} (need 5-6), "
-                        f"Postchecks: {postchecks_count} (need 1), "
-                        f"Has remediation: {not has_remediation_error}"
-                    )
-                    raise HTTPException(status_code=502, detail=error_detail)
-                
-                logger.warning(
-                    "Runbook has structure issues but may be recoverable. "
-                    "Consider regenerating for better results."
-                )
-            else:
-                logger.warning(
-                    f"Runbook validation warnings (non-critical): "
-                    f"{len(validation_errors)} error(s)"
-                )
-                for error in validation_errors:
-                    logger.warning(f"  - {error}")
-                    if ("undefined input" in error.lower() or
-                        "references undefined" in error.lower()):
-                        logger.error(f"  ⚠️ INPUT VALIDATION ERROR: {error}")
-        
-        return is_valid, validation_errors
-    
-    async def validate_commands(
-        self,
-        spec: Dict[str, Any],
-        issue_description: str,
-        env: str,
-        os_type: Optional[str] = None
-    ) -> Dict[str, Any]:
+
+        # Stage 3: auto-refine minor gaps
+        if not critic_result.passed and critic_result.severity == "minor" and critic_result.gaps:
+            logger.info("Validation: minor gaps found — running refiner on %d gap(s)", len(critic_result.gaps))
+            spec = await self.refiner.refine(
+                spec=spec,
+                gaps=critic_result.gaps,
+                issue_description=issue_description,
+                os_type=os_type,
+                tenant_id=tenant_id,
+            )
+
+        return spec, critic_result
+
+    # ------------------------------------------------------------------
+    # Schema validation — structural contract only
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _schema_validate(spec: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Phase 2: Validate runbook commands via web search for grounding
-        
-        Returns:
-            Command validation result dictionary
+        Run RunbookValidator schema check. Returns validated spec.
+        Warnings are logged; errors are logged but do not raise
+        (critic handles quality, schema handles contract).
         """
-        logger.info("Validating runbook commands via web search for grounding...")
-        
         try:
-            if os_type is None:
-                os_type = env if env in ["Windows", "Linux"] else None
-            
-            command_validation = await self.command_validator.validate_runbook_commands(
-                spec, issue_description, os_type
-            )
-            
-            if not command_validation["is_valid"]:
-                logger.warning(
-                    f"Command validation found issues: "
-                    f"{command_validation['validation_summary']}"
-                )
-                
-                # Log detailed issues
-                if command_validation["invalid_commands"]:
-                    logger.error(
-                        f"Found {len(command_validation['invalid_commands'])} "
-                        f"invalid command(s):"
-                    )
-                    for invalid in command_validation["invalid_commands"]:
-                        logger.error(
-                            f"  - {invalid['section']} {invalid['index']}: "
-                            f"{invalid['command'][:80]}... "
-                            f"Issue: {invalid['issue']}"
-                        )
-                
-                if command_validation["diagnostic_mislabeled"]:
-                    logger.error(
-                        f"Found {len(command_validation['diagnostic_mislabeled'])} "
-                        f"mislabeled command(s):"
-                    )
-                    for mislabeled in command_validation["diagnostic_mislabeled"]:
-                        logger.error(
-                            f"  - {mislabeled['section']} {mislabeled['index']}: "
-                            f"{mislabeled['command'][:80]}... "
-                            f"Issue: {mislabeled['issue']}"
-                        )
-                
-                # CRITICAL: Missing remediation is a hard failure
-                if command_validation["missing_remediation"]:
-                    error_detail = (
-                        f"CRITICAL: Command validation found only "
-                        f"{len(command_validation.get('remediation_commands_found', []))} "
-                        f"actual remediation command(s), need at least 4. "
-                        f"Runbook commands must include actual fix actions "
-                        f"(kill, restart, stop, clear, etc.), not just diagnostic commands. "
-                    )
-                    if command_validation["suggestions"]:
-                        error_detail += " ".join(command_validation["suggestions"])
-                    error_detail += " Please regenerate with proper remediation steps."
-                    
-                    logger.error(error_detail)
-                    raise HTTPException(status_code=502, detail=error_detail)
-                
-                # For invalid commands or mislabeled, add warnings to metadata
-                if (command_validation["invalid_commands"] or
-                    command_validation["diagnostic_mislabeled"]):
-                    if "meta_data" not in spec:
-                        spec["meta_data"] = {}
-                    spec["meta_data"]["command_validation_warnings"] = (
-                        command_validation["suggestions"]
-                    )
-                    spec["meta_data"]["invalid_commands"] = (
-                        command_validation["invalid_commands"]
-                    )
-                    spec["meta_data"]["diagnostic_mislabeled"] = (
-                        command_validation["diagnostic_mislabeled"]
-                    )
-                    logger.warning(
-                        f"Command validation found issues but runbook structure is valid. "
-                        f"Warnings added to metadata. Consider regenerating for better results."
-                    )
+            from app.schemas.runbook_yaml import RunbookValidator
+            validated, warnings = RunbookValidator.validate_runbook(spec, auto_assign_severity=True)
+            if warnings:
+                logger.warning("Schema validation warnings: %s", warnings)
+            return validated.model_dump(mode="json", exclude_none=True)
+        except Exception as exc:
+            logger.warning("Schema validation failed (continuing): %s", exc)
+            return spec
 
-                # Per-step validation/review state (for fail-safe approve gate)
-                invalid_set: Dict[tuple, Dict[str, Any]] = {}  # (section_key, 0based_idx) -> {issue, suggested_fix}
-                for item in command_validation.get("invalid_commands", []):
-                    sec = item.get("section", "")
-                    # validator uses "precheck" -> spec uses "prechecks"
-                    section_key = "prechecks" if sec == "precheck" else ("postchecks" if sec == "postcheck" else "steps")
-                    idx_0 = (item.get("index") or 1) - 1
-                    invalid_set[(section_key, idx_0)] = {
-                        "issue": item.get("issue", "Command not found or invalid"),
-                        "suggested_fix": item.get("suggested_fix"),
-                    }
-                for item in command_validation.get("diagnostic_mislabeled", []):
-                    sec = item.get("section", "")
-                    section_key = "prechecks" if sec == "precheck" else ("postchecks" if sec == "postcheck" else "steps")
-                    idx_0 = (item.get("index") or 1) - 1
-                    invalid_set[(section_key, idx_0)] = {
-                        "issue": item.get("issue", "Mislabeled"),
-                        "suggested_fix": item.get("suggested_fix"),
-                    }
+    # ------------------------------------------------------------------
+    # Legacy shims — kept so any existing callers don't break immediately
+    # ------------------------------------------------------------------
 
-                for section_key in ("prechecks", "steps", "postchecks"):
-                    items = spec.get(section_key, [])
-                    if not isinstance(items, list):
-                        continue
-                    for idx_0, step in enumerate(items):
-                        if not isinstance(step, dict):
-                            continue
-                        key = (section_key, idx_0)
-                        if key in invalid_set:
-                            step["command_validation_status"] = "invalid"
-                            step["command_validation_issue"] = invalid_set[key].get("issue")
-                            step["command_suggested_fix"] = invalid_set[key].get("suggested_fix")
-                            step["command_review_status"] = "pending"
-                        else:
-                            step["command_validation_status"] = "valid"
-                            step["command_review_status"] = step.get("command_review_status") or "pending"
-                spec["command_review_required"] = True
-            else:
-                # All commands valid: mark steps valid and no review required
-                for section_key in ("prechecks", "steps", "postchecks"):
-                    for step in spec.get(section_key, []):
-                        if isinstance(step, dict):
-                            step["command_validation_status"] = "valid"
-                            step["command_review_status"] = step.get("command_review_status") or "pending"
-                spec["command_review_required"] = False
-                logger.info(
-                    f"Command validation passed: "
-                    f"{command_validation['validation_summary']}. "
-                    f"Found {len(command_validation.get('remediation_commands_found', []))} "
-                    f"valid remediation command(s)."
-                )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning(
-                f"Command validation failed (non-fatal): {e}. "
-                f"Continuing with runbook generation."
-            )
-            command_validation = {"is_valid": True}  # Default to valid on error
-        
-        return command_validation
-    
-    async def critique_runbook(
-        self,
-        spec: Dict[str, Any],
-        issue_description: str,
-        tenant_id: int
-    ) -> Dict[str, Any]:
-        """
-        Phase 3: LLM critique for logical flow validation (optional)
-        
-        Returns:
-            Critique result dictionary
-        """
-        import os
-        enable_critique = os.getenv("ENABLE_LLM_CRITIQUE", "true").lower() == "true"
-        
-        if not enable_critique:
-            return {"is_valid": True}
-        
-        logger.info("Running LLM critique for logical flow validation...")
-        
-        try:
-            critique_result = await self.critic_service.critique_runbook(
-                spec, issue_description, tenant_id
-            )
-            
-            if not critique_result["is_valid"]:
-                logger.warning(
-                    f"LLM critique found issues "
-                    f"(confidence: {critique_result['confidence']:.2f}): "
-                    f"{len(critique_result['issues'])} critical, "
-                    f"{len(critique_result['warnings'])} warnings"
-                )
-                
-                if critique_result["issues"]:
-                    logger.error("Critical issues found:")
-                    for issue in critique_result["issues"]:
-                        logger.error(f"  - {issue}")
-                
-                if critique_result["regeneration_needed"]:
-                    if "meta_data" not in spec:
-                        spec["meta_data"] = {}
-                    spec["meta_data"]["critique_issues"] = critique_result["issues"]
-                    spec["meta_data"]["critique_warnings"] = critique_result["warnings"]
-                    spec["meta_data"]["critique_suggestions"] = (
-                        critique_result["suggestions"]
-                    )
-                    logger.warning(
-                        "LLM critique suggests regeneration, but runbook passed "
-                        "structural validation. Consider reviewing before approval."
-                    )
-                else:
-                    if "meta_data" not in spec:
-                        spec["meta_data"] = {}
-                    spec["meta_data"]["critique_warnings"] = critique_result["warnings"]
-                    spec["meta_data"]["critique_suggestions"] = (
-                        critique_result["suggestions"]
-                    )
-            else:
-                logger.info(
-                    f"LLM critique passed (confidence: {critique_result['confidence']:.2f}). "
-                    f"Runbook logic is sound."
-                )
-        except Exception as e:
-            logger.warning(
-                f"LLM critique failed (non-fatal): {e}. "
-                f"Continuing with runbook generation."
-            )
-            critique_result = {"is_valid": True}
-        
-        return critique_result
+    def validate_structure(self, spec, issue_description, issue_type=None):
+        """Deprecated. Schema validation now happens inside run(). Returns (True, [])."""
+        logger.debug("validate_structure called — now handled inside ValidationPipeline.run()")
+        return True, []
 
+    async def validate_commands(self, spec, issue_description, env, os_type=None):
+        """Deprecated. Command quality now assessed by critic. Returns pass result."""
+        logger.debug("validate_commands called — now handled by RunbookCriticService")
+        return {"is_valid": True}
+
+    async def critique_runbook(self, spec, issue_description, tenant_id):
+        """Deprecated shim. Use run() instead. Calls critic directly."""
+        result = await self.critic.critique(spec, issue_description, tenant_id=tenant_id)
+        return result.to_dict()

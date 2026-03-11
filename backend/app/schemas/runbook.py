@@ -50,3 +50,15 @@ class RunbookCreateRequest(BaseModel):
     title: Optional[str] = None
     body_md: Optional[str] = None
 
+
+class StepFeedbackItem(BaseModel):
+    """Feedback targeting a single runbook step."""
+    section: str             # prechecks | steps | postchecks
+    index: int               # 0-based step index
+    feedback: str            # natural-language instruction e.g. "use SIGTERM not SIGKILL"
+
+
+class RunbookFeedbackRequest(BaseModel):
+    """Human feedback for one or more steps in a runbook."""
+    steps: list[StepFeedbackItem]
+

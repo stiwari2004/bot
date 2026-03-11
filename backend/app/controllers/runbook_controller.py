@@ -16,7 +16,7 @@ from app.services.runbook.duplicate_detection_service import DuplicateDetectionS
 from app.services.runbook.ticket_cleanup_service import TicketCleanupService
 from app.models.runbook import Runbook
 from app.models.ticket import Ticket
-from app.schemas.runbook import RunbookResponse, RunbookUpdate
+from app.schemas.runbook import RunbookResponse, RunbookUpdate, RunbookFeedbackRequest
 from app.core.logging import get_logger
 from app.core.transactions import transaction
 from typing import Tuple
@@ -188,6 +188,51 @@ class RunbookController(BaseController):
         )
         meta_data["runbook_spec"] = updated_spec
         self._persist_spec_to_runbook(runbook, meta_data)
+        return self.get_runbook(runbook_id)
+
+    async def apply_step_feedback(
+        self,
+        runbook_id: int,
+        feedback_request: RunbookFeedbackRequest,
+    ) -> RunbookResponse:
+        """Apply human step-level feedback to a runbook via the refiner."""
+        from app.services.runbook.generation import RunbookRefinerService
+        from app.services.runbook.generation.runbook_refiner_service import FeedbackItem
+
+        runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
+        if not runbook:
+            raise self.not_found("Runbook", runbook_id)
+
+        meta_data = json.loads(runbook.meta_data) if isinstance(runbook.meta_data, str) else (runbook.meta_data or {})
+        spec = meta_data.get("runbook_spec")
+        if not spec:
+            raise HTTPException(status_code=400, detail="Runbook has no runbook_spec")
+
+        issue_description = meta_data.get("issue_description", "")
+        os_type = spec.get("env", "Linux")
+
+        items = [
+            FeedbackItem(
+                section=s.section,
+                index=s.index,
+                feedback=s.feedback,
+            )
+            for s in feedback_request.steps
+        ]
+
+        refiner = RunbookRefinerService()
+        patched_spec = await refiner.apply_human_feedback(
+            spec=spec,
+            feedback_items=items,
+            issue_description=issue_description,
+            os_type=os_type,
+            tenant_id=self.tenant_id,
+        )
+
+        meta_data["runbook_spec"] = patched_spec
+        meta_data["review_required"] = True
+        self._persist_spec_to_runbook(runbook, meta_data)
+        logger.info("Applied %d human feedback item(s) to runbook %d", len(items), runbook_id)
         return self.get_runbook(runbook_id)
 
     def _build_operational_context(self, ticket_id: Optional[int]) -> Optional[str]:

@@ -9,7 +9,7 @@ from enum import Enum
 
 from app.core.database import get_db, SessionLocal
 from app.models.user import User
-from app.schemas.runbook import RunbookResponse, RunbookUpdate
+from app.schemas.runbook import RunbookResponse, RunbookUpdate, RunbookFeedbackRequest
 from app.services.auth import get_current_user
 from app.controllers.runbook_controller import RunbookController
 from app.controllers.runbook_version_controller import RunbookVersionController
@@ -542,6 +542,31 @@ async def runbook_step_regenerate_demo(
     return await controller.regenerate_step_command(
         runbook_id, body.section, body.index, body.human_context
     )
+
+
+@router.post("/demo/{runbook_id}/feedback", response_model=RunbookResponse)
+async def runbook_step_feedback_demo(
+    runbook_id: int,
+    body: RunbookFeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Apply human step-level feedback to a runbook.
+
+    Send one or more feedback items targeting specific steps. The refiner will
+    patch each step and mark the runbook for review.
+
+    Example body:
+    ```json
+    {
+      "steps": [
+        {"section": "steps", "index": 2, "feedback": "use SIGTERM not SIGKILL when stopping the process"}
+      ]
+    }
+    ```
+    """
+    controller = RunbookController(db, tenant_id=current_user.tenant_id)
+    return await controller.apply_step_feedback(runbook_id, body)
 
 
 @router.post("/demo/{runbook_id}/reindex")

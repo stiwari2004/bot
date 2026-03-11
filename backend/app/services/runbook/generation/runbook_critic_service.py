@@ -1,253 +1,279 @@
 """
-Runbook Critic Service - LLM-based critique of generated runbooks for semantic/logical validation.
-Validates that runbook steps logically flow and actually solve the issue.
+Runbook Critic Service — structured quality assessment of generated runbooks.
+
+Returns a CriticResult with:
+  - passed / severity (pass | minor | major)
+  - gaps: list of specific fixable problems with section + index + fix_hint
+  - overall_assessment: human-readable summary
+
+Replaces the old keyword-counting RunbookQualityValidator and RunbookCommandValidator
+as the primary quality gate. Severity drives what happens next:
+  pass   → store as-is
+  minor  → RunbookRefinerService patches gaps, then flag for human review
+  major  → flag for human review only (no auto-patch)
 """
+from __future__ import annotations
+
 import json
 import re
-from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
 from app.core.logging import get_logger
-from app.services.llm_service import get_llm_service
 
 logger = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Result types (stable contract — refiner and human feedback both depend on this)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CriticGap:
+    section: str    # prechecks | steps | postchecks
+    index: int      # 0-based
+    problem: str    # what is wrong
+    fix_hint: str   # concrete instruction for the refiner / human
+
+
+@dataclass
+class CriticResult:
+    passed: bool
+    severity: str                              # "pass" | "minor" | "major"
+    gaps: List[CriticGap] = field(default_factory=list)
+    overall_assessment: str = ""
+    confidence: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "severity": self.severity,
+            "gaps": [
+                {"section": g.section, "index": g.index,
+                 "problem": g.problem, "fix_hint": g.fix_hint}
+                for g in self.gaps
+            ],
+            "overall_assessment": self.overall_assessment,
+            "confidence": self.confidence,
+        }
+
+    @staticmethod
+    def passing() -> "CriticResult":
+        return CriticResult(passed=True, severity="pass", confidence=1.0,
+                            overall_assessment="Runbook looks good.")
+
+
+# ---------------------------------------------------------------------------
+# Critic service
+# ---------------------------------------------------------------------------
+
+_CRITIC_SYSTEM = (
+    "You are a senior SRE reviewing a runbook before it is approved for production use. "
+    "Your job is to identify concrete, fixable problems — not stylistic preferences. "
+    "Return ONLY a JSON object."
+)
+
+_CRITIC_USER_TMPL = """ISSUE TYPE: {issue_type}
+SERVICE: {service}
+OS: {os_type}
+ISSUE DESCRIPTION: {issue_description}
+
+RUNBOOK SPEC (summary):
+{spec_summary}
+
+Assess the runbook and return JSON:
+{{
+  "passed": true/false,
+  "severity": "pass|minor|major",
+  "gaps": [
+    {{
+      "section": "prechecks|steps|postchecks",
+      "index": 0,
+      "problem": "concise description of what is wrong with this step",
+      "fix_hint": "concrete instruction: what command / change would fix it"
+    }}
+  ],
+  "overall_assessment": "1-2 sentence summary",
+  "confidence": 0.0
+}}
+
+SEVERITY RULES:
+- "pass"  : runbook will resolve the issue, no significant gaps
+- "minor" : 1-3 fixable gaps (missing remediation command, wrong purpose label, weak postcheck) — auto-patchable
+- "major" : fundamental problems (wrong OS commands, steps don't address issue_type, no remediation at all) — needs human review
+
+WHAT TO CHECK:
+1. Does at least one step actually FIX the {issue_type} condition (not just diagnose it)?
+2. Does the postcheck verify the SAME metric the precheck measured?
+3. Are commands appropriate for {os_type} and {issue_type}?
+4. Do steps reference inputs that are defined (no undefined {{{{placeholders}}}})?
+5. Is there a logical flow: diagnose → remediate → verify?
+
+Only report gaps that are genuinely wrong, not nitpicks. Max 4 gaps.
+If the runbook is sound, return passed=true, severity="pass", gaps=[]."""
+
+
 class RunbookCriticService:
-    """LLM-based critique of generated runbooks for semantic/logical validation"""
-    
+    """LLM-based structured critique of generated runbooks."""
+
     def __init__(self, llm_service_instance=None):
-        """Initialize critic with optional LLM service"""
         if llm_service_instance:
             self.llm_service = llm_service_instance
         else:
             try:
+                from app.services.llm_service import get_llm_service
                 self.llm_service = get_llm_service()
             except Exception as e:
-                logger.warning(f"Could not initialize LLM service for critique: {e}")
+                logger.warning("Could not initialise LLM service for critic: %s", e)
                 self.llm_service = None
-    
+
+    async def critique(
+        self,
+        spec: Dict[str, Any],
+        issue_description: str,
+        issue_type: str = "general_issue",
+        os_type: Optional[str] = None,
+        tenant_id: int = 1,
+    ) -> CriticResult:
+        """
+        Critique the runbook spec. Always returns a CriticResult — fails open on error.
+        """
+        if not self.llm_service:
+            logger.warning("Critic: LLM unavailable — passing runbook through")
+            return CriticResult.passing()
+
+        spec_summary = _summarise_spec(spec)
+        user_msg = _CRITIC_USER_TMPL.format(
+            issue_type=issue_type,
+            service=spec.get("service", "server"),
+            os_type=os_type or spec.get("env", "Linux"),
+            issue_description=issue_description[:500],
+            spec_summary=spec_summary,
+        )
+
+        try:
+            raw = await self.llm_service._chat_once_with_system(
+                _CRITIC_SYSTEM, user_msg, tenant_id=tenant_id
+            )
+            if not raw:
+                return CriticResult.passing()
+
+            data = _parse_json(raw)
+            if not data:
+                logger.warning("Critic: could not parse JSON response — passing through")
+                return CriticResult.passing()
+
+            gaps = [
+                CriticGap(
+                    section=str(g.get("section", "steps")),
+                    index=int(g.get("index", 0)),
+                    problem=str(g.get("problem", "")),
+                    fix_hint=str(g.get("fix_hint", "")),
+                )
+                for g in (data.get("gaps") or [])
+                if isinstance(g, dict)
+            ]
+
+            passed = bool(data.get("passed", True))
+            severity = str(data.get("severity", "pass"))
+            if severity not in ("pass", "minor", "major"):
+                severity = "pass" if passed else "minor"
+
+            result = CriticResult(
+                passed=passed,
+                severity=severity,
+                gaps=gaps,
+                overall_assessment=str(data.get("overall_assessment", "")),
+                confidence=float(data.get("confidence", 0.8)),
+            )
+            logger.info(
+                "Critic result: passed=%s severity=%s gaps=%d assessment=%r",
+                result.passed, result.severity, len(result.gaps),
+                result.overall_assessment[:80],
+            )
+            return result
+
+        except Exception as exc:
+            logger.warning("Critic error — passing through: %s", exc)
+            return CriticResult.passing()
+
+    # ------------------------------------------------------------------
+    # Legacy compatibility shim (old callers used critique_runbook)
+    # ------------------------------------------------------------------
+
     async def critique_runbook(
         self,
         spec: Dict[str, Any],
         issue_description: str,
-        tenant_id: int = 1
+        tenant_id: int = 1,
     ) -> Dict[str, Any]:
-        """
-        Ask LLM to critique the runbook as a troubleshooting expert.
-        
-        Args:
-            spec: Parsed YAML runbook specification
-            issue_description: Original issue description
-            tenant_id: Tenant ID for LLM service
-            
-        Returns:
-            {
-                "is_valid": bool,
-                "confidence": float,
-                "issues": List[str],  # Critical issues found
-                "warnings": List[str],  # Minor issues
-                "suggestions": List[str],  # Improvement suggestions
-                "regeneration_needed": bool  # Should we regenerate?
-            }
-        """
-        if not self.llm_service:
-            logger.warning("LLM service not available for critique - skipping")
-            return {
-                "is_valid": True,  # Fail open
-                "confidence": 0.0,
-                "issues": [],
-                "warnings": ["LLM critique unavailable"],
-                "suggestions": [],
-                "regeneration_needed": False
-            }
-        
-        # Format runbook for critique
-        runbook_summary = self._format_runbook_for_critique(spec)
-        
-        prompt = f"""You are an expert troubleshooting engineer reviewing a runbook. Analyze this runbook and determine if it will actually solve the issue.
+        """Backward-compatible wrapper. New code should call critique() directly."""
+        result = await self.critique(spec, issue_description, tenant_id=tenant_id)
+        return {
+            "is_valid": result.passed,
+            "confidence": result.confidence,
+            "issues": [g.problem for g in result.gaps if result.severity == "major"],
+            "warnings": [g.problem for g in result.gaps if result.severity == "minor"],
+            "suggestions": [g.fix_hint for g in result.gaps],
+            "regeneration_needed": result.severity == "major",
+        }
 
-ISSUE: {issue_description}
 
-RUNBOOK:
-{runbook_summary}
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-Analyze the runbook and respond with JSON:
-{{
-    "is_valid": true/false,
-    "confidence": 0.0-1.0,
-    "issues": ["critical issue 1", "critical issue 2"],
-    "warnings": ["minor issue 1", "minor issue 2"],
-    "suggestions": ["improvement 1", "improvement 2"],
-    "regeneration_needed": true/false
-}}
+def _summarise_spec(spec: Dict[str, Any]) -> str:
+    """Compact spec summary so the critic prompt stays small."""
+    lines: List[str] = []
+    lines.append(f"title: {spec.get('title', 'N/A')}")
+    lines.append(f"service: {spec.get('service', 'N/A')}  env: {spec.get('env', 'N/A')}  risk: {spec.get('risk', 'N/A')}")
+    lines.append("")
 
-Check for:
-1. **Logical Flow**: Do steps flow logically? (e.g., can't kill a process before identifying it)
-2. **Variable Dependencies**: If step 3 uses {{variable_name}}, was it captured in step 1 or 2?
-3. **Remediation Relevance**: Do remediation steps actually fix the issue type? (e.g., Clear-EventLog won't fix high CPU)
-4. **Step Ordering**: Are steps in correct order? (diagnose → remediate → verify)
-5. **Missing Steps**: Are critical steps missing? (e.g., no step to identify the problem before fixing it)
-6. **Command Appropriateness**: Are commands appropriate for the OS and issue type?
-7. **Resolution Path**: Will this runbook actually resolve the issue or just gather data?
-
-CRITICAL ISSUES (set is_valid=false, regeneration_needed=true):
-- Steps reference variables that aren't captured
-- Remediation steps won't fix the issue type
-- Steps are in wrong order (e.g., verify before remediate)
-- Missing critical steps (e.g., no step to identify problem before fixing)
-
-WARNINGS (set is_valid=true, regeneration_needed=false):
-- Minor ordering issues
-- Could use better commands
-- Missing optional steps
-
-If the runbook is valid and will solve the issue, set is_valid=true, confidence>=0.8, regeneration_needed=false."""
-
-        try:
-            response = await self._call_llm(prompt, tenant_id)
-            if not response:
-                return {
-                    "is_valid": True,
-                    "confidence": 0.0,
-                    "issues": [],
-                    "warnings": ["Could not get critique response"],
-                    "suggestions": [],
-                    "regeneration_needed": False
-                }
-            
-            result = self._parse_json_response(response)
-            if not result:
-                return {
-                    "is_valid": True,
-                    "confidence": 0.0,
-                    "issues": [],
-                    "warnings": ["Could not parse critique response"],
-                    "suggestions": [],
-                    "regeneration_needed": False
-                }
-            
-            return {
-                "is_valid": result.get("is_valid", True),
-                "confidence": float(result.get("confidence", 0.5)),
-                "issues": result.get("issues", []) if isinstance(result.get("issues"), list) else [],
-                "warnings": result.get("warnings", []) if isinstance(result.get("warnings"), list) else [],
-                "suggestions": result.get("suggestions", []) if isinstance(result.get("suggestions"), list) else [],
-                "regeneration_needed": result.get("regeneration_needed", False)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in runbook critique: {e}", exc_info=True)
-            return {
-                "is_valid": True,
-                "confidence": 0.0,
-                "issues": [],
-                "warnings": [f"Critique error: {str(e)}"],
-                "suggestions": [],
-                "regeneration_needed": False
-            }
-    
-    def _format_runbook_for_critique(self, spec: Dict[str, Any]) -> str:
-        """Format runbook spec for critique prompt"""
-        lines = []
-        lines.append(f"Title: {spec.get('title', 'N/A')}")
-        lines.append(f"Service: {spec.get('service', 'N/A')}")
-        lines.append(f"Environment: {spec.get('env', 'N/A')}")
+    for section in ("prechecks", "steps", "postchecks"):
+        items = spec.get(section, [])
+        if not items:
+            continue
+        lines.append(f"{section.upper()} ({len(items)}):")
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("description") or f"item {i}"
+            cmd = (item.get("command") or "")[:120]
+            purpose = item.get("purpose", "")
+            lines.append(f"  [{i}] {name}  purpose={purpose}")
+            if cmd:
+                lines.append(f"       cmd: {cmd}")
         lines.append("")
-        
-        # Prechecks
-        prechecks = spec.get("prechecks", [])
-        lines.append("PRECHECKS:")
-        for idx, precheck in enumerate(prechecks, 1):
-            if isinstance(precheck, dict):
-                lines.append(f"  {idx}. {precheck.get('description', 'N/A')}")
-                lines.append(f"     Command: {precheck.get('command', 'N/A')}")
-        lines.append("")
-        
-        # Steps
-        steps = spec.get("steps", [])
-        lines.append("STEPS:")
-        for idx, step in enumerate(steps, 1):
-            if isinstance(step, dict):
-                name = step.get("name", f"Step {idx}")
-                purpose = step.get("purpose", "")
-                command = step.get("command", "N/A")
-                captures = step.get("captures_variable", "")
-                depends = step.get("depends_on", [])
-                
-                lines.append(f"  {idx}. {name}")
-                if purpose:
-                    lines.append(f"     Purpose: {purpose}")
-                lines.append(f"     Command: {command}")
-                if captures:
-                    lines.append(f"     Captures: {captures}")
-                if depends:
-                    lines.append(f"     Depends on: {', '.join(depends)}")
-        lines.append("")
-        
-        # Postchecks
-        postchecks = spec.get("postchecks", [])
-        lines.append("POSTCHECKS:")
-        for idx, postcheck in enumerate(postchecks, 1):
-            if isinstance(postcheck, dict):
-                lines.append(f"  {idx}. {postcheck.get('description', 'N/A')}")
-                lines.append(f"     Command: {postcheck.get('command', 'N/A')}")
-        
-        return "\n".join(lines)
-    
-    async def _call_llm(self, prompt: str, tenant_id: int) -> Optional[str]:
-        """Call LLM service with prompt"""
+
+    return "\n".join(lines)
+
+
+def _parse_json(text: str) -> Optional[dict]:
+    import yaml as _yaml
+    text = text.strip()
+    if "```" in text:
+        m = re.search(r"```(?:json|yaml)?\s*(.*?)\s*```", text, re.DOTALL)
+        if m:
+            text = m.group(1).strip()
+    try:
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
         try:
-            if hasattr(self.llm_service, '_chat_once'):
-                return await self.llm_service._chat_once(prompt, tenant_id=tenant_id)
-            elif hasattr(self.llm_service, '_chat_once_with_system'):
-                return await self.llm_service._chat_once_with_system(
-                    "You are an expert troubleshooting engineer. Review runbooks for logical flow and effectiveness.",
-                    prompt,
-                    tenant_id=tenant_id,
-                )
-            else:
-                logger.warning("LLM service does not have expected chat methods")
-                return None
-        except Exception as e:
-            logger.error(f"Error calling LLM for critique: {e}")
-            return None
-    
-    def _parse_json_response(self, response: str) -> Optional[Dict[str, Any]]:
-        """Parse JSON from LLM response (handles markdown code blocks)"""
-        if not response:
-            return None
-        
-        response_clean = response.strip()
-        
-        # Extract JSON from markdown code blocks
-        if "```json" in response_clean:
-            json_start = response_clean.find("```json") + 7
-            json_end = response_clean.find("```", json_start)
-            if json_end > json_start:
-                response_clean = response_clean[json_start:json_end].strip()
-        elif "```" in response_clean:
-            json_start = response_clean.find("```") + 3
-            json_end = response_clean.find("```", json_start)
-            if json_end > json_start:
-                response_clean = response_clean[json_start:json_end].strip()
-        
-        # Try to extract JSON object
-        try:
-            return json.loads(response_clean)
+            result = json.loads(m.group(0))
+            if isinstance(result, dict):
+                return result
         except json.JSONDecodeError:
-            # Try to find JSON object in text
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_clean)
-            if json_match:
-                try:
-                    return json.loads(json_match.group(0))
-                except json.JSONDecodeError:
-                    pass
-        
-        logger.warning(f"Could not parse JSON from critique response: {response_clean[:200]}")
-        return None
-
-
-
-
-
-
-
+            pass
+    try:
+        result = _yaml.safe_load(text)
+        if isinstance(result, dict):
+            return result
+    except Exception:
+        pass
+    return None

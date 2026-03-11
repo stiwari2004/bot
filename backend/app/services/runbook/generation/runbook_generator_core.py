@@ -320,37 +320,16 @@ class RunbookGeneratorService:
 
             # Post-process spec using SpecPostProcessor
             spec = self.spec_post_processor.post_process(spec, issue_description, env, risk)
-            
-            # Post-processing: Detect and flag diagnostic-only sequences
-            spec = self._detect_and_flag_diagnostic_only(spec)
-            
-            # Phase 1: Validate runbook structure (issue_type-aware)
-            is_valid, validation_errors = self.validation_pipeline.validate_structure(
-                spec, issue_description, issue_type=issue_type
+
+            # Critic + Refiner pipeline (replaces keyword-counting validators)
+            spec, critic_result = await self.validation_pipeline.run(
+                spec=spec,
+                issue_description=issue_description,
+                issue_type=issue_type,
+                os_type=os_type,
+                tenant_id=tenant_id,
             )
-            
-            # Phase 2: Validate commands
-            os_type_for_validation = env if env in ["Windows", "Linux"] else os_type
-            await self.validation_pipeline.validate_commands(
-                spec, issue_description, env, os_type_for_validation
-            )
-            
-            # Phase 3: LLM critique
-            await self.validation_pipeline.critique_runbook(
-                spec, issue_description, tenant_id
-            )
-            
-            # Validate runbook structure (existing validation)
-            try:
-                from app.schemas.runbook_yaml import RunbookValidator
-                validated_spec, warnings = RunbookValidator.validate_runbook(spec, auto_assign_severity=True)
-                if warnings:
-                    logger.warning(f"Runbook validation warnings: {warnings}")
-                spec = validated_spec.model_dump(mode='json', exclude_none=True)
-                logger.info(f"Runbook validated: {len(spec.get('steps', []))} steps, all commands checked")
-            except Exception as e:
-                logger.warning(f"Runbook validation failed but continuing: {type(e).__name__}: {e}")
-            
+
             runbook_yaml = yaml.safe_dump(_order_spec_fields(spec), sort_keys=False, default_flow_style=False, width=120)
             generation_mode = "ai"
         except Exception as e:
@@ -381,14 +360,13 @@ class RunbookGeneratorService:
                 # Apply same post-processing as normal path
                 spec = self.spec_post_processor.post_process(spec, issue_description, env, risk)
 
-                try:
-                    from app.schemas.runbook_yaml import RunbookValidator
-                    validated_spec, warnings = RunbookValidator.validate_runbook(spec, auto_assign_severity=True)
-                    if warnings:
-                        logger.warning(f"Runbook validation warnings after autofix: {warnings}")
-                    spec = validated_spec.model_dump(mode='json', exclude_none=True)
-                except Exception as ve:
-                    logger.warning(f"Validation after autofix failed but continuing: {type(ve).__name__}: {ve}")
+                spec, critic_result = await self.validation_pipeline.run(
+                    spec=spec,
+                    issue_description=issue_description,
+                    issue_type=issue_type,
+                    os_type=os_type,
+                    tenant_id=tenant_id,
+                )
 
                 runbook_yaml = yaml.safe_dump(_order_spec_fields(spec), sort_keys=False, default_flow_style=False, width=120)
                 generation_mode = "ai-autofix"
@@ -427,9 +405,17 @@ class RunbookGeneratorService:
                 "risk": risk,
                 "issue_type": issue_type,
                 "runbook_spec": spec,
-                "generation_mode": generation_mode
+                "generation_mode": generation_mode,
+                "review_required": not critic_result.passed,
+                "critic_severity": critic_result.severity,
+                "critic_assessment": critic_result.overall_assessment,
+                "critic_gaps": [
+                    {"section": g.section, "index": g.index,
+                     "problem": g.problem, "fix_hint": g.fix_hint}
+                    for g in critic_result.gaps
+                ],
             }),
-            confidence=0.75,
+            confidence=0.75 if critic_result.passed else 0.55,
             is_active="active",
             environment=runbook_environment
         )
