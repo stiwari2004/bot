@@ -484,7 +484,7 @@ class SpecPostProcessor:
         )
         return spec
 
-        def _auto_fix_step_purposes(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+    def _auto_fix_step_purposes(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """
         Auto-fix: Correct step purposes based on command and name keywords.
         Detects mismatches like:
