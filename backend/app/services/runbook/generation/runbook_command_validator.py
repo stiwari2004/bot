@@ -410,21 +410,38 @@ If the command can fix {issue_type}, set can_fix_issue=true."""
             }
     
     def _detect_issue_type(self, issue_description: str) -> str:
-        """Detect issue type from description"""
-        issue_lower = issue_description.lower()
-        
-        if any(kw in issue_lower for kw in ["cpu", "processor", "processor time"]):
-            return "high CPU usage"
-        elif any(kw in issue_lower for kw in ["memory", "ram", "available mbytes"]):
-            return "high memory usage"
-        elif any(kw in issue_lower for kw in ["disk", "disk space", "free space"]):
-            return "low disk space"
-        elif any(kw in issue_lower for kw in ["network", "latency", "throughput"]):
-            return "network issue"
-        elif any(kw in issue_lower for kw in ["service", "daemon", "down", "not running"]):
-            return "service down"
-        else:
-            return "general issue"
+        """Detect issue type from description using phrase-level matching."""
+        from app.services.runbook.generation.service_classifier import ServiceClassifier
+        classifier = ServiceClassifier()
+        service = classifier.classify_service_type(issue_description)
+        issue_type = classifier.detect_issue_type(issue_description, service)
+        # Map structured issue_type codes back to human-readable labels for prompts
+        _labels = {
+            "high_cpu": "high CPU usage",
+            "high_memory": "high memory usage",
+            "low_disk": "low disk space",
+            "service_down": "service down",
+            "host_unreachable": "host unreachable",
+            "db_slow_query": "slow database query",
+            "db_connection_failure": "database connection failure",
+            "db_disk_full": "database disk full",
+            "db_deadlock": "database deadlock",
+            "db_replication_lag": "database replication lag",
+            "web_5xx": "web 5xx error",
+            "web_high_latency": "web high latency",
+            "web_cert_expired": "web certificate expired",
+            "web_service_down": "web service down",
+            "dns_failure": "DNS failure",
+            "firewall_block": "firewall blocking traffic",
+            "interface_down": "network interface down",
+            "high_network_latency": "high network latency",
+            "network_unreachable": "network unreachable",
+            "stale_mount": "stale NFS mount",
+            "nfs_mount_failure": "NFS mount failure",
+            "storage_full": "storage full",
+            "storage_access_denied": "storage access denied",
+        }
+        return _labels.get(issue_type, "general issue")
     
     async def _call_llm(self, prompt: str) -> Optional[str]:
         """Call LLM service with prompt"""

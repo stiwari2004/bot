@@ -7,6 +7,7 @@ from app.services.runbook.generation.content_builder import ContentBuilder
 from app.services.runbook.generation.yaml_processor import YamlProcessor
 from app.services.runbook.generation.yaml_generator import YamlGenerator
 from app.services.runbook.generation.runbook_indexer import RunbookIndexer
+from app.services.runbook.generation.ticket_classifier import TicketClassifierService, TicketClassification
 
 __all__ = [
     "RunbookGeneratorService",
@@ -15,5 +16,7 @@ __all__ = [
     "YamlProcessor",
     "YamlGenerator",
     "RunbookIndexer",
+    "TicketClassifierService",
+    "TicketClassification",
 ]
 

@@ -21,24 +21,19 @@ SERVICE: {service}
 ENV: {env}
 RISK: {risk}
 OS: {os_type}
+ENTITIES (extracted from ticket — use in inputs and as command targets): {entities}
 
 CONTEXT — similar past runbooks and known-good commands (use these to inform your approach):
 {context}
 
 WHAT TO GENERATE:
-Focus exclusively on the detected ISSUE TYPE: {issue_type}
-1. Prechecks: confirm the {issue_type} condition exists (use commands specific to this problem class)
-2. Steps: diagnose root cause, then remediate — derive commands for {os_type} and {issue_type} only
+Focus exclusively on issue type: {issue_type}
+1. Prechecks: confirm the {issue_type} condition exists
+2. Steps: diagnose root cause then remediate — use commands appropriate for {os_type} and {issue_type}
 3. Postcheck: confirm the {issue_type} condition is resolved
 
-ISSUE TYPE COMMAND GUIDANCE:
-- low_disk → df -h, du -sh /var /tmp /home, find / -size +500M, rm/truncate logs, verify df shows space freed
-- high_cpu → top -bn1 / Get-Counter \Processor, ps aux --sort=-%cpu, kill/nice the top process, verify CPU %
-- high_memory → free -m / Get-Counter \Memory, ps aux --sort=-%mem, kill/restart the hog, verify memory freed
-- service_down → systemctl status / sc query, journalctl -u, systemctl restart / net start, verify active/running
-- host_unreachable → ping / Test-Connection, check local CPU/mem load, verify host responds to ping
+If ENTITIES are provided above, use them as default values in the inputs section rather than generic placeholders.
 
-Do NOT mix command types across issue domains. Use {issue_type} to select the right command set.
-Output raw YAML only following the schema in the system prompt. Use {{server_name}} for the target server input.
+Output raw YAML only following the schema in the system prompt.
 ]]></user>
 </poml>

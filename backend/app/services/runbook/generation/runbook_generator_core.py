@@ -1,6 +1,7 @@
 """
 Main runbook generator service that orchestrates all generation components
 """
+import asyncio
 import json
 import re
 import traceback
@@ -18,6 +19,7 @@ from app.services.llm_budget_manager import LLMBudgetExceeded, LLMRateLimitExcee
 from app.core.logging import get_logger
 
 from app.services.runbook.generation.service_classifier import ServiceClassifier
+from app.services.runbook.generation.ticket_classifier import TicketClassifierService, TicketClassification
 from app.services.runbook.generation.tiered_generation_service import TieredGenerationService
 from app.services.runbook.generation.content_builder import ContentBuilder
 from app.services.runbook.generation.yaml_processor import YamlProcessor
@@ -73,6 +75,7 @@ class RunbookGeneratorService:
         # VectorStoreService created lazily only when needed (to avoid loading embedding model)
         self._vector_service = None
         self.service_classifier = ServiceClassifier()
+        self.ticket_classifier = TicketClassifierService()
         self.tiered_service = TieredGenerationService()
         self.content_builder = ContentBuilder()
         self.yaml_processor = YamlProcessor()
@@ -213,27 +216,53 @@ class RunbookGeneratorService:
             logger.info(f"Tiered generation: returning {generation_mode} result (runbook_id={tiered_response.id})")
             return tiered_response
 
-        # RAG: retrieve runbook + document context (KAG)
+        # Tier 2: LLM classification + RAG search run in parallel (classification
+        # latency hidden behind the search round-trip).
         try:
-            search_results = await self.vector_service.hybrid_search(
-                query=issue_description,
-                tenant_id=tenant_id,
-                db=db,
-                top_k=10,
-                source_types=['runbook', 'document'],
-                use_reranking=True
+            classification, search_results = await asyncio.gather(
+                self.ticket_classifier.classify(issue_description, tenant_id),
+                self.vector_service.hybrid_search(
+                    query=issue_description,
+                    tenant_id=tenant_id,
+                    db=db,
+                    top_k=10,
+                    source_types=['runbook', 'document'],
+                    use_reranking=True,
+                ),
             )
-            context = self._format_runbook_context(search_results, issue_description)
+            # Override regex-derived signals with LLM classification when confident
+            if not classification.fallback_used and classification.confidence >= 0.7:
+                service = classification.service
+                issue_type = classification.issue_type
+                if classification.os_type:
+                    os_type = classification.os_type
+                logger.info(
+                    "LLM classification applied: service=%s issue_type=%s os=%s "
+                    "entities=%s (confidence=%.2f)",
+                    service, issue_type, os_type,
+                    classification.format_entities(), classification.confidence,
+                )
+            else:
+                logger.info(
+                    "Using regex classification (fallback=%s confidence=%.2f)",
+                    classification.fallback_used, classification.confidence,
+                )
+            context = self._format_runbook_context(search_results, issue_type)
             logger.info(f"RAG search found {len(search_results)} chunks (runbooks + documents) for context")
         except Exception as e:
-            logger.warning(f"RAG search failed, generating without context: {e}")
+            logger.warning(f"Parallel classify+RAG failed, generating without context: {e}")
             search_results = []
             context = ""
+            classification = TicketClassification(
+                service=service, issue_type=issue_type, os_type=os_type,
+                confidence=0.0, fallback_used=True,
+            )
 
-        # KAG: inject proven/failed commands from execution learning store
+        # KAG: inject proven/failed commands — query enriched with issue_type + extracted hosts
         try:
-            # Augment the search query with issue_type for better keyword overlap scoring
             kag_query = f"{issue_description} {issue_type}" if issue_type != "general_issue" else issue_description
+            if classification.hosts:
+                kag_query += f" {' '.join(classification.hosts[:2])}"
             learned_context = self._build_learned_command_context(
                 db=db,
                 tenant_id=tenant_id,
@@ -246,7 +275,7 @@ class RunbookGeneratorService:
         except Exception as e:
             logger.debug(f"Non-critical: KAG learned context failed: {e}")
 
-        # Phase 1: Generate YAML from LLM
+        # Phase 1: Generate YAML from LLM (structured classification + entities passed in)
         ai_yaml = await self.yaml_pipeline.generate_yaml_from_llm(
             issue_description=issue_description,
             tenant_id=tenant_id,
@@ -257,6 +286,7 @@ class RunbookGeneratorService:
             os_type=os_type if service == "server" else None,
             operational_context=operational_context,
             issue_type=issue_type,
+            entities=classification.format_entities(),
         )
         
         # Phase 2: Extract and clean YAML
@@ -473,10 +503,16 @@ class RunbookGeneratorService:
         
         return spec
     
-    def _format_runbook_context(self, search_results: List[SearchResult], issue_description: str) -> str:
+    def _format_runbook_context(self, search_results: List[SearchResult], issue_type: str) -> str:
         """
-        Format retrieved runbooks and documents into structured context (KAG).
-        Labels sources so the model can distinguish runbook vs document chunks.
+        Format retrieved runbooks and documents into structured context for the generation prompt.
+
+        Ranking (in order of priority):
+          1. Proven / golden runbooks (execution-verified)
+          2. Runbooks whose text/title matches the classified issue_type
+          3. Remaining runbooks by vector similarity score
+
+        No keyword density filtering — classification already determined the issue domain.
         """
         if not search_results:
             return "No similar runbooks or documents found."
@@ -488,69 +524,56 @@ class RunbookGeneratorService:
         runbook_results = [r for r in search_results if not _is_document(r)]
         document_results = [r for r in search_results if _is_document(r)]
 
+        # ------------------------------------------------------------------ #
+        # Helpers                                                             #
+        # ------------------------------------------------------------------ #
+
+        issue_token = issue_type.replace("_", " ").lower()  # e.g. "host unreachable"
+
+        def _is_issue_match(result: SearchResult) -> bool:
+            text = (result.text or "").lower()
+            title = (result.document_title or "").lower()
+            return issue_token in text or issue_token in title
+
+        def _golden_tag(result: SearchResult) -> str:
+            try:
+                import json as _json
+                meta = result.meta_data if hasattr(result, "meta_data") else {}
+                if isinstance(meta, str):
+                    meta = _json.loads(meta)
+                if isinstance(meta, dict) and meta.get("golden_example"):
+                    tag = f" ✓ PROVEN ({meta.get('success_count', 1)}x"
+                    avg = meta.get("avg_resolution_minutes")
+                    if avg:
+                        tag += f", avg {avg:.0f}min"
+                    return tag + ")"
+            except Exception:
+                pass
+            return ""
+
+        def _rank_key(result: SearchResult):
+            # Lower tuple = higher priority
+            is_golden = bool(_golden_tag(result))
+            return (not is_golden, not _is_issue_match(result), -result.score)
+
         context_parts = []
 
-        # Runbook section: filter and prioritize runbooks with remediation
-        filtered_results = []
-        for result in runbook_results[:6]:
-            text = result.text.lower()
-            remediation_count = sum(1 for kw in _REMEDIATION_KEYWORDS if kw in text)
-            diagnostic_count = sum(1 for kw in _DIAGNOSTIC_KEYWORDS if kw in text)
-            if remediation_count >= 1:
-                filtered_results.append((result, remediation_count, diagnostic_count))
-        filtered_results.sort(key=lambda x: x[1], reverse=True)
-
-        for i, (result, rem_count, _) in enumerate(filtered_results[:3], 1):
+        # Runbook section
+        ranked = sorted(runbook_results[:6], key=_rank_key)
+        for i, result in enumerate(ranked[:3], 1):
             title = result.document_title or "Untitled Runbook"
-            score = result.score
-            text = result.text
-            relevant_parts = []
-            command_pattern = r'(?:command|Command):\s*(.+?)(?:\n|$)'
-            all_commands = re.findall(command_pattern, text, re.IGNORECASE)
-            remediation_commands = [
-                cmd.strip() for cmd in all_commands[:8]
-                if any(kw in cmd.lower() for kw in _REMEDIATION_KEYWORDS)
-            ]
-            if remediation_commands:
-                relevant_parts.extend([f"  Remediation Command: {cmd}" for cmd in remediation_commands[:3]])
-            step_pattern = r'(?:name|Name|step|Step):\s*(.+?)(?:\n|$)'
-            steps = re.findall(step_pattern, text, re.IGNORECASE)
-            remediation_steps = [
-                step.strip() for step in steps[:5]
-                if any(kw in step.lower() for kw in ["remediate", "fix", "kill", "restart", "stop", "clear", "repair"])
-            ]
-            if remediation_steps:
-                relevant_parts.extend([f"  Remediation Step: {step}" for step in remediation_steps[:2]])
-            if relevant_parts:
-                golden_tag = ""
-                try:
-                    import json as _json
-                    rb_meta = result.meta_data if hasattr(result, "meta_data") else {}
-                    if isinstance(rb_meta, str):
-                        rb_meta = _json.loads(rb_meta)
-                    if isinstance(rb_meta, dict) and rb_meta.get("golden_example"):
-                        success_count = rb_meta.get("success_count", 1)
-                        avg_mins = rb_meta.get("avg_resolution_minutes")
-                        golden_tag = f" ✓ PROVEN ({success_count}x"
-                        if avg_mins:
-                            golden_tag += f", avg {avg_mins:.0f}min"
-                        golden_tag += ")"
-                except Exception:
-                    pass
-                context_parts.append(f"[Runbook] {i}: {title} (similarity: {score:.2f}, remediation steps: {rem_count}{golden_tag})")
-                context_parts.extend(relevant_parts)
-                context_parts.append("")
-
-        if not any("[Runbook]" in p for p in context_parts) and runbook_results:
-            context_parts.append("Note: Similar runbooks found; focus on REMEDIATION steps.")
-            for i, result in enumerate(runbook_results[:2], 1):
-                context_parts.append(f"[Runbook] {i}: {result.document_title or 'Untitled'} (similarity: {result.score:.2f})")
+            match_tag = " [issue match]" if _is_issue_match(result) else ""
+            header = f"[Runbook] {i}: {title} (similarity: {result.score:.2f}{_golden_tag(result)}{match_tag})"
+            context_parts.append(header)
+            snippet = (result.text or "").strip()[:600]
+            if snippet:
+                context_parts.append(f"  {snippet}")
             context_parts.append("")
 
-        # Document section: knowledge chunks clearly labeled
+        # Document section
         if document_results:
             context_parts.append("Document knowledge (reference only):")
-            for i, result in enumerate(document_results[:5], 1):
+            for i, result in enumerate(document_results[:4], 1):
                 title = result.document_title or "Untitled Document"
                 snippet = (result.text or "").strip()[:400]
                 if snippet:
@@ -558,7 +581,7 @@ class RunbookGeneratorService:
                     context_parts.append(f"    {snippet}")
                     context_parts.append("")
 
-        return "\n".join(context_parts).strip() if context_parts else "No similar runbooks or documents with remediation found."
+        return "\n".join(context_parts).strip() if context_parts else "No similar runbooks or documents found."
 
     def _build_learned_command_context(
         self,

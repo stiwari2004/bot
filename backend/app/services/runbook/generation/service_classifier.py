@@ -1,248 +1,357 @@
 """
-Service type classification for runbook generation
+Service type classification for runbook generation.
+
+Uses phrase-level regex matching so that "server xyz is not responding" is
+treated as a single contextual unit (subject + entity + predicate) rather than
+isolated keyword hits.  Patterns are compiled once at import time (zero runtime
+overhead beyond the first module load).
 """
-from typing import Optional
+import re
+from typing import Optional, List, Tuple
+
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _compile(patterns: List[Tuple[str, int]]) -> List[Tuple[re.Pattern, int]]:
+    """Compile a list of (regex_str, weight) tuples."""
+    return [(re.compile(p, re.IGNORECASE), w) for p, w in patterns]
+
+
+def _score(text: str, phrase_list: List[Tuple[re.Pattern, int]]) -> int:
+    """Return cumulative score for all matching phrases in *text*."""
+    return sum(w for pat, w in phrase_list if pat.search(text))
+
+
+def _first_match(text: str, phrase_list: List[Tuple[re.Pattern, int]]) -> bool:
+    """Return True if ANY phrase matches."""
+    return any(pat.search(text) for pat, _ in phrase_list)
+
+
+# ---------------------------------------------------------------------------
+# Service-type phrase patterns
+#
+# Ordering inside each list: most-specific (highest weight) first so that the
+# scoring reflects richer context.  Single-word catch-alls are kept at low
+# weights (1) as a last-resort signal only.
+# ---------------------------------------------------------------------------
+
+# .{0,50} allows entity names ("server xyz", "host prod-db-01") between tokens
+_SERVER_PHRASES = _compile([
+    # "server <name> is not responding / unreachable / down / timed out"
+    (r'\bserver\b.{0,50}\b(not\s+responding|unreachable|unresponsive|timed?\s*out|is\s+down|went\s+down|offline)\b', 8),
+    (r'\b(host|node|vm|virtual\s+machine)\b.{0,50}\b(not\s+responding|unreachable|is\s+down|offline|unresponsive)\b', 8),
+    # "cannot / unable to reach / connect / ssh to server <name>"
+    (r'\b(cannot|can\'t|unable\s+to)\s+(reach|connect(\s+to)?|ping|ssh(\s+to)?|access)\b.{0,30}\b(server|host|node)\b', 7),
+    # Resource saturation phrases
+    (r'\b(high|elevated|critical|excessive)\s+(cpu|processor)\s*(usage|load|utilization)?\b', 7),
+    (r'\b(cpu|processor)\s*(usage|load|utilization)?\b.{0,20}\b(high|critical|spiking|100\s*%|\d{2,3}\s*%)\b', 7),
+    (r'\b(out\s+of\s+memory|oom\s+kill|memory\s+exhausted|memory\s+full|swap\s+full)\b', 7),
+    (r'\b(high|elevated)\s+(memory|ram)\s*(usage|pressure)?\b', 6),
+    (r'\b(disk|filesystem|volume|partition)\b.{0,30}\b(full|out\s+of\s+space|no\s+space\s+left|at\s+capacity)\b', 6),
+    # Service/process crash
+    (r'\b(service|process|daemon|application|app)\b.{0,30}\b(crashed?|died?|stopped|failed|not\s+running|keeps\s+restart)\b', 6),
+    # Weak single-word fallbacks
+    (r'\bserver\b', 1),
+    (r'\bhost\b', 1),
+    (r'\bnode\b', 1),
+])
+
+_STORAGE_PHRASES = _compile([
+    (r'\b(nas|san|storage\s+array|storage\s+system|network\s+attached\s+storage|shared\s+storage)\b', 8),
+    (r'\b(nfs|cifs|smb)\b.{0,20}\b(mount|share|volume|export)\b', 7),
+    (r'\b(network\s+storage|external\s+storage|storage\s+network)\b', 7),
+    (r'\b(storage\s+(capacity|quota|volume))\b.{0,20}\b(full|out\s+of\s+space|exhausted)\b', 6),
+    (r'\b(nfs\s+mount|cifs\s+mount|network\s+share)\b', 5),
+    (r'\bstorage\b', 1),
+])
+
+_DATABASE_PHRASES = _compile([
+    # Named DB engines are highly specific
+    (r'\b(mysql|postgres|postgresql|oracle|mongodb|redis|sql\s+server|mariadb|cassandra|elasticsearch)\b', 8),
+    (r'\b(database|db)\b.{0,40}\b(down|unreachable|not\s+responding|connection\s+refused|failed)\b', 7),
+    (r'\b(slow\s+query|query\s+timeout|long[\s-]running\s+query|query\s+performance)\b', 6),
+    (r'\b(deadlock|lock\s+wait|lock\s+timeout|blocking\s+query)\b', 6),
+    (r'\b(connection\s+pool|too\s+many\s+connections|connection\s+(refused|timeout|failed))\b', 5),
+    (r'\b(replication\s+lag|replica\s+lag|slave\s+lag|sync\s+delay|replication\s+error)\b', 6),
+    (r'\b(transaction\s+log|tablespace)\b.{0,20}\b(full|out\s+of\s+space)\b', 6),
+    # Low-weight fallbacks
+    (r'\b(database|db)\b', 2),
+    (r'\bsql\b', 1),
+    (r'\bquery\b', 1),
+])
+
+_WEB_PHRASES = _compile([
+    (r'\b(web\s+(server|application|app|service)|website)\b.{0,40}\b(down|not\s+responding|unreachable|slow|returning\s+error)\b', 8),
+    (r'\bhttp\s*(?:status\s*)?(?:error\s*)?(?:code\s*)?(5[0-9]{2}|4[0-9]{2})\b', 7),
+    (r'\b(nginx|apache|iis|tomcat|gunicorn|uwsgi)\b.{0,30}\b(down|crashed?|failed|error|not\s+responding)\b', 7),
+    (r'\b(api|rest\s+api|endpoint)\b.{0,30}\b(slow|timeout|error|not\s+responding|returning\s+5\d{2})\b', 6),
+    (r'\b(load\s+balancer)\b.{0,20}\b(down|failing|error|not\s+responding)\b', 6),
+    (r'\b(ssl|tls|certificate)\b.{0,20}\b(expired?|invalid|error|mismatch)\b', 6),
+    (r'\b(response\s+time|latency)\b.{0,20}\b(high|slow|degraded|elevated)\b', 5),
+    # Low-weight fallbacks
+    (r'\bweb\b', 1),
+    (r'\bhttp\b', 1),
+    (r'\bhttps\b', 1),
+])
+
+_NETWORK_PHRASES = _compile([
+    (r'\b(network\s+(connectivity|outage|issue)|connectivity\s+(issue|problem|lost|failure))\b', 8),
+    (r'\b(switch|router|firewall|access\s+point)\b.{0,40}\b(down|unreachable|not\s+responding|failed|offline)\b', 8),
+    (r'\b(interface|port|link)\b.{0,20}\b(down|flapping|error|dropped|disconnected)\b', 7),
+    (r'\b(bgp|ospf|eigrp|isis)\b.{0,30}\b(down|neighbor\s+lost|session\s+(dropped|reset)|not\s+established)\b', 7),
+    (r'\b(vlan|subnet)\b.{0,20}\b(down|issue|not\s+working|unreachable)\b', 6),
+    (r'\b(dns\s+resolution|name\s+resolution)\b.{0,20}\b(fail|error|not\s+working|timeout)\b', 7),
+    (r'\bdns\b.{0,20}\b(fail|error|timeout|not\s+resolving)\b', 6),
+    (r'\b(packet\s+loss|high\s+(latency|ping)|network\s+slow|bandwidth\s+(saturated|exhausted))\b', 6),
+    (r'\b(cisco|juniper|palo\s+alto|fortinet|arista)\b', 5),
+    (r'\b(vlan|spanning\s+tree|stp|bgp|ospf|eigrp|vxlan)\b', 4),
+    # Low-weight fallbacks
+    (r'\bnetwork\b', 1),
+    (r'\bconnectivity\b', 1),
+    (r'\blatency\b', 1),
+    (r'\bpacket\b', 1),
+])
+
+# ---------------------------------------------------------------------------
+# Issue-type phrase patterns (per service)
+#
+# Each issue maps to a list of (compiled_regex, weight) tuples ordered from
+# most-specific to least-specific.  The caller checks these in order and
+# returns the first issue type whose phrase patterns match.
+# ---------------------------------------------------------------------------
+
+_ISSUE_PHRASES: dict = {
+    "server": [
+        # (issue_type, phrase_patterns)
+        ("host_unreachable", _compile([
+            # "server <entity> is not responding / unreachable / timed out"
+            (r'\bserver\b.{0,50}\b(not\s+responding|unreachable|unresponsive|timed?\s*out|is\s+down|went\s+down|offline)\b', 10),
+            (r'\b(host|node)\b.{0,50}\b(not\s+responding|unreachable|is\s+down|offline)\b', 9),
+            # "cannot reach / connect / ping server"
+            (r'\b(cannot|can\'t|unable\s+to)\s+(reach|connect(\s+to)?|ping|ssh(\s+to)?)\b.{0,30}\b(server|host|node)\b', 8),
+            # "ping / ssh to host failed"
+            (r'\b(ping|ssh)\b.{0,30}\b(failed?|timing\s+out|not\s+working|unreachable)\b', 7),
+            # Simple phrase fallbacks
+            (r'\b(unreachable|not\s+responding|host\s+down|server\s+down|connection\s+refused|ping\s+failed?|server\s+timeout)\b', 4),
+        ])),
+        ("high_cpu", _compile([
+            (r'\b(high|elevated|critical|excessive)\s+(cpu|processor)\s*(usage|load|utilization)?\b', 10),
+            (r'\b(cpu|processor)\s*(usage|load|utilization)\b.{0,20}\b(high|critical|100\s*%|spiking)\b', 10),
+            (r'\bserver\b.{0,40}\b(cpu|processor)\b.{0,20}\b(high|maxed|spiking|100\s*%)\b', 9),
+            (r'\b(cpu\s+spike|cpu\s+high|high\s+cpu|cpu\s+usage|cpu\s+load|processor\s+usage)\b', 5),
+        ])),
+        ("high_memory", _compile([
+            (r'\b(memory|ram)\b.{0,30}\b(high|full|exhausted|out\s+of|leak|pressure|saturated)\b', 10),
+            (r'\bhigh\s+(memory|ram)\s*(usage|consumption|pressure)?\b', 10),
+            (r'\b(out\s+of\s+memory|oom\s+kill|memory\s+exhausted|swap\s+full|low\s+available\s+memory)\b', 9),
+            (r'\b(out\s+of\s+memory|oom|memory\s+high|high\s+memory|memory\s+usage|memory\s+leak|swap\s+full)\b', 5),
+        ])),
+        ("low_disk", _compile([
+            (r'\b(disk|filesystem|volume|partition)\b.{0,30}\b(full|out\s+of\s+space|no\s+space\s+left|at\s+capacity|running\s+low)\b', 10),
+            (r'\bserver\b.{0,40}\b(disk|storage)\b.{0,20}\b(full|low|out\s+of\s+space)\b', 9),
+            (r'\b(disk\s+space|disk\s+full|low\s+disk|no\s+space\s+left|filesystem\s+full|running\s+out\s+of\s+space|disk\s+usage)\b', 5),
+        ])),
+        ("service_down", _compile([
+            (r'\b(service|daemon|process|application|app)\b.{0,30}\b(down|stopped|failed|crashed?|not\s+running|unavailable|keeps\s+restarting)\b', 10),
+            (r'\b(service\s+down|service\s+failed|service\s+stopped|process\s+crash|application\s+crash|app\s+crash|service\s+unavailable)\b', 6),
+        ])),
+    ],
+    "database": [
+        ("db_slow_query", _compile([
+            (r'\b(slow|long[\s-]running|hung)\s+(query|sql|transaction)\b', 10),
+            (r'\bquery\b.{0,20}\b(slow|timeout|taking\s+too\s+long|not\s+returning)\b', 9),
+            (r'\b(slow\s+query|query\s+slow|query\s+timeout|long\s+running\s+query|query\s+performance)\b', 5),
+        ])),
+        ("db_connection_failure", _compile([
+            (r'\b(database|db)\b.{0,30}\b(connection\s+(refused|failed|timeout)|cannot\s+connect|unreachable)\b', 10),
+            (r'\b(connection\s+pool|too\s+many\s+connections|max\s+connections)\b', 8),
+            (r'\b(connection\s+failed|connection\s+timeout|cannot\s+connect|connection\s+pool|too\s+many\s+connections|connection\s+refused)\b', 5),
+        ])),
+        ("db_disk_full", _compile([
+            (r'\b(transaction\s+log|tablespace|db\s+disk|data\s+directory)\b.{0,20}\b(full|out\s+of\s+space)\b', 10),
+            (r'\b(disk\s+full|transaction\s+log\s+full|log\s+full|tablespace\s+full|no\s+space)\b', 5),
+        ])),
+        ("db_deadlock", _compile([
+            (r'\b(deadlock\s+detected|lock\s+(wait|timeout|contention)|blocking\s+query)\b', 10),
+            (r'\b(deadlock|lock\s+wait|lock\s+timeout|blocking\s+query)\b', 5),
+        ])),
+        ("db_replication_lag", _compile([
+            (r'\b(replication|replica|slave)\b.{0,20}\b(lag|delay|behind|error|broken)\b', 10),
+            (r'\b(replication\s+lag|replica\s+lag|slave\s+lag|sync\s+delay|replication\s+error)\b', 5),
+        ])),
+    ],
+    "web": [
+        ("web_5xx", _compile([
+            (r'\bhttp\s*(?:status\s*)?(?:error\s*)?(?:code\s*)?(5[0-9]{2})\b', 10),
+            (r'\b(internal\s+server\s+error|bad\s+gateway|service\s+unavailable|gateway\s+timeout|5xx)\b', 9),
+            (r'\b(500|502|503|504|5xx|internal\s+server\s+error|bad\s+gateway|service\s+unavailable|gateway\s+timeout)\b', 5),
+        ])),
+        ("web_high_latency", _compile([
+            (r'\b(response\s+time|api\s+latency|request\s+time)\b.{0,20}\b(high|slow|elevated|degraded)\b', 10),
+            (r'\b(slow\s+(response|api|website|page)|high\s+latency|timeout)\b', 7),
+            (r'\b(slow\s+response|high\s+latency|response\s+time|slow\s+api|timeout)\b', 5),
+        ])),
+        ("web_cert_expired", _compile([
+            (r'\b(ssl|tls|certificate)\b.{0,20}\b(expired?|invalid|error|mismatch|not\s+trusted)\b', 10),
+            (r'\b(ssl|certificate|cert\s+expired|tls|https\s+error)\b', 4),
+        ])),
+        ("web_service_down", _compile([
+            (r'\b(web\s+(server|application|app|service)|website)\b.{0,30}\b(down|not\s+responding|unreachable|offline)\b', 10),
+            (r'\b(down|unreachable|not\s+responding|404|connection\s+refused|web\s+server\s+down)\b', 4),
+        ])),
+    ],
+    "network": [
+        ("dns_failure", _compile([
+            (r'\bdns\b.{0,30}\b(fail|error|timeout|not\s+resolving|resolution\s+fail)\b', 10),
+            (r'\b(name\s+resolution|dns\s+resolution)\b.{0,20}\b(fail|error|not\s+working|timeout)\b', 9),
+            (r'\b(dns|name\s+resolution|cannot\s+resolve|dns\s+failure)\b', 4),
+        ])),
+        ("firewall_block", _compile([
+            (r'\bfirewall\b.{0,30}\b(blocking?|dropping?|denying?|rules?\s+(preventing|blocking))\b', 10),
+            (r'\b(traffic|connection|port)\b.{0,20}\b(blocked?|denied?|dropped?|filtered?)\b', 8),
+            (r'\b(firewall|blocked|access\s+denied|port\s+blocked|traffic\s+blocked)\b', 4),
+        ])),
+        ("interface_down", _compile([
+            (r'\b(interface|port|link|nic|ethernet)\b.{0,20}\b(down|flapping|disconnected|dropped|error)\b', 10),
+            (r'\b(interface\s+down|port\s+down|link\s+down|interface\s+error|nic\s+down)\b', 5),
+        ])),
+        ("high_network_latency", _compile([
+            (r'\b(network|link|wan|circuit)\b.{0,20}\b(latency|packet\s+loss|slow|saturated)\b', 10),
+            (r'\b(high\s+latency|packet\s+loss|slow\s+network|high\s+ping)\b', 6),
+            (r'\b(latency|packet\s+loss|slow\s+network|high\s+ping)\b', 4),
+        ])),
+        ("network_unreachable", _compile([
+            (r'\b(network|subnet|segment)\b.{0,30}\b(unreachable|down|not\s+reachable|connectivity\s+lost)\b', 10),
+            (r'\b(cannot\s+connect|connection\s+lost|no\s+route|network\s+down|network\s+outage)\b', 7),
+            (r'\b(unreachable|cannot\s+connect|connection\s+lost|network\s+down|no\s+route)\b', 4),
+        ])),
+    ],
+    "storage": [
+        ("stale_mount", _compile([
+            (r'\b(stale\s+(nfs|mount|file\s+handle)|hung\s+mount|frozen\s+mount)\b', 10),
+            (r'\b(stale|hung\s+mount|frozen|stale\s+handle)\b', 4),
+        ])),
+        ("nfs_mount_failure", _compile([
+            (r'\b(nfs|cifs|smb)\b.{0,20}\b(mount\s+(failed?|error|not\s+working)|unmounted|disconnected)\b', 10),
+            (r'\b(mount|network\s+share)\b.{0,20}\b(failed?|error|not\s+accessible|unavailable)\b', 8),
+            (r'\b(nfs|cifs|mount|smb|network\s+share)\b', 4),
+        ])),
+        ("storage_full", _compile([
+            (r'\b(storage|volume|share|nas|san)\b.{0,20}\b(full|out\s+of\s+space|at\s+capacity|quota\s+exceeded)\b', 10),
+            (r'\b(full|capacity|quota|no\s+space)\b', 3),
+        ])),
+        ("storage_access_denied", _compile([
+            (r'\b(storage|share|volume)\b.{0,20}\b(access\s+denied|permission\s+denied|authentication\s+failed|unauthorized)\b', 10),
+            (r'\b(access\s+denied|permission\s+denied|authentication\s+failed)\b', 4),
+        ])),
+    ],
+}
+
 
 class ServiceClassifier:
-    """Service type detection using keyword matching"""
-    
+    """Service type and issue type detection using phrase-level regex matching."""
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     async def detect_service_type(self, issue_description: str) -> str:
-        """Detect service type using keyword matching only (LLM disabled due to inaccuracy)."""
-        keyword_guess = self.keyword_classify_service_type(issue_description)
-        logger.debug(f"Service detection: returning keyword={keyword_guess} (LLM classification disabled)")
-        return keyword_guess
-    
-    def keyword_classify_service_type(self, issue_description: str) -> str:
-        """Detect service type from issue description using enhanced keyword matching."""
-        issue_lower = issue_description.lower()
-        
-        # Score each service type based on keyword matches
+        """Detect service type via phrase matching (LLM disabled — zero cost)."""
+        result = self.classify_service_type(issue_description)
+        logger.debug(f"Service detection (phrase-match): {result}")
+        return result
+
+    def classify_service_type(self, issue_description: str) -> str:
+        """
+        Score each service type by summing weights of all matching phrase
+        patterns.  Phrases capture subject + predicate together so that
+        "server xyz is not responding" scores as one high-confidence server
+        signal rather than loose keyword hits.
+        """
         scores = {
-            'server': 0,
-            'storage': 0,
-            'database': 0,
-            'web': 0,
-            'network': 0
+            "server":   _score(issue_description, _SERVER_PHRASES),
+            "storage":  _score(issue_description, _STORAGE_PHRASES),
+            "database": _score(issue_description, _DATABASE_PHRASES),
+            "web":      _score(issue_description, _WEB_PHRASES),
+            "network":  _score(issue_description, _NETWORK_PHRASES),
         }
-        
-        # Server keywords with weights (CPU, memory, general performance, local disk)
-        server_patterns = {
-            'server is': 3, 'server running': 3, 'server slow': 3, 'server performance': 3,
-            'cpu usage': 3, 'high cpu': 3, 'cpu high': 3, 'cpu load': 3,
-            'memory usage': 3, 'high memory': 3, 'memory high': 3, 'out of memory': 3,
-            'server disk': 2, 'local disk': 2, 'server storage': 2,
-            'performance issue': 2, 'slow server': 3, 'server timeout': 2,
-            'resource': 1, 'server': 1, 'host': 1
-        }
-        
-        # Storage keywords with weights (external storage systems)
-        storage_patterns = {
-            'nas': 3, 'san': 3, 'network storage': 3, 'network attached': 3,
-            'storage array': 3, 'storage system': 3, 'shared storage': 3,
-            'external storage': 3, 'storage network': 3,
-            'nfs mount': 2, 'cifs mount': 2, 'network share': 2,
-            'storage volume': 2, 'storage capacity': 2,
-            'storage': 1  # Lower weight, can be ambiguous
-        }
-        
-        # Database keywords with weights (specific DB issues)
-        db_patterns = {
-            'database': 3, 'db': 2, 'mysql': 3, 'postgres': 3, 'postgresql': 3,
-            'oracle': 3, 'mongodb': 3, 'redis': 3, 'sql server': 3,
-            'connection timeout': 2, 'query timeout': 2, 'slow query': 2,
-            'connection pool': 2, 'deadlock': 2, 'transaction': 2,
-            'sql': 1, 'query': 1
-        }
-        
-        # Web application keywords with weights
-        web_patterns = {
-            'web server': 3, 'website': 3, 'web application': 3, 'web app': 3,
-            'http error': 2, 'https error': 2, 'status code': 2, '404': 2, '500': 2,
-            'api': 2, 'rest api': 2, 'endpoint': 2, 'response time': 2,
-            'load balancer': 2, 'nginx': 2, 'apache': 2, 'iis': 2,
-            'web': 1, 'http': 1, 'https': 1
-        }
-        
-        # Network keywords with weights (enhanced for network devices)
-        network_patterns = {
-            'network connectivity': 3, 'network issue': 3, 'connection lost': 3,
-            'ping': 2, 'traceroute': 2, 'dns': 2, 'dns resolution': 2,
-            'firewall': 3, 'switch': 3, 'router': 3, 'load balancer': 3, 'access point': 3,
-            'cisco': 2, 'juniper': 2, 'palo alto': 2, 'fortinet': 2, 'arista': 2,
-            'ios': 2, 'nx-os': 2, 'junos': 2, 'ios-xe': 2, 'ios-xr': 2,
-            'interface down': 3, 'port down': 3, 'interface error': 3, 'port error': 3,
-            'vlan': 2, 'vlan down': 3, 'vlan issue': 3, 'spanning tree': 2, 'stp': 2,
-            'routing': 2, 'bgp': 2, 'ospf': 2, 'eigrp': 2, 'static route': 2,
-            'cable': 2, 'link down': 3, 'link error': 3, 'duplex': 2, 'speed': 2,
-            'ip address': 2, 'subnet': 2, 'gateway': 2, 'default route': 2,
-            'network': 1, 'connectivity': 1, 'packet loss': 2, 'latency': 2
-        }
-        
-        # Calculate scores
-        for pattern, weight in server_patterns.items():
-            if pattern in issue_lower:
-                scores['server'] += weight
-                
-        for pattern, weight in storage_patterns.items():
-            if pattern in issue_lower:
-                scores['storage'] += weight
-                
-        for pattern, weight in db_patterns.items():
-            if pattern in issue_lower:
-                scores['database'] += weight
-                
-        for pattern, weight in web_patterns.items():
-            if pattern in issue_lower:
-                scores['web'] += weight
-                
-        for pattern, weight in network_patterns.items():
-            if pattern in issue_lower:
-                scores['network'] += weight
-        
-        # Special handling: if "disk space" but no external storage indicators, it's server
-        if 'disk space' in issue_lower or 'disk full' in issue_lower:
-            if scores['storage'] < 2:  # No strong storage indicators
-                scores['server'] += 3  # More likely server disk issue
-                scores['storage'] = 0  # Suppress storage score
-        
-        # Return the service with highest score, default to server if tied
+
+        # Special case: local disk issue + no strong external-storage signals → server
+        t = issue_description.lower()
+        if re.search(r'\b(disk\s+space|disk\s+full)\b', t, re.IGNORECASE):
+            if scores["storage"] < 4:
+                scores["server"] += 3
+                scores["storage"] = 0
+
+        logger.debug(f"Service scores: {scores}")
+
         max_score = max(scores.values())
         if max_score == 0:
-            return "server"  # Default fallback (most common)
-            
+            return "server"  # Default — most common CI type
+
+        # Return first (insertion-order) service with the top score
         for service, score in scores.items():
             if score == max_score:
                 return service
-                
-        return "server"  # Final fallback
-    
+
+        return "server"
+
+    # Keep old method name for backwards compat
+    def keyword_classify_service_type(self, issue_description: str) -> str:
+        return self.classify_service_type(issue_description)
+
     def detect_issue_type(self, issue_description: str, service: str) -> str:
         """
         Detect the specific issue type within a service domain.
-        Returns a structured issue type used for prompt injection, RAG filtering,
-        and validation. Zero LLM cost — pure keyword matching.
+
+        Uses phrase-level regex patterns ordered from most-specific to
+        least-specific.  Returns the first matching issue type.
+        Zero LLM cost.
 
         Examples:
-          service=server, "disk space low"  → "low_disk"
-          service=server, "high CPU usage"  → "high_cpu"
-          service=database, "deadlock"      → "db_deadlock"
+          service=server, "server prod-01 is not responding" → "host_unreachable"
+          service=server, "high CPU usage on web01"         → "high_cpu"
+          service=database, "deadlock detected in orders DB" → "db_deadlock"
         """
-        t = issue_description.lower()
+        issue_patterns = _ISSUE_PHRASES.get(service, [])
+        for issue_type, phrase_list in issue_patterns:
+            if _first_match(issue_description, phrase_list):
+                logger.debug(f"Issue type matched: {issue_type} (service={service})")
+                return issue_type
 
-        if service == "server":
-            if any(k in t for k in ["high cpu", "cpu high", "cpu usage", "cpu load",
-                                     "cpu spike", "cpu utilization", "processor usage",
-                                     "100% cpu", "cpu 100"]):
-                return "high_cpu"
-            if any(k in t for k in ["out of memory", "oom", "memory high", "high memory",
-                                     "memory usage", "memory pressure", "memory leak",
-                                     "low memory", "available memory", "swap full"]):
-                return "high_memory"
-            if any(k in t for k in ["disk space", "disk full", "low disk", "disk usage",
-                                     "no space left", "filesystem full", "out of disk",
-                                     "disk capacity", "storage full", "running out of space"]):
-                return "low_disk"
-            if any(k in t for k in ["service down", "service failed", "service stopped",
-                                     "daemon failed", "daemon stopped", "process crash",
-                                     "process died", "application crash", "app crash",
-                                     "service not running", "service unavailable"]):
-                return "service_down"
-            if any(k in t for k in ["unreachable", "not responding", "host down",
-                                     "server down", "cannot connect", "connection refused",
-                                     "ping failed", "server timeout", "host timeout"]):
-                return "host_unreachable"
-            return "server_performance"
-
-        if service == "database":
-            if any(k in t for k in ["slow query", "query slow", "query timeout",
-                                     "long running query", "query performance", "slow sql"]):
-                return "db_slow_query"
-            if any(k in t for k in ["connection failed", "connection timeout", "cannot connect",
-                                     "connection pool", "too many connections", "connection refused"]):
-                return "db_connection_failure"
-            if any(k in t for k in ["disk full", "transaction log full", "log full",
-                                     "tablespace full", "no space", "disk space"]):
-                return "db_disk_full"
-            if any(k in t for k in ["deadlock", "lock wait", "lock timeout", "blocking query"]):
-                return "db_deadlock"
-            if any(k in t for k in ["replication", "replica lag", "slave lag", "sync delay",
-                                     "replication error"]):
-                return "db_replication_lag"
-            return "db_general"
-
-        if service == "web":
-            if any(k in t for k in ["500", "502", "503", "504", "5xx", "internal server error",
-                                     "bad gateway", "service unavailable", "gateway timeout"]):
-                return "web_5xx"
-            if any(k in t for k in ["slow response", "high latency", "response time",
-                                     "performance", "slow api", "timeout"]):
-                return "web_high_latency"
-            if any(k in t for k in ["ssl", "certificate", "cert expired", "tls", "https error"]):
-                return "web_cert_expired"
-            if any(k in t for k in ["down", "unreachable", "not responding", "404",
-                                     "connection refused", "web server down"]):
-                return "web_service_down"
-            return "web_general"
-
-        if service == "network":
-            if any(k in t for k in ["dns", "name resolution", "cannot resolve", "dns failure"]):
-                return "dns_failure"
-            if any(k in t for k in ["firewall", "blocked", "access denied", "port blocked",
-                                     "traffic blocked"]):
-                return "firewall_block"
-            if any(k in t for k in ["interface down", "port down", "link down", "interface error",
-                                     "nic down"]):
-                return "interface_down"
-            if any(k in t for k in ["latency", "packet loss", "slow network", "high ping"]):
-                return "high_network_latency"
-            if any(k in t for k in ["unreachable", "cannot connect", "connection lost",
-                                     "network down", "no route"]):
-                return "network_unreachable"
-            return "network_general"
-
-        if service == "storage":
-            if any(k in t for k in ["stale", "hung mount", "frozen", "stale handle"]):
-                return "stale_mount"
-            if any(k in t for k in ["nfs", "cifs", "mount", "smb", "network share"]):
-                return "nfs_mount_failure"
-            if any(k in t for k in ["full", "capacity", "quota", "no space"]):
-                return "storage_full"
-            if any(k in t for k in ["access denied", "permission denied", "authentication failed"]):
-                return "storage_access_denied"
-            return "storage_general"
-
-        return "general_issue"
+        # Default fallbacks per service
+        _defaults = {
+            "server":   "server_performance",
+            "database": "db_general",
+            "web":      "web_general",
+            "network":  "network_general",
+            "storage":  "storage_general",
+        }
+        return _defaults.get(service, "general_issue")
 
     async def detect_os_type(self, issue_description: str) -> Optional[str]:
         """Detect OS type (Windows/Linux) from issue description."""
-        issue_lower = issue_description.lower()
-        
-        # Windows indicators
-        windows_keywords = [
-            'windows', 'powershell', 'get-process', 'get-counter', 'get-service',
-            'iis', 'wmi', 'win32', '.exe', 'c:\\', 'windows server'
-        ]
-        
-        # Linux indicators
-        linux_keywords = [
-            'linux', 'ubuntu', 'centos', 'rhel', 'debian', 'systemctl', 'journalctl',
-            'apt', 'yum', 'dnf', '/var/log', '/etc/', 'bash', 'shell script'
-        ]
-        
-        windows_score = sum(1 for keyword in windows_keywords if keyword in issue_lower)
-        linux_score = sum(1 for keyword in linux_keywords if keyword in issue_lower)
-        
+        _WINDOWS = _compile([
+            (r'\b(windows\s+server|windows\s+\d+|win\s*\d+)\b', 4),
+            (r'\b(powershell|get-process|get-counter|get-service|iis|wmi|win32|\.exe|c:\\\\|event\s+viewer)\b', 3),
+            (r'\bwindows\b', 2),
+        ])
+        _LINUX = _compile([
+            (r'\b(ubuntu|centos|rhel|debian|fedora|suse|amazon\s+linux)\b', 4),
+            (r'\b(systemctl|journalctl|apt[\s-]get|yum\s+install|dnf\s+install|/var/log|/etc/|bash\s+script)\b', 3),
+            (r'\blinux\b', 2),
+        ])
+
+        windows_score = _score(issue_description, _WINDOWS)
+        linux_score = _score(issue_description, _LINUX)
+
         if windows_score > linux_score and windows_score > 0:
             return "Windows"
-        elif linux_score > windows_score and linux_score > 0:
+        if linux_score > windows_score and linux_score > 0:
             return "Linux"
-        
-        return None  # Could not detect OS type
-
-
-
-
+        return None

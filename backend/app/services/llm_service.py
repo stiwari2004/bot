@@ -219,6 +219,8 @@ class LlamaCppLLMService:
         risk: str,
         context: str = "",
         os_type: Optional[str] = None,
+        issue_type: Optional[str] = None,
+        entities: Optional[str] = None,
     ) -> str:
         """Ask the model to return an agent-executable YAML runbook following our schema.
         Uses POML templates from prompt_store.
@@ -226,11 +228,11 @@ class LlamaCppLLMService:
         """
         from app.services.prompt_store import PromptNotFound
         from app.services.poml_parser import POMLParseError
-        
+
         ctx = context[:4000] if context else ""
         prompt_id = f"runbook_yaml_{service_type}"
         logger.info(f"[PROMPT_LOAD] Loading prompt template: {prompt_id} for service_type={service_type}, os_type={os_type}")
-        
+
         # Determine OS type if not provided
         if not os_type:
             issue_lower = issue_description.lower()
@@ -240,7 +242,7 @@ class LlamaCppLLMService:
                 os_type = "Linux"
             else:
                 os_type = env if env in ["Windows", "Linux"] else "Windows"  # Default to Windows
-        
+
         # Build prompt context
         prompt_context = {
             "issue_description": issue_description,
@@ -249,6 +251,7 @@ class LlamaCppLLMService:
             "risk": risk,
             "context": ctx,
             "issue_type": issue_type or "general_issue",
+            "entities": entities or "",
         }
 
         # Only add os_type for server CI types (not for network, database, web, etc.)
@@ -446,6 +449,7 @@ class PerplexityLLMService:
         context: str = "",
         os_type: Optional[str] = None,
         issue_type: Optional[str] = None,
+        entities: Optional[str] = None,
     ) -> str:
         """Generate YAML runbook using Perplexity with centralized prompts.
         Uses POML templates from prompt_store.
@@ -455,6 +459,9 @@ class PerplexityLLMService:
             os_type: Optional OS type (Windows/Linux). Only relevant for server CI types.
             issue_type: Specific issue class (e.g. low_disk, high_cpu). Injected into prompt
                         so LLM generates domain-appropriate commands.
+            entities: Pre-extracted ticket entities (hosts, IPs, service names) from
+                      TicketClassifierService. Injected into POML so LLM generates
+                      concrete inputs rather than generic placeholders.
         """
         from app.services.prompt_store import PromptNotFound
         from app.services.poml_parser import POMLParseError
@@ -470,6 +477,7 @@ class PerplexityLLMService:
             "risk": risk,
             "context": ctx,
             "issue_type": issue_type or "general_issue",
+            "entities": entities or "",
         }
 
         # Only add os_type for server CI types (not for network, database, web, etc.)

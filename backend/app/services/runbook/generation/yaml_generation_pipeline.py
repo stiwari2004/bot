@@ -32,6 +32,7 @@ class YamlGenerationPipeline:
         os_type: Optional[str] = None,
         operational_context: Optional[str] = None,
         issue_type: Optional[str] = None,
+        entities: Optional[str] = None,
     ) -> str:
         """
         Generate YAML from LLM with error handling.
@@ -61,6 +62,7 @@ class YamlGenerationPipeline:
                 context=context,
                 os_type=os_type if service == "server" else None,
                 issue_type=issue_type,
+                entities=entities,
             )
         except LLMRateLimitExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc

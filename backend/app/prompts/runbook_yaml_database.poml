@@ -14,9 +14,11 @@ DATABASE AWARENESS:
   <user><![CDATA[Generate a troubleshooting runbook YAML for this DATABASE issue.
 
 ISSUE: {issue_description}
+ISSUE TYPE: {issue_type}
 SERVICE: {service}
 ENV: {env}
 RISK: {risk}
+ENTITIES (extracted from ticket — use in inputs and as command targets): {entities}
 
 CONTEXT — similar past runbooks and known-good commands (use these to inform your approach):
 {context}
