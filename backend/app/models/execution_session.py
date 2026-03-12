@@ -25,8 +25,8 @@ class ExecutionSession(Base):
         Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     runbook_id = Column(
-        Integer, ForeignKey("runbooks.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+        Integer, ForeignKey("runbooks.id", ondelete="CASCADE"), nullable=True, index=True
+    )  # nullable: agent sessions have no pre-existing runbook
     ticket_id = Column(
         Integer, ForeignKey("tickets.id", ondelete="SET NULL"), nullable=True, index=True
     )  # Link to ticket

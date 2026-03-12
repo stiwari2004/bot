@@ -113,6 +113,12 @@ const createEndpoints = (baseUrl: string) => ({
   },
   executions: {
     createSession: () => `${baseUrl}/api/v1/agent/execute`,
+    // Agent session endpoints (solve-first, crystallise-after)
+    agentSessions: () => `${baseUrl}/api/v1/executions/demo/agent-sessions`,
+    agentSessionEvents: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/sessions/${sessionId}/events`,
+    agentSessionStepReview: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/agent-sessions/${sessionId}/step-review`,
+    agentSessionReview: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/agent-sessions/${sessionId}/review`,
+    agentSessionDetail: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/sessions/${sessionId}`,
   },
   settings: {
     executionMode: () => `${baseUrl}/api/v1/settings/execution-mode/demo`,

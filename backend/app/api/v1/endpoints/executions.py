@@ -524,11 +524,7 @@ async def review_agent_session(
     """
     from app.services.execution.runbook_crystalliser import get_runbook_crystalliser
 
-    session = db.query(ExecutionSession).filter(ExecutionSession.session_id == session_id).first()
-    if not session:
-        # Try without the typo
-        from app.models.execution_session import ExecutionSession as ES
-        session = db.query(ES).filter(ES.id == session_id).first()
+    session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
