@@ -192,7 +192,7 @@ class SessionService:
         # Validate parsed result
         if not parsed or not isinstance(parsed, dict):
             raise ValueError(f"Failed to parse runbook {runbook_id}")
-        
+
         # Create steps
         step_number = 1
         session_profile_rank = PROFILE_RANK.get("default", 0)

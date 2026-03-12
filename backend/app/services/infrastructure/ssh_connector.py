@@ -239,16 +239,41 @@ class SSHConnector(InfrastructureConnector):
                     "SSH connected to %s:%s, executing command (command_timeout=%ss)",
                     host, port, command_timeout,
                 )
+                # Resolve sudo password: dedicated field takes priority, then SSH login password
+                sudo_password = (cfg.get("sudo_password") or "").strip() or (password or "").strip()
+                # Detect if any sudo call in the command needs password injection
+                import re as _re
+                needs_sudo_stdin = (
+                    bool(_re.search(r'\bsudo\b', command))
+                    and bool(sudo_password)
+                )
+                exec_command = command
+                if needs_sudo_stdin:
+                    # Add -S (stdin password) and -p '' (no prompt text) to every sudo that
+                    # doesn't already carry -S, so paramiko stdin can supply the password.
+                    exec_command = _re.sub(
+                        r'\bsudo\b(?!\s+-S)(?!\s+-p\s+\S+\s+-S)',
+                        "sudo -S -p ''",
+                        command,
+                    )
                 shell_lower = (shell or "").lower()
                 if not shell_lower:
-                    full_command = command
+                    full_command = exec_command
                 elif shell_lower.startswith("power"):
-                    full_command = f"powershell -Command {shlex.quote(command)}"
+                    full_command = f"powershell -Command {shlex.quote(exec_command)}"
                 elif shell_lower in {"bash", "sh", "zsh", "ksh"}:
-                    full_command = f"{shell_lower} -lc {shlex.quote(command)}"
+                    full_command = f"{shell_lower} -lc {shlex.quote(exec_command)}"
                 else:
-                    full_command = f"{shell} -c {shlex.quote(command)}"
+                    full_command = f"{shell} -c {shlex.quote(exec_command)}"
                 stdin, stdout, stderr = client.exec_command(full_command, timeout=int(command_timeout))
+                if needs_sudo_stdin:
+                    # Write password once; covers sequential sudo calls in the same command
+                    try:
+                        stdin.write(sudo_password + "\n")
+                        stdin.flush()
+                        stdin.channel.shutdown_write()
+                    except Exception:
+                        pass
                 output = stdout.read().decode("utf-8", errors="replace")
                 error_output = stderr.read().decode("utf-8", errors="replace")
                 exit_code = stdout.channel.recv_exit_status()

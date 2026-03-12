@@ -11,9 +11,55 @@ logger = get_logger(__name__)
 
 class StepEventPublisher:
     """Handles event publishing for step execution"""
-    
-    def __init__(self, event_service):
+
+    def __init__(self, event_service=None):
         self.event_service = event_service
+
+    async def publish_raw(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Publish a raw arbitrary event payload (used by agent executor)."""
+        if not self.event_service:
+            return
+        try:
+            event_type = payload.get("event_type", "agent.event")
+            step_number = payload.get("step_number")
+            await self.event_service.publish_event(
+                db,
+                session=session,
+                event_type=event_type,
+                payload=payload,
+                step_number=step_number,
+            )
+        except Exception as e:
+            logger.warning("Failed to publish agent event: %s", e)
+
+    async def publish_step_failed(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        step: ExecutionStep,
+        error_msg: str,
+    ) -> None:
+        """Publish step failed event."""
+        if not self.event_service:
+            return
+        try:
+            await self.event_service.publish_event(
+                db,
+                session=session,
+                event_type="execution.step.failed",
+                payload={
+                    "step_number": step.step_number,
+                    "error": error_msg,
+                },
+                step_number=step.step_number,
+            )
+        except Exception as e:
+            logger.warning("Failed to publish step.failed event: %s", e)
     
     async def publish_step_started(
         self,

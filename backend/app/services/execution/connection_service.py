@@ -301,7 +301,8 @@ class ConnectionService:
                                     "username": decrypted.get("username"),
                                     "password": decrypted.get("password"),
                                     "api_key": decrypted.get("api_key"),
-                                    "database_name": decrypted.get("database_name")
+                                    "database_name": decrypted.get("database_name"),
+                                    "sudo_password": decrypted.get("sudo_password"),
                                 })
                                 logger.debug(
                                     "Using credential id=%s (from node id=%s) for host=%s",

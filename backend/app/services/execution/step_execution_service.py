@@ -22,8 +22,48 @@ from app.services.execution.step_session_finalizer import StepSessionFinalizer
 from app.services.ticket_step_tracker import get_ticket_step_tracker
 from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 from app.services.execution.command_learning_service import CommandLearningService
+from app.services.execution.output_extractor import get_output_extractor, OutputExtractor
 
 logger = get_logger(__name__)
+
+# Key used to persist resolved inputs in session.meta_data
+_RESOLVED_INPUTS_KEY = "resolved_inputs"
+
+
+def _get_resolved_inputs(session: ExecutionSession) -> dict:
+    """Load the accumulated resolved inputs from session metadata."""
+    meta = session.meta_data if isinstance(session.meta_data, dict) else {}
+    return dict(meta.get(_RESOLVED_INPUTS_KEY) or {})
+
+
+def _save_resolved_inputs(session: ExecutionSession, resolved: dict, db: Session) -> None:
+    """Persist updated resolved inputs into session metadata."""
+    from sqlalchemy.orm.attributes import flag_modified
+    if not isinstance(session.meta_data, dict):
+        session.meta_data = {}
+    session.meta_data[_RESOLVED_INPUTS_KEY] = resolved
+    flag_modified(session, "meta_data")
+    db.add(session)
+
+
+def _find_needed_vars(db: Session, session: ExecutionSession, from_step_number: int) -> list:
+    """Collect all {{variable}} names still needed by steps not yet completed."""
+    future_steps = (
+        db.query(ExecutionStep)
+        .filter(
+            ExecutionStep.session_id == session.id,
+            ExecutionStep.step_number >= from_step_number,
+            ExecutionStep.completed == False,
+        )
+        .all()
+    )
+    needed = []
+    extractor = get_output_extractor()
+    for step in future_steps:
+        for var in extractor.find_unresolved(step.command or ""):
+            if var not in needed:
+                needed.append(var)
+    return needed
 
 
 def _is_command_not_found_or_wrong_shell(error_text: Optional[str]) -> bool:
@@ -243,8 +283,46 @@ class StepExecutionService:
                 if backup_config:
                     logger.info(f"Backed up network device config before step {step.step_number}")
             
+            # ----------------------------------------------------------------
+            # OUTPUT-DRIVEN VARIABLE RESOLUTION
+            # Load accumulated resolved inputs from previous steps and
+            # substitute any {{variable}} placeholders before executing.
+            # ----------------------------------------------------------------
+            extractor = get_output_extractor()
+            resolved_inputs = _get_resolved_inputs(session)
+
+            # Apply smart defaults for any vars still unresolved (last resort)
+            needed_now = extractor.find_unresolved(step.command or "")
+            still_missing = [v for v in needed_now if v not in resolved_inputs]
+            if still_missing:
+                defaults = extractor.apply_smart_defaults(still_missing)
+                if defaults:
+                    resolved_inputs.update(defaults)
+                    _save_resolved_inputs(session, resolved_inputs, db)
+                    logger.info(
+                        "Step %s: applied smart defaults for %s",
+                        step.step_number, list(defaults.keys())
+                    )
+
             # Execute command (SSH connector: strip "ssh host ..." wrapper - connector handles connection)
             command_to_run = step.command or ""
+
+            # Substitute resolved values into command
+            if resolved_inputs:
+                command_to_run = extractor.substitute(command_to_run, resolved_inputs)
+                unresolved_remaining = extractor.find_unresolved(command_to_run)
+                if unresolved_remaining:
+                    logger.warning(
+                        "Step %s: still-unresolved placeholders after substitution: %s — "
+                        "will be resolved from step output as execution proceeds.",
+                        step.step_number, unresolved_remaining
+                    )
+                elif needed_now:
+                    logger.info(
+                        "Step %s: resolved %s from session context → command: %s",
+                        step.step_number, needed_now, command_to_run[:120]
+                    )
+
             if connector_type == "ssh":
                 stripped = strip_ssh_wrapper(command_to_run)
                 if stripped != command_to_run:
@@ -289,6 +367,31 @@ class StepExecutionService:
                     f"Raw output type: {type(raw_output)}, Raw error type: {type(raw_error)}"
                 )
             
+            # ----------------------------------------------------------------
+            # POST-EXECUTION: extract values from this step's output for
+            # use in subsequent steps (output-driven variable resolution).
+            # ----------------------------------------------------------------
+            if result.get("success") and raw_output:
+                try:
+                    needed_by_future = _find_needed_vars(db, session, step.step_number + 1)
+                    if needed_by_future:
+                        newly_extracted = extractor.extract_from_output(
+                            command=step.command or "",
+                            output=raw_output,
+                            needed_vars=needed_by_future,
+                        )
+                        if newly_extracted:
+                            current_resolved = _get_resolved_inputs(session)
+                            current_resolved.update(newly_extracted)
+                            _save_resolved_inputs(session, current_resolved, db)
+                            logger.info(
+                                "Step %s: extracted %s from output → cached for future steps",
+                                step.step_number,
+                                {k: v[:40] if len(str(v)) > 40 else v for k, v in newly_extracted.items()},
+                            )
+                except Exception as extract_err:
+                    logger.debug("Non-critical: output extraction failed: %s", extract_err)
+
             # Update step
             step.credentials_used = []
             credential_id = connection_config.get("credential_id")
@@ -299,7 +402,7 @@ class StepExecutionService:
             step.output = output_text
             step.error = error_text
             step.completed_at = datetime.now(timezone.utc)
-            
+
             # Commit step completion to database BEFORE publishing events
             # This ensures step state is persisted before we proceed
             db.commit()

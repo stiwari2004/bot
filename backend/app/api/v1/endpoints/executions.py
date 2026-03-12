@@ -113,6 +113,33 @@ class SessionControlRequest(BaseModel):
     user_id: Optional[int] = None
 
 
+# ── Agent session models ──────────────────────────────────────────────────────
+
+class AgentSessionCreate(BaseModel):
+    """Start an agentic execution session for an issue with no matching runbook."""
+    issue_description: str = Field(..., min_length=5)
+    ticket_id: Optional[int] = None
+    tenant_id: Optional[int] = 1
+    user_id: Optional[int] = None
+    connection_id: Optional[int] = None   # infrastructure connection to use
+
+
+class AgentSessionReview(BaseModel):
+    """Human review after an agent session — mark weeds + optionally crystallise."""
+    weed_step_numbers: List[int] = Field(
+        default_factory=list,
+        description="Step numbers the human considers unnecessary (will be excluded from runbook)",
+    )
+    save_as_runbook: bool = Field(
+        default=True,
+        description="If True, crystallise the kept steps into a new runbook",
+    )
+    runbook_title: Optional[str] = Field(
+        default=None,
+        description="Title for the new runbook (auto-generated if omitted)",
+    )
+
+
 @router.post("/demo/sessions", response_model=ExecutionSessionResponse)
 @rate_limit("100/minute")  # High limit for dev/test
 async def create_execution_session(data: ExecutionSessionCreate, db: Session = Depends(get_db)):
@@ -402,5 +429,206 @@ async def stream_execution_events(websocket: WebSocket, session_id: int):
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         except Exception:
             pass  # Connection may already be closed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent session endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/demo/agent-sessions")
+@rate_limit("20/minute")
+async def create_agent_session(
+    data: AgentSessionCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Start an agentic execution session for an issue where no matching runbook exists.
+
+    The agent will:
+      1. Run read-only discovery commands to understand the system state
+      2. Classify and gate every command (Level 1-4 safety)
+      3. Request human approval for destructive commands
+      4. Stream progress via WebSocket (/demo/sessions/{id}/ws)
+      5. On completion, flag the session for human review
+
+    After the session completes, call POST /demo/agent-sessions/{id}/review
+    to mark weeds and optionally save as a reusable runbook.
+    """
+    from app.models.execution_session import ExecutionSession
+    from app.services.execution.connection_service import ConnectionService
+    from app.services.execution.agent_executor import get_agent_executor
+
+    tenant_id = data.tenant_id or 1
+
+    # Create a stub session (no runbook_id — agent generates steps dynamically)
+    session = ExecutionSession(
+        tenant_id=tenant_id,
+        runbook_id=None,
+        ticket_id=data.ticket_id,
+        user_id=data.user_id,
+        status="pending",
+        meta_data={
+            "agent_session": True,
+            "issue_description": data.issue_description,
+            "connection_id": data.connection_id,
+        },
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    # Resolve connection config
+    connection_config: Dict[str, Any] = {"connector_type": "local"}
+    try:
+        conn_service = ConnectionService()
+        connection_config = await conn_service.get_connection_config(db, session, None)
+    except Exception as conn_err:
+        logger.warning("Agent session %d: could not resolve connection: %s", session.id, conn_err)
+
+    # Run agent in background (streams via WebSocket)
+    agent = get_agent_executor()
+    asyncio.create_task(
+        agent.run(
+            db=SessionLocal(),   # own DB session for background task
+            session_id=session.id,
+            connection_config=connection_config,
+            issue_description=data.issue_description,
+        )
+    )
+
+    return {
+        "session_id": session.id,
+        "status": "started",
+        "message": (
+            "Agent session started. Connect to WebSocket to stream progress: "
+            f"/api/v1/executions/demo/sessions/{session.id}/ws"
+        ),
+        "websocket_url": f"/api/v1/executions/demo/sessions/{session.id}/ws",
+    }
+
+
+@router.post("/demo/agent-sessions/{session_id}/review")
+async def review_agent_session(
+    session_id: int,
+    data: AgentSessionReview,
+    db: Session = Depends(get_db),
+):
+    """
+    Human review after an agent session completes.
+
+    - Mark step numbers as weeds (excluded from the runbook)
+    - Optionally crystallise kept steps into a new reusable runbook
+
+    The runbook will be stored with 'source: agent_crystallised' and will be
+    available for Tier 0/1 reuse in future tickets.
+    """
+    from app.services.execution.runbook_crystalliser import get_runbook_crystalliser
+
+    session = db.query(ExecutionSession).filter(ExecutionSession.session_id == session_id).first()
+    if not session:
+        # Try without the typo
+        from app.models.execution_session import ExecutionSession as ES
+        session = db.query(ES).filter(ES.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    meta = session.meta_data or {}
+    if not meta.get("agent_session"):
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint is only for agent sessions (sessions without a pre-existing runbook).",
+        )
+    if not meta.get("pending_review"):
+        raise HTTPException(
+            status_code=400,
+            detail="Session is not pending review. It may already have been crystallised.",
+        )
+
+    result: Dict[str, Any] = {
+        "session_id": session_id,
+        "weed_steps_marked": data.weed_step_numbers,
+        "runbook_created": False,
+    }
+
+    if data.save_as_runbook:
+        title = data.runbook_title
+        if not title:
+            issue = meta.get("issue_description") or "Unknown issue"
+            title = f"Auto: {issue[:60]}"
+
+        crystalliser = get_runbook_crystalliser()
+        try:
+            cryst_result = await crystalliser.crystallise(
+                db=db,
+                session=session,
+                weed_step_numbers=data.weed_step_numbers,
+                runbook_title=title,
+                tenant_id=session.tenant_id,
+            )
+            result["runbook_created"] = True
+            result.update(cryst_result)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+
+    return result
+
+
+@router.get("/demo/agent-sessions/{session_id}/step-review")
+async def get_agent_session_steps_for_review(
+    session_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Return all steps from an agent session formatted for the human review UI.
+
+    Each step includes:
+      - step_number, command, output, success
+      - safety_level (from classifier)
+      - suggested_weed: True if the step failed or was blocked
+      - reasoning (from agent's LLM decision)
+    """
+    from app.models.execution_session import ExecutionStep as ES
+    from app.services.execution.command_classifier import get_command_classifier
+
+    session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    steps = (
+        db.query(ES)
+        .filter(ES.session_id == session_id)
+        .order_by(ES.step_number)
+        .all()
+    )
+
+    clf = get_command_classifier()
+    step_review = []
+    for step in steps:
+        classification = clf.classify(step.command or "")
+        payload = step.command_payload or {}
+        step_review.append({
+            "step_number": step.step_number,
+            "command": step.command,
+            "reasoning": payload.get("reasoning", ""),
+            "output": (step.output or "")[:500],
+            "error": step.error or "",
+            "success": step.success,
+            "completed": step.completed,
+            "safety_level": classification.level,
+            "safety_label": classification.label,
+            "suggested_weed": (
+                not step.success
+                or payload.get("weed") is True
+                or classification.level == 4
+            ),
+        })
+
+    return {
+        "session_id": session_id,
+        "steps": step_review,
+        "total": len(step_review),
+        "agent_summary": (session.meta_data or {}).get("agent_summary", ""),
+        "resolved": (session.meta_data or {}).get("agent_resolved", False),
+    }
 
 

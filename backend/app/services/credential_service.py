@@ -160,7 +160,8 @@ class CredentialService:
             "api_key": decrypted_value if credential.encrypted_api_key else None,
             "host": credential.host,
             "port": credential.port,
-            "database_name": credential.database_name
+            "database_name": credential.database_name,
+            "sudo_password": metadata_payload.get("sudo_password"),
         }
         
         # Add cloud-specific fields from metadata
