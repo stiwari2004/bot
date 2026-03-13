@@ -45,6 +45,7 @@ class ExecutionSession(Base):
     last_event_seq = Column(String(64), nullable=True)
     assignment_retry_count = Column(Integer, default=0)
     sandbox_profile = Column(String(64), nullable=True)
+    meta_data = Column(JSON, nullable=True)  # agent session metadata, pending_review flag, etc.
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     total_duration_minutes = Column(Integer, nullable=True)

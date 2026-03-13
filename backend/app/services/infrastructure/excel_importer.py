@@ -68,31 +68,59 @@ class InfrastructureConnectionExcelImporter:
             # Map columns to our expected names
             column_mapping = self._map_columns(df.columns.tolist())
             
+            # Log column mapping for debugging
+            logger.info(f"Excel columns found: {df.columns.tolist()}")
+            logger.info(f"Column mapping: {column_mapping}")
+            
             # Validate required columns
             missing_required = []
             for required_name, possible_names in self.REQUIRED_COLUMNS.items():
                 if required_name not in column_mapping.values():
-                    missing_required.append(required_name)
+                    missing_required.append(f"{required_name} (accepted aliases: {', '.join(possible_names)})")
             
             if missing_required:
                 raise ValueError(
                     f"Missing required columns: {', '.join(missing_required)}. "
-                    f"Found columns: {', '.join(df.columns.tolist())}"
+                    f"Found columns in Excel: {', '.join(df.columns.tolist())}"
                 )
             
             # Extract connections
             connections = []
+            row_errors = []
+            skipped_empty = 0
+            
             for idx, row in df.iterrows():
+                # Skip completely empty rows
+                if row.isna().all() or row.astype(str).str.strip().eq('').all():
+                    skipped_empty += 1
+                    continue
+                
                 try:
                     connection = self._extract_connection(row, column_mapping, idx + 2)  # +2 for header and 0-index
                     if connection:
                         connections.append(connection)
                 except Exception as e:
+                    error_msg = str(e)
+                    row_errors.append(f"Row {idx + 2}: {error_msg}")
                     logger.warning(f"Error parsing row {idx + 2}: {e}")
                     continue
             
             if not connections:
-                raise ValueError("No valid connections found in Excel file")
+                error_details = []
+                if skipped_empty == len(df):
+                    error_details.append("All rows are empty")
+                elif row_errors:
+                    error_details.append(f"{len(row_errors)} row(s) had errors:")
+                    error_details.extend(row_errors[:5])  # Show first 5 errors
+                    if len(row_errors) > 5:
+                        error_details.append(f"... and {len(row_errors) - 5} more errors")
+                else:
+                    error_details.append("No valid connections could be extracted")
+                
+                error_details.append(f"\nFound columns: {', '.join(df.columns.tolist())}")
+                error_details.append(f"Expected required columns: name (or hostname, device_name), target_host (or host, ip), connection_type (or type)")
+                
+                raise ValueError(f"No valid connections found in Excel file. {' '.join(error_details)}")
             
             logger.info(f"Successfully parsed {len(connections)} infrastructure connections from Excel")
             return connections
@@ -133,8 +161,29 @@ class InfrastructureConnectionExcelImporter:
         target_host = self._get_value(row, reverse_mapping.get('target_host'))
         connection_type = self._get_value(row, reverse_mapping.get('connection_type'))
         
-        if not name or not target_host or not connection_type:
-            raise ValueError(f"Row {row_num}: Missing required fields (name, target_host, connection_type)")
+        # Build detailed error message if missing fields
+        missing_fields = []
+        if not name or (isinstance(name, str) and not name.strip()):
+            missing_fields.append('name')
+        if not target_host or (isinstance(target_host, str) and not target_host.strip()):
+            missing_fields.append('target_host')
+        if not connection_type or (isinstance(connection_type, str) and not connection_type.strip()):
+            missing_fields.append('connection_type')
+        
+        if missing_fields:
+            # Find which columns were actually found
+            found_cols = []
+            if reverse_mapping.get('name'):
+                found_cols.append(f"name column '{reverse_mapping['name']}'")
+            if reverse_mapping.get('target_host'):
+                found_cols.append(f"target_host column '{reverse_mapping['target_host']}'")
+            if reverse_mapping.get('connection_type'):
+                found_cols.append(f"connection_type column '{reverse_mapping['connection_type']}'")
+            
+            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+            if found_cols:
+                error_msg += f". Found columns but values are empty: {', '.join(found_cols)}"
+            raise ValueError(error_msg)
         
         # Normalize connection type
         connection_type = connection_type.lower().strip()
@@ -210,11 +259,15 @@ class InfrastructureConnectionExcelImporter:
         return connection
     
     def _get_value(self, row: pd.Series, column_name: Optional[str]) -> Optional[Any]:
-        """Safely get value from row, handling NaN"""
+        """Safely get value from row, handling NaN and empty strings"""
         if not column_name or column_name not in row:
             return None
         value = row[column_name]
         if pd.isna(value):
+            return None
+        # Convert to string and check if empty
+        str_value = str(value).strip()
+        if not str_value or str_value.lower() in ['nan', 'none', 'null', '']:
             return None
         return value
 
