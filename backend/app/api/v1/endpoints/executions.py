@@ -60,7 +60,7 @@ class ExecutionFeedbackCreate(BaseModel):
 class ExecutionSessionResponse(BaseModel):
     id: int
     tenant_id: int
-    runbook_id: int
+    runbook_id: Optional[int] = None
     runbook_title: Optional[str] = None
     ticket_id: Optional[int] = None
     issue_description: Optional[str] = None

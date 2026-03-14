@@ -141,6 +141,17 @@ async def init_db():
             # Enable pg_trgm extension for trigram-based text search (used in ExecutionPattern indexes)
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
             conn.commit()
+
+        # Schema migrations: idempotent ALTER TABLE statements for evolving columns
+        with engine.connect() as conn:
+            # Allow agent sessions to have no runbook_id (agent generates steps dynamically).
+            # PostgreSQL silently ignores DROP NOT NULL if the column is already nullable.
+            conn.execute(text(
+                "ALTER TABLE execution_sessions ALTER COLUMN runbook_id DROP NOT NULL"
+            ))
+            conn.commit()
+            logger.info("Schema migration: runbook_id is now nullable on execution_sessions")
+
         
         # Create all tables with error handling for existing sequences
         # #region agent log
