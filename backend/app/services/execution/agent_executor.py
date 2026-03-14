@@ -477,24 +477,38 @@ If the issue is fully resolved and verified, respond with:
         return self._parse_llm_response(raw)
 
     def _parse_llm_response(self, raw: str) -> Dict[str, Any]:
-        """Parse LLM JSON response, tolerating markdown fences."""
+        """Parse LLM JSON/YAML response, tolerating markdown fences."""
+        import yaml
+
         text = raw.strip()
         # Strip markdown code fences if present
-        text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE | re.MULTILINE)
+        text = re.sub(r'^```(?:json|yaml)?\s*', '', text, flags=re.IGNORECASE | re.MULTILINE)
         text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
         text = text.strip()
 
+        # Try JSON first
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Try to extract JSON object
-            m = re.search(r'\{.*\}', text, re.DOTALL)
-            if m:
-                try:
-                    return json.loads(m.group(0))
-                except json.JSONDecodeError:
-                    pass
-        logger.warning("Could not parse LLM response as JSON: %s", text[:200])
+            pass
+
+        # Try YAML (Gemini converts JSON → YAML via _convert_json_to_yaml_if_needed)
+        try:
+            data = yaml.safe_load(text)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+        # Try to extract JSON object from mixed content
+        m = re.search(r'\{.*\}', text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        logger.warning("Could not parse LLM response as JSON or YAML: %s", text[:200])
         return {"command": None, "reasoning": "parse error", "done": True,
                 "summary": "Agent could not parse LLM response."}
 
