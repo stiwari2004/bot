@@ -53,6 +53,8 @@ class AgentExecutor:
         self.classifier = get_command_classifier()
         self.extractor = get_output_extractor()
         self.event_publisher = StepEventPublisher()
+        from app.services.llm_service_gemini import GeminiLLMService
+        self._llm = GeminiLLMService()
 
     # ── Public entry point ────────────────────────────────────────────────────
 
@@ -411,8 +413,7 @@ class AgentExecutor:
         Returns a dict: { "command": str, "reasoning": str, "done": bool,
                           "summary": str (if done) }
         """
-        from app.services.llm_service_gemini import GeminiLLMService
-        llm = GeminiLLMService()
+        llm = self._llm
 
         # Condense history: keep full for last N steps, summarise older ones
         if len(history) > _HISTORY_KEEP_LAST:
@@ -471,9 +472,18 @@ If the issue is fully resolved and verified, respond with:
   "summary": "concise description: root cause + action taken + verification result"
 }}"""
 
-        raw = await llm._chat_once_with_system(system_prompt, user_prompt)
+        logger.info("Agent LLM call starting (iteration history=%d)", len(history))
+        try:
+            raw = await asyncio.wait_for(
+                llm._chat_once_with_system(system_prompt, user_prompt),
+                timeout=60.0,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Agent LLM call timed out after 60s — possible rate limit on free tier")
+            raise RuntimeError("LLM call timed out (60s). Gemini free tier may be rate-limiting.")
+        logger.info("Agent LLM call completed, response length=%d", len(raw or ""))
 
-        # Parse JSON response
+        # Parse JSON/YAML response
         return self._parse_llm_response(raw)
 
     def _parse_llm_response(self, raw: str) -> Dict[str, Any]:

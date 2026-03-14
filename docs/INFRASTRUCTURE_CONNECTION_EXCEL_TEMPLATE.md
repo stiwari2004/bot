@@ -66,6 +66,7 @@ Your Excel file **must** include these three columns (column names are case-inse
 ## Tips
 
 - Column names are case-insensitive: `Name`, `NAME`, `name` all work
+- Spaces in column headers are normalized to underscores: `Connection Name` and `connection_name` both work
 - Extra whitespace is automatically trimmed
 - Empty rows are automatically skipped
 - If `connection_type` is not recognized, it defaults to `ssh`
