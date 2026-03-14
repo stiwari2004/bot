@@ -477,13 +477,14 @@ async def create_agent_session(
     db.commit()
     db.refresh(session)
 
-    # Resolve connection config
-    connection_config: Dict[str, Any] = {"connector_type": "local"}
+    # Resolve connection config — fail fast if no connection found
     try:
         conn_service = ConnectionService()
         connection_config = await conn_service.get_connection_config(db, session, None)
     except Exception as conn_err:
-        logger.warning("Agent session %d: could not resolve connection: %s", session.id, conn_err)
+        db.delete(session)
+        db.commit()
+        raise HTTPException(status_code=400, detail=f"Connection error: {conn_err}")
 
     # Run agent in background (streams via WebSocket)
     agent = get_agent_executor()

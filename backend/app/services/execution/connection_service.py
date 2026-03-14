@@ -222,11 +222,52 @@ class ConnectionService:
     ) -> Dict[str, Any]:
         """Get connection configuration for executing a step"""
         # Priority:
+        # 0. Explicit connection_id in session meta_data (agent sessions)
         # 1. Extract CI/server from ticket and match to infrastructure connection
         # 2. Use connection config from ticket metadata
         # 3. Use connection config from runbook metadata
         # 4. Default to local execution
-        
+
+        # Check for explicit connection_id stored by agent session
+        session_meta = session.meta_data or {}
+        if isinstance(session_meta, str):
+            try:
+                session_meta = json.loads(session_meta)
+            except Exception:
+                session_meta = {}
+        explicit_connection_id = session_meta.get("connection_id")
+        if explicit_connection_id:
+            from app.models.credential import InfrastructureConnection
+            connection = db.query(InfrastructureConnection).filter(
+                InfrastructureConnection.id == explicit_connection_id,
+                InfrastructureConnection.tenant_id == session.tenant_id,
+            ).first()
+            if connection:
+                port = connection.target_port
+                if port is None and (connection.connection_type or "").lower() == "ssh":
+                    port = DEFAULT_SSH_PORT
+                config = {
+                    "connector_type": connection.connection_type,
+                    "host": connection.target_host,
+                    "port": port,
+                    "connection_id": connection.id,
+                    "credential_id": connection.credential_id,
+                }
+                if connection.credential_id:
+                    credential = db.query(Credential).filter(Credential.id == connection.credential_id).first()
+                    if credential:
+                        from app.services.credential_service import get_credential_service
+                        decrypted = get_credential_service().get_credential(db, credential.id, session.tenant_id)
+                        if decrypted:
+                            config.update({
+                                "username": decrypted.get("username"),
+                                "password": decrypted.get("password"),
+                                "api_key": decrypted.get("api_key"),
+                                "sudo_password": decrypted.get("sudo_password"),
+                            })
+                logger.info("Agent session using explicit connection_id=%s host=%s", explicit_connection_id, connection.target_host)
+                return config
+
         # Try to extract CI and match to infrastructure connection
         if session.ticket_id:
             ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
@@ -368,19 +409,8 @@ class ConnectionService:
                         config["credential_id"] = ticket_meta.get("credential_id")
                     return config
         
-        # Try runbook metadata
-        runbook = db.query(Runbook).filter(Runbook.id == session.runbook_id).first()
-        if runbook and runbook.metadata:
-            runbook_meta = runbook.metadata
-            if isinstance(runbook_meta, dict) and runbook_meta.get("connection_config"):
-                config = runbook_meta["connection_config"]
-                if isinstance(config, dict) and "credential_id" not in config:
-                    config["credential_id"] = runbook_meta.get("credential_id")
-                return config
-        
-        # Default to local execution
-        logger.info("Using default local connector")
-        return {
-            "connector_type": "local",
-            "credential_id": None,
-        }
+        raise ValueError(
+            "No infrastructure connection could be resolved for this session. "
+            "Ensure the target node is configured in Settings → Infrastructure Connections "
+            "and linked to the ticket or passed as connection_id."
+        )
