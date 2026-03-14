@@ -441,7 +441,9 @@ class AgentExecutor:
             resolved_text = f"\nKnown values discovered so far: {json.dumps(resolved_inputs)}"
 
         system_prompt = (
-            "You are an SRE agent diagnosing and fixing a server issue. "
+            "You are an SRE agent that has already established a remote shell session on the target server. "
+            "Every command you provide is executed directly on that server — do NOT use ssh, scp, or any remote "
+            "connection commands. Just write the shell command as if you are already logged in. "
             "Your goal is to identify the root cause and apply the minimal safe fix. "
             "Use read-only commands first to investigate, then targeted fix commands. "
             "Always verify the fix worked. "
@@ -450,9 +452,9 @@ class AgentExecutor:
         )
 
         user_prompt = f"""Issue to resolve: {issue_description}
-Target server: {server}{resolved_text}
+You are already connected to server: {server}{resolved_text}
 
-Steps completed so far:
+Steps completed so far (all ran directly on {server}):
 {history_text}
 
 What is your next action?
