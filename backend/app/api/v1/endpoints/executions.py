@@ -627,4 +627,3 @@ async def get_agent_session_steps_for_review(
         "agent_summary": (session.meta_data or {}).get("agent_summary", ""),
         "resolved": (session.meta_data or {}).get("agent_resolved", False),
     }
-

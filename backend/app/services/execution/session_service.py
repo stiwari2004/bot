@@ -21,6 +21,42 @@ PROFILE_BY_SEVERITY = {
     "moderate": ("staging-standard", "medium"),
 }
 DEFAULT_PROFILE = ("dev-flex", "low")
+
+# Commands that are always destructive and must require human approval regardless of runbook YAML
+_DESTRUCTIVE_PATTERNS = [
+    r"\brm\s+-[rRf]",          # rm -rf, rm -r, rm -f
+    r"\bsudo\s+rm\b",          # sudo rm anything
+    r"\brm\s+/",               # rm /absolute/path
+    r"\bshred\b",              # shred (secure delete)
+    r"\bDROP\s+TABLE\b",       # SQL DROP TABLE
+    r"\bDROP\s+DATABASE\b",    # SQL DROP DATABASE
+    r"\bmkfs\b",               # format filesystem
+    r"\bdd\s+.*of=/dev/",      # dd to block device
+    r"\bfdisk\b",              # partition editor
+    r"\bparted\b",             # partition editor
+]
+
+import re as _re
+_DESTRUCTIVE_RE = [_re.compile(p, _re.IGNORECASE) for p in _DESTRUCTIVE_PATTERNS]
+
+
+def _requires_approval_override(command: str, severity: str, yaml_value: bool) -> bool:
+    """Return True if this step must require approval regardless of YAML."""
+    if yaml_value:
+        return True
+    if (severity or "").lower() in ("high", "dangerous", "critical"):
+        return True
+    cmd = command or ""
+    for pattern in _DESTRUCTIVE_RE:
+        if pattern.search(cmd):
+            logger.warning(
+                "Forcing requires_approval=True on destructive command: %s",
+                cmd[:120],
+            )
+            return True
+    return False
+
+
 PROFILE_RANK = {
     "dev-flex": 0,
     "staging-standard": 1,
@@ -72,13 +108,19 @@ class SessionService:
         if step_data.get("purpose"):
             command_payload["purpose"] = step_data.get("purpose")
 
+        command = step_data.get("command", "")
+        severity = step_data.get("severity", "")
+        requires_approval = _requires_approval_override(
+            command, severity, step_data.get("requires_approval", False)
+        )
+
         step = ExecutionStep(
             session_id=session_id,
             step_number=step_number,
             step_type=step_type,
-            command=step_data.get("command", ""),
+            command=command,
             notes=step_data.get("description", ""),
-            requires_approval=step_data.get("requires_approval", False),
+            requires_approval=requires_approval,
             blast_radius=blast_radius,
             command_payload=command_payload if command_payload else None,
         )

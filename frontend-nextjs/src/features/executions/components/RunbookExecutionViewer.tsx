@@ -1,12 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ClockIcon,
   ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 import type { ExecutionSession, RunbookStep, StepUpdatePayload } from '../types';
 import { StepCard } from './StepCard';
+
+const TERMINAL_STATUSES = new Set([
+  'completed', 'failed', 'abandoned', 'completed_with_errors',
+]);
 
 const normalizeStep = (step: any): RunbookStep => ({
   id: step.id,
@@ -75,6 +79,7 @@ export function RunbookExecutionViewer({
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [updating, setUpdating] = useState(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackData, setFeedbackData] = useState({
     was_successful: false,
@@ -99,6 +104,44 @@ export function RunbookExecutionViewer({
       return () => clearInterval(interval);
     }
   }, [startTime]);
+
+  const refreshSession = useCallback(async (sessionId: number) => {
+    try {
+      const res = await fetch(`/api/v1/executions/demo/sessions/${sessionId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const normalized = normalizeSession(data);
+      setSession(normalized);
+      // Stop polling once execution reaches a terminal state
+      if (TERMINAL_STATUSES.has(normalized.status)) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }
+    } catch {
+      // swallow — don't crash the UI on a transient poll failure
+    }
+  }, []);
+
+  // Start polling whenever we get a live session id
+  useEffect(() => {
+    if (!session?.id) return;
+    if (TERMINAL_STATUSES.has(session.status)) return;
+
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(() => {
+      refreshSession(session.id);
+    }, 3000);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
 
   const startExecution = async () => {
     setLoading(true);
@@ -190,43 +233,8 @@ export function RunbookExecutionViewer({
         throw new Error('Failed to update step');
       }
 
-      // If this was an approval, wait a bit for execution to complete, then reload
-      if (updates.approved === true && step.requires_approval) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-
-      // Reload session to get updated data
-      const sessionResponse = await fetch(`/api/v1/executions/demo/sessions/${session.id}`);
-      if (!sessionResponse.ok) {
-        throw new Error('Failed to reload session');
-      }
-      const updatedSession = await sessionResponse.json();
-      setSession(normalizeSession(updatedSession));
-      
-      // If session is still waiting for approval on next step, poll for updates
-      if (updatedSession.waiting_for_approval && updatedSession.status === 'waiting_approval') {
-        let pollCount = 0;
-        const pollInterval = setInterval(async () => {
-          pollCount++;
-          if (pollCount > 10) {
-            clearInterval(pollInterval);
-            return;
-          }
-          try {
-            const pollResponse = await fetch(`/api/v1/executions/demo/sessions/${session.id}`);
-            if (pollResponse.ok) {
-              const polledSession = await pollResponse.json();
-              setSession(normalizeSession(polledSession));
-              if (!polledSession.waiting_for_approval || polledSession.status !== 'waiting_approval') {
-                clearInterval(pollInterval);
-              }
-            }
-          } catch (err) {
-            console.error('Error polling session:', err);
-            clearInterval(pollInterval);
-          }
-        }, 3000);
-      }
+      // Refresh immediately after update; the interval will continue polling
+      await refreshSession(session.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update step');
     } finally {

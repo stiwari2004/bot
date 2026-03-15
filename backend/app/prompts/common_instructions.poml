@@ -41,6 +41,7 @@ steps:
     expected_output: What success looks like
     purpose: diagnose
     severity: safe
+    requires_approval: false
     skip_in_auto_mode: false
 
 postchecks:
@@ -57,6 +58,17 @@ SEVERITY FIELD:
 - severity: safe      → read-only, no side effects
 - severity: moderate  → may interrupt a service briefly
 - severity: high      → risk of data loss or extended outage
+
+REQUIRES_APPROVAL FIELD (mandatory on every step):
+- Set requires_approval: true for ANY step with severity: high
+- Set requires_approval: true for ANY step that deletes, removes, drops, or overwrites data/files/services
+- Set requires_approval: false for safe and moderate steps
+- When in doubt: require approval rather than skip it
+
+ABSOLUTE PROHIBITION:
+- NEVER generate a step that deletes, removes, or uninstalls an installed application or its binaries
+- NEVER use rm, unlink, shred, or similar on application installation paths (/opt/*, /usr/*, /etc/*)
+- Cleanup of temporary files or log rotation is acceptable; deleting installed software is NOT
 
 COMMAND RULES:
 - NEVER include ssh in commands — the executor handles the connection
