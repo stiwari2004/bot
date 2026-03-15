@@ -297,9 +297,13 @@ class StepSessionFinalizer:
     ) -> None:
         """Track execution failure for quarantine system"""
         try:
+            if not session.runbook_id:
+                logger.debug("Skipping quarantine tracking: session has no runbook_id")
+                return
+
             from app.services.execution.quarantine_service import QuarantineService
             from app.services.runbook.versioning_service import VersioningService
-            
+
             quarantine_service = QuarantineService()
             versioning_service = VersioningService()
             

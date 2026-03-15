@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { BookOpenIcon, EyeIcon, TrashIcon, CheckCircleIcon, PlayIcon, MagnifyingGlassIcon, ChartBarIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { RunbookExecutionViewer } from '@/features/executions';
 import { RunbookMetrics } from '@/components/RunbookMetrics';
 import { useRunbooks } from '../hooks/useRunbooks';
 import { useRunbookActions } from '../hooks/useRunbookActions';
@@ -23,9 +22,13 @@ const formatMarkdown = (md: string) => {
     .replace(/\n/gim, '<br>');
 };
 
-export function RunbookList() {
+interface RunbookListProps {
+  onSessionLaunched?: (sessionId: number) => void;
+}
+
+export function RunbookList({ onSessionLaunched }: RunbookListProps) {
   const [selectedRunbook, setSelectedRunbook] = useState<Runbook | null>(null);
-  const [executingRunbook, setExecutingRunbook] = useState<Runbook | null>(null);
+  const [launchingId, setLaunchingId] = useState<number | null>(null);
   const [viewingMetricsFor, setViewingMetricsFor] = useState<number | null>(null);
 
   const {
@@ -48,25 +51,27 @@ export function RunbookList() {
 
   const error = fetchError || actionError;
 
-  if (executingRunbook) {
-    return (
-      <div className="p-6">
-        <Button
-          variant="ghost"
-          onClick={() => setExecutingRunbook(null)}
-          leftIcon={<span>←</span>}
-          className="mb-4"
-        >
-          Back to Runbook List
-        </Button>
-        <RunbookExecutionViewer
-          runbookId={executingRunbook.id}
-          issueDescription={executingRunbook.meta_data.issue_description}
-          onComplete={() => setExecutingRunbook(null)}
-        />
-      </div>
-    );
-  }
+  const handleExecute = async (runbook: Runbook) => {
+    if (!onSessionLaunched) return;
+    setLaunchingId(runbook.id);
+    try {
+      const res = await fetch('/api/v1/executions/demo/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runbook_id: runbook.id,
+          issue_description: runbook.meta_data?.issue_description || runbook.title,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to start session');
+      const data = await res.json();
+      onSessionLaunched(data.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start execution');
+    } finally {
+      setLaunchingId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -184,17 +189,19 @@ export function RunbookList() {
                       </div>
                       <div className="flex flex-col items-end gap-2 flex-shrink-0">
                         <div className="flex items-center gap-2">
-                          {runbook.status === 'approved' && (
+                          {runbook.status === 'approved' && onSessionLaunched && (
                             <Button
                               variant="primary"
                               size="sm"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setExecutingRunbook(runbook);
+                                handleExecute(runbook);
                               }}
+                              disabled={launchingId === runbook.id}
+                              isLoading={launchingId === runbook.id}
                               leftIcon={<PlayIcon className="h-3 w-3" />}
                             >
-                              Execute
+                              {launchingId === runbook.id ? 'Starting…' : 'Execute'}
                             </Button>
                           )}
                           {runbook.status === 'draft' && (
@@ -284,14 +291,16 @@ export function RunbookList() {
                   </div>
 
                   <div className="mt-4 flex gap-2">
-                    {selectedRunbook.status === 'approved' && (
+                    {selectedRunbook.status === 'approved' && onSessionLaunched && (
                       <Button
                         variant="primary"
-                        onClick={() => setExecutingRunbook(selectedRunbook)}
+                        onClick={() => handleExecute(selectedRunbook)}
+                        disabled={launchingId === selectedRunbook.id}
+                        isLoading={launchingId === selectedRunbook.id}
                         leftIcon={<PlayIcon className="h-4 w-4" />}
                         className="flex-1"
                       >
-                        Execute
+                        {launchingId === selectedRunbook.id ? 'Starting…' : 'Execute'}
                       </Button>
                     )}
                     {selectedRunbook.status === 'draft' && (

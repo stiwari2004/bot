@@ -926,12 +926,15 @@ class StepExecutionService:
             
             # Track failure for quarantine
             try:
+                if not session.runbook_id:
+                    raise ValueError("session has no runbook_id, skipping quarantine")
+
                 from app.services.execution.quarantine_service import QuarantineService
                 from app.services.runbook.versioning_service import VersioningService
-                
+
                 quarantine_service = QuarantineService()
                 versioning_service = VersioningService()
-                
+
                 # Get current runbook version
                 runbook_version_id = None
                 current_version = versioning_service.get_current_version(

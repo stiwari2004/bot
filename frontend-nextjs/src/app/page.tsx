@@ -268,7 +268,7 @@ export default function Home() {
       case 'analytics':
         return <AnalyticsAccuracyDashboard />;
       case 'runbooks':
-        return <RunbookList key={refreshKey} />;
+        return <RunbookList key={refreshKey} onSessionLaunched={handleSessionLaunched} />;
       case 'runbook':
         return <RunbookGenerator onRunbookGenerated={handleRunbookGenerated} />;
       case 'upload':
