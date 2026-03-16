@@ -234,6 +234,197 @@ class ChangeWindowService:
         return unsuppressed_count
 
 
+    async def retrigger_expired_suppressions(self, db: Session) -> int:
+        """
+        Called by ChangeWindowMonitor every N minutes.
+
+        For each suppressed ticket whose change window has now ended:
+          - Alert still firing in DB  → create a new execution session that
+            references the original suppressed session, then fire the agent.
+          - Alert no longer firing    → close the ticket as resolved during
+            the change window (the change itself fixed the issue).
+
+        Returns the number of new sessions created.
+        """
+        from app.models.alert import Alert
+        from app.models.change_ticket import ChangeTicket
+        from app.models.execution_session import ExecutionSession
+        from app.models.ticket import Ticket
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        retriggered = 0
+
+        suppressed_tickets = (
+            db.query(Ticket)
+            .filter(
+                Ticket.suppressed == True,
+                Ticket.suppressed_by_change_ticket_id.isnot(None),
+            )
+            .all()
+        )
+
+        for ticket in suppressed_tickets:
+            change_ticket = db.query(ChangeTicket).filter(
+                ChangeTicket.id == ticket.suppressed_by_change_ticket_id
+            ).first()
+
+            if not change_ticket:
+                # Orphaned suppression — clean up and move on
+                self.unsuppress_ticket(db, ticket)
+                continue
+
+            if change_ticket.is_active():
+                continue  # Change window still running — leave it alone
+
+            # Change window has ended — release the suppression
+            self.unsuppress_ticket(db, ticket)
+
+            # Is the alert still firing?
+            alert_firing = (
+                db.query(Alert)
+                .filter(
+                    Alert.matched_ticket_id == ticket.id,
+                    Alert.status == "firing",
+                )
+                .first()
+            )
+
+            if not alert_firing:
+                # Issue resolved during the change window — close ticket cleanly
+                ticket.status     = "closed"
+                ticket.resolved_at = now
+                db.commit()
+                logger.info(
+                    "Ticket %d closed — alert resolved during change window '%s'",
+                    ticket.id, change_ticket.external_id,
+                )
+                continue
+
+            # Alert still firing — find the original suppressed session
+            original_session = (
+                db.query(ExecutionSession)
+                .filter(
+                    ExecutionSession.ticket_id == ticket.id,
+                    ExecutionSession.status    == "suppressed",
+                )
+                .order_by(ExecutionSession.created_at.desc())
+                .first()
+            )
+
+            if not original_session:
+                logger.warning(
+                    "No suppressed session for ticket %d — cannot retrigger", ticket.id
+                )
+                continue
+
+            await self._create_retrigger_session(db, ticket, original_session, change_ticket)
+            retriggered += 1
+
+        return retriggered
+
+    async def _create_retrigger_session(
+        self,
+        db: Session,
+        ticket,
+        original_session,
+        change_ticket,
+    ) -> None:
+        """
+        Create a new execution session after a change window expires,
+        with a back-reference to the original suppressed session.
+        """
+        import asyncio
+        from app.core.database import SessionLocal
+        from app.models.execution_session import ExecutionSession
+
+        original_meta     = original_session.meta_data or {}
+        issue_description = (
+            original_meta.get("issue_description")
+            or ticket.title
+            or ticket.description
+            or ""
+        )
+
+        new_session = ExecutionSession(
+            tenant_id  = original_session.tenant_id,
+            runbook_id = original_session.runbook_id,  # None for agent sessions
+            ticket_id  = ticket.id,
+            user_id    = original_session.user_id,
+            status     = "pending",
+            meta_data  = {
+                "agent_session":                    original_meta.get("agent_session", True),
+                "issue_description":                issue_description,
+                "connection_id":                    original_meta.get("connection_id"),
+                "retriggered_after_change_window":  True,
+                "original_suppressed_session_id":   original_session.id,
+                "change_ticket_id":                 change_ticket.id,
+                "change_ticket_ext":                change_ticket.external_id,
+            },
+        )
+        db.add(new_session)
+        db.commit()
+        db.refresh(new_session)
+
+        is_agent = original_meta.get("agent_session", True) and not original_session.runbook_id
+
+        if is_agent:
+            # Fire the agent executor in a managed background task
+            from app.services.execution.connection_service import ConnectionService
+            from app.services.execution.agent_executor import get_agent_executor
+
+            try:
+                conn_service      = ConnectionService()
+                _conn_db          = SessionLocal()
+                try:
+                    connection_config = await conn_service.get_connection_config(
+                        _conn_db, new_session, None
+                    )
+                finally:
+                    _conn_db.close()
+
+                agent         = get_agent_executor()
+                _session_id   = new_session.id
+                _issue        = issue_description
+                _config       = connection_config
+
+                async def _run() -> None:
+                    _db = SessionLocal()
+                    try:
+                        await agent.run(
+                            db               = _db,
+                            session_id       = _session_id,
+                            connection_config = _config,
+                            issue_description = _issue,
+                        )
+                    except Exception as exc:
+                        logger.exception(
+                            "Retrigger agent task failed session=%d: %s", _session_id, exc
+                        )
+                    finally:
+                        _db.close()
+
+                asyncio.create_task(_run())
+                logger.info(
+                    "Retrigger: agent session %d started for ticket %d "
+                    "(after change window '%s')",
+                    new_session.id, ticket.id, change_ticket.external_id,
+                )
+
+            except Exception as exc:
+                logger.error(
+                    "Retrigger: failed to start agent for ticket %d: %s", ticket.id, exc
+                )
+        else:
+            # Runbook session — session is created and visible; execution is
+            # triggered by the normal runbook execution flow (or the UI).
+            logger.info(
+                "Retrigger: runbook session %d created for ticket %d "
+                "(after change window '%s') — awaiting execution trigger",
+                new_session.id, ticket.id, change_ticket.external_id,
+            )
+
+
 # Global instance
 _change_window_service: Optional[ChangeWindowService] = None
 

@@ -182,6 +182,10 @@ def _derive_dry_run(command: str) -> Optional[str]:
 class CommandClassifier:
     """Classifies shell commands by safety level before execution."""
 
+    def is_readonly(self, command: str) -> bool:
+        """Returns True only if the command is Level 1 (SAFE / read-only)."""
+        return self.classify(command).level == 1
+
     def classify(self, command: str) -> ClassificationResult:
         """
         Classify a command and return a ClassificationResult.

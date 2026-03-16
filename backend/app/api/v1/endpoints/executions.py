@@ -124,6 +124,11 @@ class AgentSessionCreate(BaseModel):
     connection_id: Optional[int] = None   # infrastructure connection to use
 
 
+class PlanRejectRequest(BaseModel):
+    feedback: str = Field(..., min_length=1,
+                          description="Why the plan is wrong and what to do instead.")
+
+
 class AgentSessionReview(BaseModel):
     """Human review after an agent session — mark weeds + optionally crystallise."""
     weed_step_numbers: List[int] = Field(
@@ -486,16 +491,31 @@ async def create_agent_session(
         db.commit()
         raise HTTPException(status_code=400, detail=f"Connection error: {conn_err}")
 
-    # Run agent in background (streams via WebSocket)
-    agent = get_agent_executor()
-    asyncio.create_task(
-        agent.run(
-            db=SessionLocal(),   # own DB session for background task
-            session_id=session.id,
-            connection_config=connection_config,
-            issue_description=data.issue_description,
-        )
-    )
+    # Run agent in background (streams via WebSocket).
+    # The background task owns its own DB session and closes it in finally
+    # to prevent connection pool leaks if any exception escapes agent.run().
+    agent              = get_agent_executor()
+    _session_id        = session.id
+    _connection_config = connection_config
+    _issue_description = data.issue_description
+
+    async def _run_agent_task() -> None:
+        _db = SessionLocal()
+        try:
+            await agent.run(
+                db=_db,
+                session_id=_session_id,
+                connection_config=_connection_config,
+                issue_description=_issue_description,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Agent background task failed for session %d: %s", _session_id, exc
+            )
+        finally:
+            _db.close()
+
+    asyncio.create_task(_run_agent_task())
 
     return {
         "session_id": session.id,
@@ -505,6 +525,103 @@ async def create_agent_session(
             f"/api/v1/executions/demo/sessions/{session.id}/ws"
         ),
         "websocket_url": f"/api/v1/executions/demo/sessions/{session.id}/ws",
+    }
+
+
+@router.get("/demo/agent-sessions/{session_id}/plan")
+async def get_agent_session_plan(
+    session_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Return the current diagnosis findings and proposed plan for a session that is
+    awaiting_plan_approval.  Also shows rejection history so the UI can display
+    how many times the plan has been revised.
+    """
+    session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    meta = session.meta_data or {}
+    return {
+        "session_id":              session_id,
+        "status":                  session.status,
+        "phase":                   meta.get("phase", "unknown"),
+        "diagnosis":               meta.get("diagnosis"),
+        "proposed_plan":           meta.get("proposed_plan"),
+        "plan_approved":           meta.get("plan_approved"),
+        "plan_rejection_count":    meta.get("plan_rejection_count", 0),
+        "plan_rejection_feedback": meta.get("plan_rejection_feedback", []),
+    }
+
+
+@router.post("/demo/agent-sessions/{session_id}/plan/approve")
+async def approve_agent_plan(
+    session_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Approve the proposed plan.  The agent's background loop detects this flag
+    and transitions into the execute phase immediately.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    if session.status != "awaiting_plan_approval":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session is not awaiting plan approval (current status: {session.status})",
+        )
+
+    session.meta_data["plan_approved"] = True
+    session.meta_data["plan_rejected"] = False
+    flag_modified(session, "meta_data")
+    db.commit()
+
+    return {"session_id": session_id, "approved": True,
+            "message": "Plan approved — execution will begin shortly."}
+
+
+@router.post("/demo/agent-sessions/{session_id}/plan/reject")
+async def reject_agent_plan(
+    session_id: int,
+    data: PlanRejectRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Reject the proposed plan with corrective feedback.
+    The agent runs one LLM re-plan call using the existing diagnosis context
+    plus all accumulated rejection feedback, then returns a revised plan for review.
+    No new server commands are run unless the LLM genuinely needs one new fact.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    if session.status != "awaiting_plan_approval":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session is not awaiting plan approval (current status: {session.status})",
+        )
+
+    feedbacks = list(session.meta_data.get("plan_rejection_feedback") or [])
+    feedbacks.append(data.feedback)
+    session.meta_data["plan_rejection_feedback"] = feedbacks
+    session.meta_data["plan_rejection_count"]    = len(feedbacks)
+    session.meta_data["plan_rejected"]           = True
+    session.meta_data["plan_approved"]           = None
+    flag_modified(session, "meta_data")
+    db.commit()
+
+    return {
+        "session_id":       session_id,
+        "rejected":         True,
+        "feedback_recorded": data.feedback,
+        "rejection_count":  len(feedbacks),
+        "message":          "Feedback recorded — agent is revising the plan.",
     }
 
 

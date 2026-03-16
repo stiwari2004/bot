@@ -144,6 +144,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Alert poller service disabled (ENABLE_ALERT_POLLER=false)")
     
+    # Start change window monitor (optional, can be disabled via env var)
+    enable_cw_monitor = os.getenv("ENABLE_CHANGE_WINDOW_MONITOR", "true").lower() in ("1", "true", "yes")
+    if enable_cw_monitor:
+        try:
+            from app.services.execution.change_window_monitor import start_monitor as start_cw_monitor
+            await start_cw_monitor()
+            logger.info("Change window monitor started")
+        except Exception as e:
+            logger.error(f"Failed to start change window monitor: {e}", exc_info=True)
+    else:
+        logger.info("Change window monitor disabled (ENABLE_CHANGE_WINDOW_MONITOR=false)")
+
     # Start report scheduler service (optional, can be disabled via env var)
     enable_report_scheduler = os.getenv("ENABLE_REPORT_SCHEDULER", "true").lower() in ("1", "true", "yes")
     if enable_report_scheduler:
@@ -159,6 +171,13 @@ async def lifespan(app: FastAPI):
     
     yield
     
+    # Stop change window monitor
+    try:
+        from app.services.execution.change_window_monitor import stop_monitor as stop_cw_monitor
+        await stop_cw_monitor()
+    except Exception:
+        pass
+
     # Shutdown: Stop report scheduler
     try:
         from app.services.reporting.report_scheduler import ReportScheduler
