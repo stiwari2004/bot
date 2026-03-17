@@ -34,6 +34,8 @@ from app.services.runbook.generation.citation_manager import CitationManager
 from app.services.runbook.generation.yaml_generation_pipeline import YamlGenerationPipeline
 from app.services.runbook.generation.validation_pipeline import ValidationPipeline
 from app.services.execution.command_learning_service import CommandLearningService
+from app.services.runbook.generation.runbook_generator_helpers_mixin import RunbookGeneratorHelpersMixin
+from app.services.runbook.generation.runbook_generator_ops_mixin import RunbookGeneratorOpsMixin
 from app.config import runbook_structure
 from app.core.config import settings
 
@@ -68,9 +70,9 @@ def _order_spec_fields(spec: Dict[str, Any]) -> Dict[str, Any]:
     return dict(ordered)
 
 
-class RunbookGeneratorService:
+class RunbookGeneratorService(RunbookGeneratorHelpersMixin, RunbookGeneratorOpsMixin):
     """Service for generating runbooks from search results using RAG"""
-    
+
     def __init__(self):
         # VectorStoreService created lazily only when needed (to avoid loading embedding model)
         self._vector_service = None
@@ -92,7 +94,7 @@ class RunbookGeneratorService:
         self.yaml_pipeline = YamlGenerationPipeline()
         self.validation_pipeline = ValidationPipeline()
         self.learning_service = CommandLearningService()
-    
+
     @property
     def vector_service(self):
         """Lazy property to create VectorStoreService only when needed"""
@@ -100,64 +102,6 @@ class RunbookGeneratorService:
             from app.services.vector_store import VectorStoreService
             self._vector_service = VectorStoreService()
         return self._vector_service
-    
-    async def generate_runbook(
-        self,
-        issue_description: str,
-        tenant_id: int,
-        db: Session,
-        top_k: int = 5,
-        source_types: Optional[List[str]] = None
-    ) -> RunbookResponse:
-        """Generate a runbook from issue description using RAG"""
-        
-        # Step 1: Search for relevant knowledge (using hybrid search)
-        search_results = await self.vector_service.hybrid_search(
-            query=issue_description,
-            tenant_id=tenant_id,
-            db=db,
-            top_k=top_k,
-            source_types=source_types,
-            use_reranking=True
-        )
-        
-        # Step 2: Generate runbook content using retrieved knowledge
-        runbook_content = await self.content_builder.generate_content(issue_description, search_results)
-        
-        # Step 3: Calculate confidence score
-        confidence = self.content_builder.calculate_confidence(search_results)
-        
-        # Step 4: Create runbook record
-        runbook_environment = "dev" if settings.ENVIRONMENT == "development" else "production"
-        
-        runbook = Runbook(
-            tenant_id=tenant_id,
-            title=f"Runbook: {issue_description[:100]}...",
-            body_md=runbook_content,
-            meta_data=json.dumps({
-                "issue_description": issue_description,
-                "sources_used": len(search_results),
-                "search_query": issue_description,
-                "generated_by": "rag_pipeline"
-            }),
-            confidence=confidence,
-            is_active="active",
-            environment=runbook_environment
-        )
-        
-        db.add(runbook)
-        db.commit()
-        db.refresh(runbook)
-        
-        return RunbookResponse(
-            id=runbook.id,
-            title=runbook.title,
-            body_md=runbook.body_md,
-            confidence=runbook.confidence,
-            meta_data=json.loads(runbook.meta_data) if runbook.meta_data else {},
-            created_at=runbook.created_at,
-            updated_at=runbook.updated_at
-        )
 
     async def generate_agent_runbook(
         self,
@@ -177,7 +121,7 @@ class RunbookGeneratorService:
         # Separate CI type from OS type
         os_type = None
         ci_type = service
-        
+
         if service in ["Windows", "Linux"]:
             # User provided OS type, treat as server CI type
             ci_type = "server"
@@ -187,13 +131,13 @@ class RunbookGeneratorService:
             # Auto-detect CI type
             ci_type = await self.service_classifier.detect_service_type(issue_description)
             logger.info(f"Auto-detected CI type: {ci_type}")
-            
+
             # For servers, try to detect OS type from issue description
             if ci_type == "server":
                 os_type = await self.service_classifier.detect_os_type(issue_description)
                 if os_type:
                     logger.info(f"Auto-detected OS type: {os_type}")
-        
+
         # Use CI type for prompt selection (not OS type)
         service = ci_type
 
@@ -288,10 +232,10 @@ class RunbookGeneratorService:
             issue_type=issue_type,
             entities=classification.format_entities(),
         )
-        
+
         # Phase 2: Extract and clean YAML
         ai_yaml = self.yaml_pipeline.extract_and_clean_yaml(ai_yaml)
-        
+
         # Phase 3: Preprocess YAML structure
         ai_yaml = self.yaml_pipeline.preprocess_yaml_structure(ai_yaml)
 
@@ -299,20 +243,16 @@ class RunbookGeneratorService:
         try:
             if not ai_yaml or not ai_yaml.strip():
                 raise ValueError("empty ai yaml")
-            
-            # YAML should already be fixed by yaml_processor.sanitize_command_strings
-            
+
             # Parse YAML using YamlParser (handles errors and recovery internally)
             logger.debug(f"Parsing YAML ({len(ai_yaml)} chars)")
             try:
                 spec = self.yaml_parser.parse_yaml(ai_yaml)
                 logger.info(f"[PHASE 3 - YAML PARSING] Parse SUCCESSFUL!")
             except ValueError as e:
-                # YamlParser raises ValueError for unrecoverable errors
                 logger.error(f"YAML parsing failed after all recovery attempts: {e}")
                 raise
             except Exception as e:
-                # Fallback error handling for unexpected errors
                 logger.error(f"Unexpected error during YAML parsing: {e}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
@@ -333,20 +273,19 @@ class RunbookGeneratorService:
             runbook_yaml = yaml.safe_dump(_order_spec_fields(spec), sort_keys=False, default_flow_style=False, width=120)
             generation_mode = "ai"
         except Exception as e:
-            # Log the full error with context
             error_type = type(e).__name__
             error_msg = str(e)
             logger.error(f"[YAML GENERATION FAILED] Error type: {error_type}")
             logger.error(f"[YAML GENERATION FAILED] Error message: {error_msg}")
             logger.error(f"[YAML GENERATION FAILED] Raw YAML from LLM (first 2000 chars): {repr(ai_yaml[:2000]) if ai_yaml else 'None'}")
             logger.error(f"[YAML GENERATION FAILED] Raw YAML from LLM (first 2000 chars, readable): {ai_yaml[:2000] if ai_yaml else 'None'}")
-            
+
             # Attempt auto-fix for common YAML structure issues
             try:
                 logger.warning(f"Attempting auto-fix...")
                 fixed_yaml = self.yaml_processor.attempt_yaml_autofix(ai_yaml)
                 logger.debug(f"[DEBUG] Fixed YAML (first 500 chars): {fixed_yaml[:500]}")
-                
+
                 try:
                     spec = yaml.safe_load(fixed_yaml)
                 except Exception as e2:
@@ -373,13 +312,10 @@ class RunbookGeneratorService:
                 logger.info("YAML auto-fix succeeded")
             except Exception as e2:
                 logger.error(f"AI YAML invalid or empty – rejecting request (no fallback): {type(e).__name__}: {e}; autofix failed: {type(e2).__name__}: {e2}")
-                # Re-raise ValueError as-is so endpoint can convert to 500
-                # Re-raise HTTPException as-is (from pipeline)
-                # Convert other exceptions to ValueError for consistent handling
                 if isinstance(e, ValueError):
                     raise ValueError(f"YAML parsing failed: {str(e)[:200]}") from e
                 elif isinstance(e, HTTPException):
-                    raise  # Re-raise HTTPException from pipeline
+                    raise
                 else:
                     raise ValueError(f"LLM YAML generation failed: {type(e).__name__}: {str(e)[:200]}") from e
 
@@ -441,267 +377,3 @@ class RunbookGeneratorService:
         except Exception as e:
             logger.error(f"Failed to create RunbookResponse: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}")
             raise
-    
-    # _post_process_spec method removed - now handled by SpecPostProcessor
-    
-    def _detect_and_flag_diagnostic_only(self, spec: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Post-processing: Detect diagnostic-only step sequences and add remediation if missing.
-        This is a safety net to catch runbooks that passed validation but are still diagnostic-heavy.
-        """
-        steps = spec.get("steps", [])
-        if not isinstance(steps, list) or len(steps) < 3:
-            return spec
-        
-        remediation_count = 0
-        diagnostic_only_count = 0
-        
-        for step in steps:
-            if not isinstance(step, dict):
-                continue
-            
-            cmd = str(step.get("command", "")).lower()
-            name = str(step.get("name", "")).lower()
-            
-            has_remediation = any(kw in cmd or kw in name for kw in _REMEDIATION_KEYWORDS)
-            is_diagnostic = any(kw in cmd or kw in name for kw in _DIAGNOSTIC_KEYWORDS)
-            
-            if has_remediation:
-                remediation_count += 1
-            elif is_diagnostic:
-                diagnostic_only_count += 1
-        
-        # If we have less than 2 remediation steps, log a warning
-        # (Validation should catch this, but this is a safety net)
-        if remediation_count < 2:
-            logger.warning(
-                f"Post-processing detected diagnostic-heavy runbook: "
-                f"{remediation_count} remediation steps, {diagnostic_only_count} diagnostic-only steps. "
-                f"Runbook may need manual review."
-            )
-            # Add a metadata flag for review
-            if "meta_data" not in spec:
-                spec["meta_data"] = {}
-            if isinstance(spec["meta_data"], dict):
-                spec["meta_data"]["diagnostic_heavy"] = True
-                spec["meta_data"]["remediation_count"] = remediation_count
-                spec["meta_data"]["diagnostic_count"] = diagnostic_only_count
-        
-        return spec
-    
-    def _format_runbook_context(self, search_results: List[SearchResult], issue_type: str) -> str:
-        """
-        Format retrieved runbooks and documents into structured context for the generation prompt.
-
-        Ranking (in order of priority):
-          1. Proven / golden runbooks (execution-verified)
-          2. Runbooks whose text/title matches the classified issue_type
-          3. Remaining runbooks by vector similarity score
-
-        No keyword density filtering — classification already determined the issue domain.
-        """
-        if not search_results:
-            return "No similar runbooks or documents found."
-
-        def _is_document(result: SearchResult) -> bool:
-            src = getattr(result, "document_source", "") or ""
-            return str(src).lower() == "document"
-
-        runbook_results = [r for r in search_results if not _is_document(r)]
-        document_results = [r for r in search_results if _is_document(r)]
-
-        # ------------------------------------------------------------------ #
-        # Helpers                                                             #
-        # ------------------------------------------------------------------ #
-
-        issue_token = issue_type.replace("_", " ").lower()  # e.g. "host unreachable"
-
-        def _is_issue_match(result: SearchResult) -> bool:
-            text = (result.text or "").lower()
-            title = (result.document_title or "").lower()
-            return issue_token in text or issue_token in title
-
-        def _golden_tag(result: SearchResult) -> str:
-            try:
-                import json as _json
-                meta = result.meta_data if hasattr(result, "meta_data") else {}
-                if isinstance(meta, str):
-                    meta = _json.loads(meta)
-                if isinstance(meta, dict) and meta.get("golden_example"):
-                    tag = f" ✓ PROVEN ({meta.get('success_count', 1)}x"
-                    avg = meta.get("avg_resolution_minutes")
-                    if avg:
-                        tag += f", avg {avg:.0f}min"
-                    return tag + ")"
-            except Exception:
-                pass
-            return ""
-
-        def _rank_key(result: SearchResult):
-            # Lower tuple = higher priority
-            is_golden = bool(_golden_tag(result))
-            return (not is_golden, not _is_issue_match(result), -result.score)
-
-        context_parts = []
-
-        # Runbook section
-        ranked = sorted(runbook_results[:6], key=_rank_key)
-        for i, result in enumerate(ranked[:3], 1):
-            title = result.document_title or "Untitled Runbook"
-            match_tag = " [issue match]" if _is_issue_match(result) else ""
-            header = f"[Runbook] {i}: {title} (similarity: {result.score:.2f}{_golden_tag(result)}{match_tag})"
-            context_parts.append(header)
-            snippet = (result.text or "").strip()[:600]
-            if snippet:
-                context_parts.append(f"  {snippet}")
-            context_parts.append("")
-
-        # Document section
-        if document_results:
-            context_parts.append("Document knowledge (reference only):")
-            for i, result in enumerate(document_results[:4], 1):
-                title = result.document_title or "Untitled Document"
-                snippet = (result.text or "").strip()[:400]
-                if snippet:
-                    context_parts.append(f"  [Document] {i}: {title} (similarity: {result.score:.2f})")
-                    context_parts.append(f"    {snippet}")
-                    context_parts.append("")
-
-        return "\n".join(context_parts).strip() if context_parts else "No similar runbooks or documents found."
-
-    def _build_learned_command_context(
-        self,
-        db,
-        tenant_id: int,
-        issue_description: str,
-        os_type: Optional[str] = None,
-    ) -> str:
-        """
-        Build KAG context from the execution learning store.
-        Returns known-good and known-bad commands for the given issue type.
-        Called separately from _format_runbook_context so it can be injected
-        into the generation context alongside RAG runbook context.
-        """
-        if db is None:
-            return ""
-
-        learning = self.learning_service
-        parts = []
-
-        try:
-            good_cmds = learning.get_known_good_commands(
-                db=db,
-                tenant_id=tenant_id,
-                issue_description=issue_description,
-                os_type=os_type,
-                limit=6,
-            )
-            if good_cmds:
-                parts.append("Commands proven to work in past executions for similar issues (prefer these):")
-                for entry in good_cmds:
-                    parts.append(f"  [PROVEN] {entry['command']}")
-                    if entry.get("issue_description"):
-                        parts.append(f"    (context: {entry['issue_description'][:80]})")
-                parts.append("")
-        except Exception as e:
-            logger.debug(f"Could not fetch known-good commands: {e}")
-
-        try:
-            bad_cmds = learning.get_known_bad_commands(
-                db=db,
-                tenant_id=tenant_id,
-                issue_description=issue_description,
-                os_type=os_type,
-                limit=4,
-            )
-            if bad_cmds:
-                parts.append("Commands known to FAIL for similar issues (avoid these):")
-                for entry in bad_cmds:
-                    parts.append(f"  [AVOID] {entry['command']}")
-                    if entry.get("error_text"):
-                        parts.append(f"    (error: {entry['error_text'][:80]})")
-                parts.append("")
-        except Exception as e:
-            logger.debug(f"Could not fetch known-bad commands: {e}")
-
-        return "\n".join(parts).strip()
-
-    def _validate_generated_runbook(
-        self, 
-        spec: Dict[str, Any], 
-        issue_description: str
-    ) -> tuple[bool, List[str]]:
-        return self.quality_validator.validate(spec, issue_description)
-    
-    async def regenerate_step_command(
-        self,
-        spec: Dict[str, Any],
-        section: str,
-        index: int,
-        issue_description: str,
-        os_type: str,
-        human_context: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Regenerate a single step's command using LLM. Returns updated spec (mutates and returns spec)."""
-        section_key = section if section in ("prechecks", "steps", "postchecks") else None
-        if not section_key:
-            raise ValueError(f"Invalid section: {section}")
-        items = spec.get(section_key, [])
-        if not isinstance(items, list) or index < 0 or index >= len(items):
-            raise ValueError(f"Step index out of range: {section_key}[{index}]")
-        step = items[index]
-        if not isinstance(step, dict):
-            raise ValueError("Step is not a dict")
-        current_command = step.get("command", "")
-        step_name = step.get("name", f"Step {index + 1}")
-        validation_issue = step.get("command_validation_issue", "")
-        shell_hint = "PowerShell" if os_type == "Windows" else "bash/Linux"
-        human_ctx = (human_context or "").strip()
-        prompt = f"""Regenerate ONLY the command for this runbook step. Return nothing but the new command line (no markdown, no explanation).
-
-Issue being addressed: {issue_description[:500]}
-Step name: {step_name}
-Current command (invalid or to replace): {current_command}
-Validation error (if any): {validation_issue or "None"}
-Target environment: {shell_hint}
-"""
-        if human_ctx:
-            prompt += f"\nHuman context (MUST follow): {human_ctx}"
-        prompt += "\n\nReturn only the new command line, no code fence or explanation."
-
-        llm = get_llm_service()
-        if hasattr(llm, "_chat_once"):
-            response = await llm._chat_once(prompt, tenant_id=1)
-        elif hasattr(llm, "_chat_once_with_system"):
-            response = await llm._chat_once_with_system(
-                "You are a runbook step assistant. Output only the new command line.",
-                prompt,
-                tenant_id=1,
-            )
-        else:
-            logger.warning("LLM has no _chat_once; cannot regenerate step command")
-            return spec
-        if not response or not response.strip():
-            logger.warning("LLM returned empty response for step regeneration, keeping original command")
-            return spec
-        new_command = response.strip()
-        if new_command.startswith("```"):
-            lines = new_command.split("\n")
-            new_command = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
-        if new_command:
-            step["command"] = new_command
-            step["command_validation_status"] = "pending_review"
-            step["command_review_status"] = "pending"
-            step.pop("command_validation_issue", None)
-            step.pop("command_suggested_fix", None)
-        return spec
-
-    async def approve_and_index_runbook(
-        self,
-        runbook_id: int,
-        tenant_id: int,
-        db: Session
-    ) -> RunbookResponse:
-        """Approve a draft runbook and index it for search"""
-        return await self.runbook_indexer.approve_and_index_runbook(runbook_id, tenant_id, db)
-

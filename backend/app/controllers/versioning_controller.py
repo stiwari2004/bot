@@ -7,8 +7,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.controllers.base_controller import BaseController
-from app.models.runbook import Runbook
-from app.models.runbook_version import RunbookVersion
+from app.repositories.runbook_repository import RunbookRepository
 from app.services.runbook.versioning_service import VersioningService
 from app.core.logging import get_logger
 
@@ -17,10 +16,11 @@ logger = get_logger(__name__)
 
 class VersioningController(BaseController):
     """Controller for runbook versioning operations"""
-    
+
     def __init__(self, db: Session, tenant_id: int):
         self.db = db
         self.tenant_id = tenant_id
+        self.runbook_repo = RunbookRepository(db)
         self.versioning_service = VersioningService()
     
     def create_version(
@@ -43,15 +43,10 @@ class VersioningController(BaseController):
             Version creation result
         """
         try:
-            # Verify runbook belongs to tenant
-            runbook = self.db.query(Runbook).filter(
-                Runbook.id == runbook_id,
-                Runbook.tenant_id == self.tenant_id
-            ).first()
-            
+            runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
             if not runbook:
                 raise self.not_found("Runbook", runbook_id)
-            
+
             version = self.versioning_service.create_version(
                 db=self.db,
                 runbook_id=runbook_id,
@@ -92,15 +87,10 @@ class VersioningController(BaseController):
             List of version dictionaries
         """
         try:
-            # Verify runbook belongs to tenant
-            runbook = self.db.query(Runbook).filter(
-                Runbook.id == runbook_id,
-                Runbook.tenant_id == self.tenant_id
-            ).first()
-            
+            runbook = self.runbook_repo.get_by_id_and_tenant(runbook_id, self.tenant_id)
             if not runbook:
                 raise self.not_found("Runbook", runbook_id)
-            
+
             versions = self.versioning_service.get_version_history(
                 db=self.db,
                 runbook_id=runbook_id,

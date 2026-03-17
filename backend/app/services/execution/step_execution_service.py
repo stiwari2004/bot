@@ -23,132 +23,20 @@ from app.services.ticket_step_tracker import get_ticket_step_tracker
 from app.services.execution.ssh_command_utils import strip_ssh_wrapper
 from app.services.execution.command_learning_service import CommandLearningService
 from app.services.execution.output_extractor import get_output_extractor, OutputExtractor
+from app.services.execution.step_execution_utils import (
+    _RESOLVED_INPUTS_KEY,
+    _get_resolved_inputs,
+    _save_resolved_inputs,
+    _find_needed_vars,
+    _is_command_not_found_or_wrong_shell,
+    _get_next_step_with_branching,
+)
+from app.services.execution.step_execution_validator_mixin import StepExecutionValidatorMixin
 
 logger = get_logger(__name__)
 
-# Key used to persist resolved inputs in session.meta_data
-_RESOLVED_INPUTS_KEY = "resolved_inputs"
 
-
-def _get_resolved_inputs(session: ExecutionSession) -> dict:
-    """Load the accumulated resolved inputs from session metadata."""
-    meta = session.meta_data if isinstance(session.meta_data, dict) else {}
-    return dict(meta.get(_RESOLVED_INPUTS_KEY) or {})
-
-
-def _save_resolved_inputs(session: ExecutionSession, resolved: dict, db: Session) -> None:
-    """Persist updated resolved inputs into session metadata."""
-    from sqlalchemy.orm.attributes import flag_modified
-    if not isinstance(session.meta_data, dict):
-        session.meta_data = {}
-    session.meta_data[_RESOLVED_INPUTS_KEY] = resolved
-    flag_modified(session, "meta_data")
-    db.add(session)
-
-
-def _find_needed_vars(db: Session, session: ExecutionSession, from_step_number: int) -> list:
-    """Collect all {{variable}} names still needed by steps not yet completed."""
-    future_steps = (
-        db.query(ExecutionStep)
-        .filter(
-            ExecutionStep.session_id == session.id,
-            ExecutionStep.step_number >= from_step_number,
-            ExecutionStep.completed == False,
-        )
-        .all()
-    )
-    needed = []
-    extractor = get_output_extractor()
-    for step in future_steps:
-        for var in extractor.find_unresolved(step.command or ""):
-            if var not in needed:
-                needed.append(var)
-    return needed
-
-
-def _is_command_not_found_or_wrong_shell(error_text: Optional[str]) -> bool:
-    """
-    True if the failure is due to wrong command/shell (e.g. PowerShell on bash),
-    not a real server/application failure. In that case we should continue to the
-    next step instead of failing the run.
-    """
-    if not error_text:
-        return False
-    err = error_text.lower()
-    if "command not found" in err or ": command not found" in err:
-        return True
-    if "not found" in err and ("bash:" in err or "line 1:" in err):
-        return True
-    # PowerShell cmdlets run in bash (e.g. Get-Counter, Select-Object)
-    if "get-counter" in err or "select-object" in err:
-        return True
-    return False
-
-
-def _get_next_step_with_branching(
-    db: Session,
-    session: ExecutionSession,
-    current_step: ExecutionStep,
-    step_succeeded: bool
-) -> Optional[ExecutionStep]:
-    """
-    Get the next step to execute based on branching logic.
-    
-    Args:
-        db: Database session
-        session: Execution session
-        current_step: Current step that just completed
-        step_succeeded: Whether the current step succeeded
-        
-    Returns:
-        Next ExecutionStep to execute, or None if no next step
-    """
-    # Check for branching logic in command_payload
-    branching = current_step.command_payload or {}
-    target_step_number = None
-    
-    if step_succeeded and branching.get("on_success") is not None:
-        # Jump to on_success step
-        target_step_number = branching.get("on_success")
-        logger.info(
-            f"Step {current_step.step_number} succeeded, branching to step {target_step_number} "
-            f"(on_success)"
-        )
-    elif not step_succeeded and branching.get("on_failure") is not None:
-        # Jump to on_failure step
-        target_step_number = branching.get("on_failure")
-        logger.info(
-            f"Step {current_step.step_number} failed, branching to step {target_step_number} "
-            f"(on_failure)"
-        )
-    
-    if target_step_number is not None:
-        # Find step by explicit step_number
-        next_step = db.query(ExecutionStep).filter(
-            ExecutionStep.session_id == session.id,
-            ExecutionStep.step_number == target_step_number,
-            ExecutionStep.completed == False
-        ).first()
-        
-        if next_step:
-            return next_step
-        else:
-            logger.warning(
-                f"Branching target step {target_step_number} not found or already completed. "
-                f"Falling back to sequential execution."
-            )
-    
-    # Fall back to sequential execution (next step_number)
-    next_step = db.query(ExecutionStep).filter(
-        ExecutionStep.session_id == session.id,
-        ExecutionStep.step_number == current_step.step_number + 1,
-        ExecutionStep.completed == False
-    ).first()
-    
-    return next_step
-
-
-class StepExecutionService:
+class StepExecutionService(StepExecutionValidatorMixin):
     """Handles execution of individual steps"""
     
     def __init__(self, connection_service, rollback_service, ticket_status_service, resolution_verification_service, event_service=None):
@@ -996,114 +884,4 @@ class StepExecutionService:
     
     # Session finalization methods removed - now handled by StepSessionFinalizer
     # Precheck handling methods removed - now handled by StepPrecheckHandler
-    
-    def _validate_correction_safety(self, original_command: str, corrected_command: str, error_text: str) -> bool:
-        """
-        Validate that a correction is safe to apply.
-        
-        Rejects corrections that:
-        1. Break valid PowerShell syntax
-        2. Change valid counter paths to invalid ones
-        3. Remove required parameters
-        4. Are clearly wrong based on error context
-        
-        Args:
-            original_command: Original command that failed
-            corrected_command: Proposed correction
-            error_text: Error message from original command
-            
-        Returns:
-            True if correction is safe, False if it should be rejected
-        """
-        import re
-        
-        # Guardrail 1: Reject corrections that break valid PowerShell counter paths
-        # Original: Get-Counter -Counter '\Processor(_Total)\% Processor Time'
-        # Bad correction: Get-Counter -Counter \\Processor(_Total)\\PercentProcessorTime
-        # The original is correct, correction is wrong
-        valid_counter_patterns = [
-            r"\\Processor\(_Total\)\\% Processor Time",
-            r"\\Memory\\Available MBytes",
-            r"\\PhysicalDisk\(_Total\)",
-            r"\\LogicalDisk\([^)]+\)",
-        ]
-        
-        original_has_valid_counter = any(
-            re.search(pattern, original_command, re.IGNORECASE) 
-            for pattern in valid_counter_patterns
-        )
-        
-        if original_has_valid_counter:
-            # Check if correction breaks the counter path
-            corrected_has_valid_counter = any(
-                re.search(pattern, corrected_command, re.IGNORECASE)
-                for pattern in valid_counter_patterns
-            )
-            
-            # If original has valid counter but correction doesn't, reject
-            if not corrected_has_valid_counter:
-                logger.warning(
-                    f"REJECTED: Correction breaks valid counter path. "
-                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
-                )
-                return False
-            
-            # Check for suspicious changes to counter paths
-            if "PercentProcessorTime" in corrected_command and "% Processor Time" in original_command:
-                logger.warning(
-                    f"REJECTED: Correction changes valid '% Processor Time' to 'PercentProcessorTime'. "
-                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
-                )
-                return False
-            
-            # Check for double backslashes (wrong escaping)
-            if "\\\\Processor" in corrected_command and "\\Processor" in original_command:
-                logger.warning(
-                    f"REJECTED: Correction adds wrong escaping (double backslashes). "
-                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
-                )
-                return False
-        
-        # Guardrail 2: Reject corrections that remove required parameters
-        # If original has -MaxSamples and correction removes it, reject
-        if "-MaxSamples" in original_command and "-MaxSamples" not in corrected_command:
-            logger.warning(
-                f"REJECTED: Correction removes required -MaxSamples parameter. "
-                f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
-            )
-            return False
-        
-        # Guardrail 3: Reject corrections that change -SampleInterval to -MaxSamplingRate incorrectly
-        # -SampleInterval is valid, -MaxSamplingRate is different parameter
-        if "-SampleInterval" in original_command and "-MaxSamplingRate" in corrected_command:
-            # Only reject if the error wasn't about SampleInterval being wrong
-            if "SampleInterval" not in error_text:
-                logger.warning(
-                    f"REJECTED: Correction changes -SampleInterval to -MaxSamplingRate without error context. "
-                    f"Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
-                )
-                return False
-        
-        # Guardrail 4: Reject corrections that are clearly wrong based on error
-        # If error says "is not recognized as the name", the correction shouldn't change valid syntax
-        if "is not recognized as the name" in error_text.lower():
-            # This usually means a typo or wrong command, not a syntax issue
-            # If correction changes valid syntax, reject it
-            if original_has_valid_counter and not any(
-                re.search(pattern, corrected_command, re.IGNORECASE)
-                for pattern in valid_counter_patterns
-            ):
-                logger.warning(
-                    f"REJECTED: Correction changes valid syntax when error suggests typo/name issue. "
-                    f"Error: {error_text[:200]}, Original: {original_command[:200]}, Corrected: {corrected_command[:200]}"
-                )
-                return False
-        
-        # Guardrail 5: Reject corrections that are identical to original (no-op)
-        if original_command.strip() == corrected_command.strip():
-            logger.warning(f"REJECTED: Correction is identical to original command")
-            return False
-        
-        # Correction passed all guardrails
-        logger.debug(f"Correction passed safety validation: {original_command[:100]} → {corrected_command[:100]}")
-        return True
+    # Correction safety validation - now provided by StepExecutionValidatorMixin

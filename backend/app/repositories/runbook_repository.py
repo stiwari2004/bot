@@ -113,6 +113,14 @@ class RunbookRepository(BaseRepository[Runbook]):
         
         return query.all()
     
+    def get_active_ids_for_tenant(self, tenant_id: int) -> set:
+        """Return set of active runbook IDs for a tenant (used for cleanup checks)"""
+        rows = self.db.query(Runbook.id).filter(
+            Runbook.tenant_id == tenant_id,
+            Runbook.is_active == "active",
+        ).all()
+        return {row.id for row in rows}
+
     def archive(self, runbook_id: int, tenant_id: int) -> bool:
         """Archive a runbook (soft delete)"""
         runbook = self.get_by_id_and_tenant(runbook_id, tenant_id)

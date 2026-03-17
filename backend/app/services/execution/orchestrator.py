@@ -14,10 +14,9 @@ from app.services.execution import ExecutionEngine
 from app.services.execution.queue_service import QueueService
 from app.services.execution.event_service import EventService
 from app.services.execution.metadata_service import MetadataService
-from app.services.execution.connection_service import resolve_target_connection_for_assignment
+from app.services.execution.session_serializer import SessionSerializer
+from app.services.execution.orchestrator_enqueue_mixin import OrchestratorEnqueueMixin
 from app.services.agent_worker_manager import agent_worker_manager
-from app.services.subscription.subscription_tracker import SubscriptionTracker
-from app.services.policy import validate_sandbox_profile
 from app.services.queue_client import RedisQueueClient, queue_client
 
 logger = get_logger(__name__)
@@ -33,11 +32,9 @@ def _run_enqueue_session_in_thread(
     idempotency_key: Optional[str],
 ) -> int:
     """
-    Run the entire enqueue_session (session create + resolve + prepare_metadata +
-    assignment + flush + Redis publish_event/publish_assignment + commit) in a
-    dedicated thread with its own event loop. This keeps all sync DB and async
-    Redis work off the main event loop so auth/me and other requests do not get
-    504. Returns the new session id.
+    Run the entire enqueue_session in a dedicated thread with its own event loop.
+    Keeps all sync DB and async Redis work off the main event loop.
+    Returns the new session id.
     """
     import asyncio as _asyncio
     db = SessionLocal()
@@ -45,7 +42,6 @@ def _run_enqueue_session_in_thread(
         loop = _asyncio.new_event_loop()
         _asyncio.set_event_loop(loop)
         try:
-            # Use a fresh queue client in this thread so Redis is bound to this loop, not the main one
             from app.services.queue_client import RedisQueueClient
             thread_queue = RedisQueueClient()
             orchestrator = ExecutionOrchestrator(queue=thread_queue)
@@ -68,16 +64,17 @@ def _run_enqueue_session_in_thread(
         db.close()
 
 
-class ExecutionOrchestrator:
+class ExecutionOrchestrator(OrchestratorEnqueueMixin):
     """Coordinates execution session lifecycle and messaging"""
-    
+
     def __init__(self, queue: Optional[RedisQueueClient] = None) -> None:
         self.queue = queue or queue_client
         self.engine = ExecutionEngine()
         self.queue_service = QueueService(queue=self.queue)
         self.event_service = EventService(queue=self.queue)
         self.metadata_service = MetadataService()
-    
+        self.serializer = SessionSerializer(self.metadata_service)
+
     async def enqueue_session(
         self,
         db: Session,
@@ -91,7 +88,6 @@ class ExecutionOrchestrator:
         idempotency_key: Optional[str] = None,
     ) -> ExecutionSession:
         """Create a session, persist orchestration metadata, and queue assignment"""
-        # If worker orchestration disabled, just create session
         if not settings.WORKER_ORCHESTRATION_ENABLED:
             session = await self.engine.create_execution_session(
                 db=db,
@@ -103,9 +99,7 @@ class ExecutionOrchestrator:
             )
             db.refresh(session)
             return session
-        
-        # Run entire enqueue (session create + resolve + credentials + assignment + Redis) in thread
-        # so the main event loop is never blocked and auth/me etc. do not get 504
+
         loop = asyncio.get_event_loop()
         session_id = await loop.run_in_executor(
             None,
@@ -128,216 +122,6 @@ class ExecutionOrchestrator:
             raise RuntimeError(f"Session {session_id} not found after enqueue")
         return session
 
-    async def _enqueue_session_impl(
-        self,
-        db: Session,
-        *,
-        runbook_id: int,
-        tenant_id: int,
-        ticket_id: Optional[int] = None,
-        issue_description: Optional[str] = None,
-        user_id: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        idempotency_key: Optional[str] = None,
-    ) -> ExecutionSession:
-        """Implementation of enqueue_session (used inside thread with its own db and loop)."""
-        # Create session
-        session = await self.engine.create_execution_session(
-            db=db,
-            runbook_id=runbook_id,
-            tenant_id=tenant_id,
-            ticket_id=ticket_id,
-            issue_description=issue_description,
-            user_id=user_id,
-        )
-        db.refresh(session)
-        
-        # Validate sandbox profile
-        policy_info = validate_sandbox_profile(
-            session.sandbox_profile or "default",
-            steps=[
-                {
-                    "step_number": step.step_number,
-                    "blast_radius": step.blast_radius,
-                    "severity": step.approval_policy,
-                }
-                for step in session.steps
-            ],
-            context={"tenant_id": tenant_id},
-        )
-        
-        # Update session status
-        session.status = "queued"
-        session.transport_channel = "redis"
-        session.assignment_retry_count = 0
-        session.sandbox_profile = session.sandbox_profile or "default"
-        db.add(session)
-        
-        # Check node limit before resolving target connection
-        tracker = SubscriptionTracker(db)
-        allowed, error_msg = tracker.check_node_limit(tenant_id)
-        if not allowed:
-            raise ValueError(error_msg or "Node limit reached")
-
-        # Resolve target host from connected nodes list (execution only runs on nodes in Settings → Nodes)
-        request_metadata = dict(metadata or {})
-        if issue_description:
-            request_metadata["issue_description"] = issue_description
-        if request_metadata:
-            session.issue_description = session.issue_description or request_metadata.get("issue_description")
-        try:
-            connection = resolve_target_connection_for_assignment(
-                db, tenant_id, ticket_id, request_metadata
-            )
-            request_metadata = dict(request_metadata)
-            request_metadata["connection"] = connection
-            # So prepare_metadata can hydrate credentials, copy credential_source to top level (it lives on connection)
-            if connection.get("credential_source") and not request_metadata.get("credential_source"):
-                request_metadata["credential_source"] = connection["credential_source"]
-        except ValueError as e:
-            logger.warning("Target host resolution failed: %s", e)
-            raise
-
-        try:
-            prepared_metadata = self.metadata_service.prepare_metadata(
-                db=db,
-                tenant_id=tenant_id,
-                metadata=request_metadata,
-            )
-        except Exception as e:
-            logger.warning(
-                "Credential hydration failed (worker may lack username/password): %s",
-                e,
-                exc_info=True,
-            )
-            prepared_metadata = dict(request_metadata)
-
-        sanitized_metadata = self.metadata_service.sanitize_metadata(prepared_metadata)
-        if idempotency_key:
-            prepared_metadata["idempotency_key"] = idempotency_key
-            sanitized_metadata["idempotency_key"] = idempotency_key
-        
-        logger.info("Session create: credential hydration done, creating assignment record")
-        # Create assignment record
-        assignment = AgentWorkerAssignment(
-            session_id=session.id,
-            status="pending",
-            attempt=0,
-            worker_id="unassigned",
-            details=prepared_metadata,
-        )
-        db.add(assignment)
-        db.flush()
-        logger.info("Session create: assignment record flushed, publishing session.created event")
-        # Publish session.created event
-        await self.event_service.publish_event(
-            db,
-            session=session,
-            event_type="session.created",
-            payload={
-                "session_id": session.id,
-                "runbook_id": runbook_id,
-                "tenant_id": tenant_id,
-                "ticket_id": ticket_id,
-                "status": session.status,
-                "metadata": sanitized_metadata,
-                "idempotency_key": idempotency_key,
-            },
-        )
-        
-        # Publish assignment
-        steps_payload = []
-        for step in session.steps:
-            step_dict = {
-                "step_id": step.id,
-                "step_number": step.step_number,
-                "step_type": step.step_type,
-                "requires_approval": step.requires_approval,
-                "sandbox_profile": step.sandbox_profile,
-                "blast_radius": step.blast_radius,
-                "command": step.command,
-                "rollback_command": step.rollback_command,
-            }
-            if step.command_payload and isinstance(step.command_payload, dict):
-                to_sec = step.command_payload.get("timeout_seconds")
-                if to_sec is not None:
-                    try:
-                        step_dict["timeout_seconds"] = int(to_sec)
-                    except (TypeError, ValueError):
-                        pass
-            steps_payload.append(step_dict)
-        
-        assign_payload = {
-            "session_id": session.id,
-            "tenant_id": tenant_id,
-            "ticket_id": ticket_id,
-            "runbook_id": runbook_id,
-            "steps": steps_payload,
-            "sandbox_profile": session.sandbox_profile,
-            "metadata": prepared_metadata,
-            "attempt": session.assignment_retry_count,
-            "assignment_id": assignment.id,
-            "policy": {
-                "profile": session.sandbox_profile,
-                "sla_minutes": policy_info.get("default_sla_minutes"),
-            },
-            "idempotency_key": idempotency_key,
-        }
-        
-        assignment_idempotency = f"assignment:{session.id}:{assignment.id}"
-        logger.info("Session create: publishing assignment to Redis (session_id=%s)", session.id)
-        assign_stream_id = await self.queue_service.publish_assignment(
-            db,
-            session,
-            assign_payload,
-            assignment_idempotency,
-        )
-        logger.info("Session create: assignment published, stream_id=%s", assign_stream_id)
-        session.last_event_seq = assign_stream_id
-        
-        # Publish queued event
-        await self.event_service.publish_event(
-            db,
-            session=session,
-            event_type="session.queued",
-            payload={
-                "session_id": session.id,
-                "stream_id": assign_stream_id,
-                "status": "queued",
-                "metadata": sanitized_metadata,
-                "idempotency_key": idempotency_key,
-            },
-        )
-        
-        # Publish policy events
-        await self.event_service.publish_event(
-            db,
-            session=session,
-            event_type="session.policy",
-            payload={
-                "profile": session.sandbox_profile,
-                "sla_minutes": policy_info.get("default_sla_minutes"),
-            },
-        )
-        
-        if any(step.requires_approval for step in session.steps):
-            await self.event_service.publish_event(
-                db,
-                session=session,
-                event_type="approval.policy",
-                payload={
-                    "mode": "per_step",
-                    "sla_minutes": policy_info.get("default_sla_minutes"),
-                },
-            )
-        
-        db.commit()
-        db.refresh(session)
-        agent_worker_manager.cleanup_stale_workers()
-        
-        logger.info(f"Queued execution session {session.id}")
-        return session
-    
     async def submit_manual_command(
         self,
         db: Session,
@@ -355,19 +139,12 @@ class ExecutionOrchestrator:
         session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
         if not session:
             raise ValueError("Execution session not found")
-        
         return await self.queue_service.submit_manual_command(
-            db,
-            session=session,
-            command=command,
-            shell=shell,
-            run_as=run_as,
-            reason=reason,
-            timeout_seconds=timeout_seconds,
-            user_id=user_id,
+            db, session=session, command=command, shell=shell, run_as=run_as,
+            reason=reason, timeout_seconds=timeout_seconds, user_id=user_id,
             idempotency_key=idempotency_key,
         )
-    
+
     async def control_session(
         self,
         db: Session,
@@ -381,11 +158,11 @@ class ExecutionOrchestrator:
         session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
         if not session:
             raise ValueError("Execution session not found")
-        
+
         previous_status = session.status
         new_status = previous_status
         event_type = None
-        
+
         if action == "pause":
             new_status = "paused"
             event_type = "session.paused"
@@ -398,9 +175,7 @@ class ExecutionOrchestrator:
             assignment_metadata = self._latest_assignment_metadata(session)
             if assignment_metadata:
                 prepared_metadata = self.metadata_service.prepare_metadata(
-                    db=db,
-                    tenant_id=session.tenant_id,
-                    metadata=assignment_metadata,
+                    db=db, tenant_id=session.tenant_id, metadata=assignment_metadata,
                 )
                 rollback_payload = {
                     "session_id": session.id,
@@ -421,7 +196,7 @@ class ExecutionOrchestrator:
                 )
         else:
             raise ValueError(f"Unsupported action '{action}'")
-        
+
         session.status = new_status
         payload = {
             "session_id": session.id,
@@ -430,139 +205,33 @@ class ExecutionOrchestrator:
             "reason": reason,
             "user_id": user_id,
         }
-        
-        await self.event_service.publish_event(
-            db,
-            session=session,
-            event_type=event_type,
-            payload=payload,
-        )
-        
+
+        await self.event_service.publish_event(db, session=session, event_type=event_type, payload=payload)
         db.commit()
         db.refresh(session)
         return session
-    
+
     def list_events(
-        self,
-        db: Session,
-        session_id: int,
-        *,
-        since_id: Optional[int] = None,
-        limit: int = 50,
+        self, db: Session, session_id: int, *, since_id: Optional[int] = None, limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """Return serialized execution events for a session"""
         return self.event_service.list_events(db, session_id, since_id=since_id, limit=limit)
-    
+
     async def record_event(
-        self,
-        db: Session,
-        session_id: int,
-        *,
-        event_type: str,
-        payload: Dict[str, Any],
-        step_number: Optional[int] = None,
+        self, db: Session, session_id: int, *, event_type: str, payload: Dict[str, Any], step_number: Optional[int] = None,
     ) -> str:
         """Public API for recording events originating from workers"""
-        return await self.event_service.record_event(
-            db,
-            session_id,
-            event_type=event_type,
-            payload=payload,
-            step_number=step_number,
-        )
-    
+        return await self.event_service.record_event(db, session_id, event_type=event_type, payload=payload, step_number=step_number)
+
     def serialize_session(self, session: ExecutionSession) -> Dict[str, Any]:
-        """Helper to transform ExecutionSession into response payload"""
-        def serialize_step(step: ExecutionStep) -> Dict[str, Any]:
-            try:
-                return {
-                    "id": step.id,
-                    "step_number": step.step_number,
-                    "step_type": step.step_type,
-                    "command": step.command,
-                    "rollback_command": step.rollback_command,
-                    "requires_approval": step.requires_approval,
-                    "approved": step.approved,
-                    "approved_at": step.approved_at.isoformat() if step.approved_at else None,
-                    "sandbox_profile": step.sandbox_profile,
-                    "blast_radius": step.blast_radius,
-                    "approval_policy": step.approval_policy,
-                    "completed": step.completed,
-                    "success": step.success,
-                    "output": step.output,
-                    "error": step.error,
-                    "notes": step.notes,
-                    "completed_at": step.completed_at.isoformat() if step.completed_at else None,
-                }
-            except Exception as e:
-                logger.warning(f"Error serializing step {step.id if step else 'unknown'}: {e}")
-                return {
-                    "id": step.id if step else None,
-                    "step_number": step.step_number if step else 0,
-                    "error": "Failed to serialize step"
-                }
-        
-        try:
-            # Safely access steps relationship
-            steps_list = []
-            try:
-                if hasattr(session, 'steps') and session.steps:
-                    steps_list = [serialize_step(step) for step in sorted(session.steps, key=lambda s: s.step_number)]
-            except Exception as e:
-                logger.warning(f"Error accessing steps for session {session.id}: {e}")
-                steps_list = []
-        except Exception as e:
-            logger.warning(f"Error processing steps for session {session.id}: {e}")
-            steps_list = []
-        
-        payload = {
-            "id": session.id,
-            "tenant_id": session.tenant_id,
-            "runbook_id": session.runbook_id,
-            "ticket_id": session.ticket_id,
-            "status": session.status or "unknown",
-            "current_step": session.current_step,
-            "waiting_for_approval": session.waiting_for_approval or False,
-            "transport_channel": session.transport_channel,
-            "last_event_seq": session.last_event_seq,
-            "sandbox_profile": session.sandbox_profile,
-            "assignment_retry_count": session.assignment_retry_count or 0,
-            "issue_description": session.issue_description,
-            "started_at": session.started_at.isoformat() if session.started_at else None,
-            "completed_at": session.completed_at.isoformat() if session.completed_at else None,
-            "total_duration_minutes": session.total_duration_minutes,
-            "steps": steps_list,
-        }
-        
-        try:
-            metadata = self._latest_assignment_metadata(session)
-            if metadata:
-                sanitized_metadata = self.metadata_service.sanitize_metadata(metadata)
-                payload["connection"] = sanitized_metadata.get("connection") or sanitized_metadata
-        except Exception as e:
-            logger.warning(f"Error getting assignment metadata for session {session.id}: {e}")
-        
-        return payload
-    
+        """Delegate to SessionSerializer"""
+        return self.serializer.serialize_session(session)
+
     def _latest_assignment_metadata(self, session: ExecutionSession) -> Dict[str, Any]:
-        """Return the most recent assignment metadata/details for the session"""
-        try:
-            if not hasattr(session, 'assignments') or not session.assignments:
-                return {}
-            for assignment in sorted(session.assignments, key=lambda a: a.id, reverse=True):
-                if assignment and hasattr(assignment, 'details') and assignment.details:
-                    return assignment.details
-            return {}
-        except Exception as e:
-            logger.warning(f"Error accessing assignment metadata: {e}")
-            return {}
-    
-    def _persist_assignment_metadata(
-        self,
-        db: Session,
-        session: ExecutionSession,
-        metadata: Dict[str, Any],
-    ) -> None:
+        """Delegate to SessionSerializer"""
+        return self.serializer._latest_assignment_metadata(session)
+
+    def _persist_assignment_metadata(self, db: Session, session: ExecutionSession, metadata: Dict[str, Any]) -> None:
         """Persist assignment metadata"""
         if not session.assignments:
             return

@@ -126,12 +126,43 @@ class ExecutionRepository(BaseRepository[ExecutionSession]):
             self.db.refresh(session)
         return session
     
-    def get_pending_approvals(self, tenant_id: int) -> List[ExecutionSession]:
+    def get_steps_for_session(self, session_id: int) -> List[ExecutionStep]:
+        """Get all steps for a session ordered by step_number"""
+        return (
+            self.db.query(ExecutionStep)
+            .filter(ExecutionStep.session_id == session_id)
+            .order_by(ExecutionStep.step_number)
+            .all()
+        )
+
+    def get_pending_approvals(self, tenant_id: int, limit: int = 50) -> List[ExecutionSession]:
         """Get all sessions waiting for approval for a tenant"""
         return self.db.query(ExecutionSession).filter(
             ExecutionSession.tenant_id == tenant_id,
             ExecutionSession.waiting_for_approval == True,
             ExecutionSession.status == "waiting_approval"
-        ).all()
+        ).limit(limit).all()
+
+    def get_by_id_and_tenant(self, session_id: int, tenant_id: int) -> Optional[ExecutionSession]:
+        """Get execution session by ID filtered by tenant"""
+        return self.db.query(ExecutionSession).filter(
+            ExecutionSession.id == session_id,
+            ExecutionSession.tenant_id == tenant_id,
+        ).first()
+
+    def get_step_awaiting_approval(self, session_id: int, step_number: int) -> Optional[ExecutionStep]:
+        """Get a step not yet completed awaiting approval"""
+        return self.db.query(ExecutionStep).filter(
+            ExecutionStep.session_id == session_id,
+            ExecutionStep.step_number == step_number,
+            ExecutionStep.completed == False,
+        ).first()
+
+    def get_step_by_id_and_session(self, step_id: int, session_id: int) -> Optional[ExecutionStep]:
+        """Get an execution step by id scoped to a session"""
+        return self.db.query(ExecutionStep).filter(
+            ExecutionStep.id == step_id,
+            ExecutionStep.session_id == session_id,
+        ).first()
 
 

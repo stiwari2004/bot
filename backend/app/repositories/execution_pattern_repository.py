@@ -43,6 +43,29 @@ class ExecutionPatternRepository(BaseRepository[ExecutionPattern]):
             ExecutionPattern.success_rate.desc()
         ).limit(limit).all()
     
+    def list_with_filters(
+        self,
+        tenant_id: int,
+        pattern_type: Optional[str] = None,
+        runbook_id: Optional[int] = None,
+        min_success_rate: Optional[float] = None,
+        limit: int = 100,
+    ) -> List[ExecutionPattern]:
+        """List patterns for a tenant with optional filters, ordered by success_rate desc"""
+        query = self.db.query(ExecutionPattern).filter(
+            ExecutionPattern.tenant_id == tenant_id
+        )
+        if pattern_type:
+            query = query.filter(ExecutionPattern.pattern_type == pattern_type)
+        if runbook_id is not None:
+            query = query.filter(ExecutionPattern.runbook_id == runbook_id)
+        if min_success_rate is not None:
+            query = query.filter(ExecutionPattern.success_rate >= min_success_rate)
+        return query.order_by(
+            ExecutionPattern.success_rate.desc(),
+            ExecutionPattern.usage_count.desc(),
+        ).limit(limit).all()
+
     def get_deprecated_patterns(
         self,
         tenant_id: int,

@@ -61,6 +61,13 @@ class TicketRepository(BaseRepository[Ticket]):
         query = query.options(joinedload(Ticket.tenant))
         return query.first()
     
+    def get_all_with_metadata_for_tenant(self, tenant_id: int) -> List[Ticket]:
+        """Return all tickets for a tenant that have non-null meta_data"""
+        return self.db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id,
+            Ticket.meta_data.isnot(None),
+        ).all()
+
     def delete_by_source(
         self,
         tenant_id: int,
