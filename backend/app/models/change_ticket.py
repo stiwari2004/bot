@@ -1,7 +1,8 @@
 """
 Change Ticket model for tracking change windows
 """
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, ARRAY, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Index
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -21,8 +22,8 @@ class ChangeTicket(Base):
     status = Column(String(50), default="scheduled")  # scheduled, in_progress, completed, cancelled
     start_time = Column(DateTime(timezone=True), nullable=False, index=True)
     end_time = Column(DateTime(timezone=True), nullable=False, index=True)
-    affected_services = Column(ARRAY(String), nullable=True)  # Array of service names
-    affected_environments = Column(ARRAY(String), nullable=True)  # Array of environments
+    affected_services = Column(ARRAY(String(255)), nullable=True)  # Array of service names (PostgreSQL)
+    affected_environments = Column(ARRAY(String(255)), nullable=True)  # Array of environments (PostgreSQL)
     suppression_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
