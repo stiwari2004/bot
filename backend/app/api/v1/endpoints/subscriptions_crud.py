@@ -120,7 +120,7 @@ def _get_plan_name(db: Session, license_plan_id: Optional[int]) -> Optional[str]
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("", response_model=SubscriptionResponse)
+@router.post("/", response_model=SubscriptionResponse)
 async def create_subscription(
     subscription_data: SubscriptionCreate,
     db: Session = Depends(get_db),
@@ -186,7 +186,7 @@ async def create_subscription(
     return _build_response(subscription, tenant, _get_plan_name(db, subscription.license_plan_id))
 
 
-@router.get("", response_model=List[SubscriptionResponse])
+@router.get("/", response_model=List[SubscriptionResponse])
 async def list_subscriptions(
     tenant_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
