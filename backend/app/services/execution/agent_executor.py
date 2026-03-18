@@ -39,6 +39,7 @@ from app.services.execution.command_classifier  import get_command_classifier
 from app.services.execution.output_extractor    import get_output_extractor
 from app.services.execution.step_event_publisher import StepEventPublisher
 from app.services.infrastructure import get_connector
+from app.services.threshold_service import get_threshold_service
 
 logger = get_logger(__name__)
 
@@ -56,9 +57,10 @@ class AgentExecutor(
     """
 
     def __init__(self):
-        self.classifier      = get_command_classifier()
-        self.extractor       = get_output_extractor()
-        self.event_publisher = StepEventPublisher()
+        self.classifier         = get_command_classifier()
+        self.extractor          = get_output_extractor()
+        self.event_publisher    = StepEventPublisher()
+        self.threshold_service  = get_threshold_service()
         from app.services.llm_service_gemini import GeminiLLMService
         self._llm = GeminiLLMService()
 

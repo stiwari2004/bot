@@ -143,6 +143,27 @@ class _AgentPrecheckMixin:
         history:      List[Dict] = []
         commands_run: List[str]  = []
 
+        # Fetch thresholds from threshold service (db/runbook/default) for LLM guidance
+        environment = "prod"
+        service = None
+        if session.ticket_id:
+            from app.models.ticket import Ticket
+            ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
+            if ticket:
+                environment = ticket.environment or "prod"
+                service = ticket.service
+        thresholds = {}
+        for metric in ("disk", "memory", "cpu", "network"):
+            t = self.threshold_service.get_thresholds(
+                metric=metric,
+                environment=environment,
+                service=service,
+                tenant_id=session.tenant_id,
+                runbook=None,
+                db=db,
+            )
+            thresholds[metric] = {"warning": t.get("warning", 80), "critical": t.get("critical", 90)}
+
         max_step = db.query(sqlfunc.max(ExecutionStep.step_number)).filter(
             ExecutionStep.session_id == session.id
         ).scalar() or 0
@@ -156,6 +177,7 @@ class _AgentPrecheckMixin:
                     connection_config=connection_config,
                     history=history,
                     force_verdict=force_verdict,
+                    thresholds=thresholds,
                 )
             except Exception as e:
                 logger.error("Verify LLM call failed: %s", e)

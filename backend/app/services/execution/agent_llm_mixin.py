@@ -4,7 +4,7 @@ _AgentLLMMixin — LLM calls and response parsing for AgentExecutor.
 import asyncio
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.core.logging import get_logger
 
@@ -23,6 +23,7 @@ class _AgentLLMMixin:
         connection_config: Dict[str, Any],
         history: List[Dict],
         force_verdict: bool = False,
+        thresholds: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Dict[str, Any]:
         """LLM call for the symptom verification phase."""
         server     = connection_config.get("host") or connection_config.get("server_name") or "target"
@@ -31,6 +32,14 @@ class _AgentLLMMixin:
             if force_verdict else ""
         )
 
+        # Build threshold guidance from configured thresholds (db/runbook/default)
+        thresholds = thresholds or {}
+        threshold_lines = []
+        for metric, t in thresholds.items():
+            w, c = t.get("warning", 80), t.get("critical", 90)
+            threshold_lines.append(f"{metric}: >= {w}% = warning (confirmed), >= {c}% = critical (confirmed)")
+        threshold_text = "; ".join(threshold_lines) if threshold_lines else "Disk/Memory/CPU: >= 80% = warning, >= 90% = critical (defaults)"
+
         system_prompt = (
             "You are verifying whether a reported alert is a true positive or false positive. "
             "You are already connected to the target server. "
@@ -38,6 +47,9 @@ class _AgentLLMMixin:
             "is currently present (e.g., for 'disk full' run df -h, for 'service down' run "
             "systemctl status <service>). "
             "Do NOT investigate the root cause yet — just confirm if the problem exists right now. "
+            f"THRESHOLDS for resource usage (treat as CONFIRMED/true_positive if at or above these): "
+            f"{threshold_text}. "
+            "Below warning threshold with no other error indicators = false positive. "
             "Respond ONLY with valid JSON."
         )
 
@@ -60,13 +72,13 @@ Respond with ONE of:
 {{
   "action": "verdict",
   "confirmed": true,
-  "evidence": "one-line summary — e.g. Disk at 95% on /dev/sda1, issue is real"
+  "evidence": "one-line summary — e.g. Disk at 86% on /, above warning threshold, issue confirmed"
 }}
-or
+or (only when usage is BELOW the warning threshold and no errors):
 {{
   "action": "verdict",
   "confirmed": false,
-  "evidence": "one-line summary — e.g. Disk at 42%, no issue present"
+  "evidence": "one-line summary — e.g. Disk at 42%, below warning threshold, no issue present"
 }}"""
 
         logger.info("Verify LLM call (history=%d, force=%s)", len(history), force_verdict)
