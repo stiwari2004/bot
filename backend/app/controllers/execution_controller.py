@@ -93,8 +93,8 @@ class ExecutionController:
     def get_agent_session_plan(self, session_id: int) -> Dict[str, Any]:
         return self._agent_ctrl.get_agent_session_plan(session_id)
 
-    def approve_agent_plan(self, session_id: int) -> Dict[str, Any]:
-        return self._agent_ctrl.approve_agent_plan(session_id)
+    def approve_agent_plan(self, session_id: int, proposed_plan: Optional[List] = None) -> Dict[str, Any]:
+        return self._agent_ctrl.approve_agent_plan(session_id, proposed_plan)
 
     def reject_agent_plan(self, session_id: int, feedback: str) -> Dict[str, Any]:
         return self._agent_ctrl.reject_agent_plan(session_id, feedback)

@@ -1,7 +1,7 @@
 """
 Agent session endpoints for execution API
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -23,6 +23,22 @@ class AgentSessionCreate(BaseModel):
     tenant_id: Optional[int] = 1
     user_id: Optional[int] = None
     connection_id: Optional[int] = None
+
+
+class PlanStep(BaseModel):
+    """Single step in an execution plan — editable by human."""
+    step: int = Field(..., ge=1)
+    intent: str = Field(default="")
+    command: str = Field(..., min_length=1)
+    risk: str = Field(default="medium", description="low|medium|high")
+
+
+class PlanApproveRequest(BaseModel):
+    """Approve the plan — optionally with human-edited steps (reordered, removed, or modified)."""
+    proposed_plan: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Human-edited plan. If omitted, uses agent's original. Order = execution order.",
+    )
 
 
 class PlanRejectRequest(BaseModel):
@@ -59,9 +75,14 @@ async def get_agent_session_plan(session_id: int, db: Session = Depends(get_db))
 
 
 @router.post("/demo/agent-sessions/{session_id}/plan/approve")
-async def approve_agent_plan(session_id: int, db: Session = Depends(get_db)):
-    """Approve the proposed plan — agent transitions into the execute phase."""
-    return ExecutionController(db, tenant_id=1).approve_agent_plan(session_id)
+async def approve_agent_plan(
+    session_id: int,
+    data: Optional[PlanApproveRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """Approve the plan — optionally with human-edited steps (reorder, remove, edit). Execution uses the submitted plan."""
+    proposed_plan = data.proposed_plan if data and data.proposed_plan else None
+    return ExecutionController(db, tenant_id=1).approve_agent_plan(session_id, proposed_plan)
 
 
 @router.post("/demo/agent-sessions/{session_id}/plan/reject")

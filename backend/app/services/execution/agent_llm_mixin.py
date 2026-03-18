@@ -118,9 +118,9 @@ or (only when usage is BELOW the warning threshold and no errors):
             "Your ONLY goal right now is to understand the problem. Do NOT fix anything yet. "
             "Use READ-ONLY commands only: df, du, ls, cat, grep, ps, top, free, "
             "journalctl (read), systemctl status, netstat, lsof, find (without -delete/-exec rm). "
-            "When you have identified the root cause and can propose a safe, targeted fix plan, "
-            "respond with diagnosis_complete. "
+            "When you have identified the root cause and can propose a fix plan, respond with diagnosis_complete. "
             "IMPORTANT: diagnosis_complete MUST always include a non-empty proposed_plan. "
+            "The human will review, edit, reorder, and remove steps before approving. "
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
@@ -144,8 +144,6 @@ Respond with ONE of:
   "findings": {{
     "root_cause": "concise description of the problem",
     "evidence": ["key fact 1", "key fact 2"],
-    "safe_targets": ["paths or services that are safe to modify"],
-    "risky_targets": ["paths or services to avoid — with reason"],
     "confidence": "high|medium|low"
   }},
   "proposed_plan": [

@@ -104,7 +104,7 @@ class AgentSessionController(BaseController):
             "plan_rejection_feedback": meta.get("plan_rejection_feedback", []),
         }
 
-    def approve_agent_plan(self, session_id: int) -> Dict[str, Any]:
+    def approve_agent_plan(self, session_id: int, proposed_plan: Optional[List] = None) -> Dict[str, Any]:
         from sqlalchemy.orm.attributes import flag_modified
         session = self.execution_repo.get_by_id(session_id)
         if not session:
@@ -113,6 +113,8 @@ class AgentSessionController(BaseController):
             raise self.bad_request(
                 f"Session is not awaiting plan approval (current status: {session.status})"
             )
+        if proposed_plan is not None:
+            session.meta_data["proposed_plan"] = proposed_plan
         session.meta_data["plan_approved"] = True
         session.meta_data["plan_rejected"] = False
         flag_modified(session, "meta_data")
