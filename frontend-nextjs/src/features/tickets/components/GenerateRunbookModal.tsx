@@ -6,31 +6,18 @@ import { XMarkIcon } from '@heroicons/react/24/outline';
 
 import type { Ticket, TicketDetail } from '@/features/tickets/types';
 import { useAgentSession } from '@/features/tickets/hooks/useAgentSession';
-import { AgentRunningLog }  from '@/features/tickets/components/agent/AgentRunningLog';
-import { AgentPlanApproval } from '@/features/tickets/components/agent/AgentPlanApproval';
-import { AgentStepReview }  from '@/features/tickets/components/agent/AgentStepReview';
-import { AgentDoneScreen }  from '@/features/tickets/components/agent/AgentDoneScreen';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-
-const PHASE_TITLES: Record<string, string> = {
-  running:   'Agent Running…',
-  approving: 'Review & Approve Plan',
-  review:    'Review & Save Runbook',
-  done:      'Runbook Saved',
-};
 
 interface Props {
   ticket: TicketDetail | Ticket | null;
   onClose: () => void;
+  onAgentStarted: (sessionId: number) => void;
 }
 
-export function GenerateRunbookModal({ ticket, onClose }: Props) {
-  const [state, actions] = useAgentSession(ticket);
-  const { phase, issueDescription, sessionStatus, logLines,
-          planSteps, planDiagnosis, rejectFeedback, approveLoading, rejectLoading,
-          steps, weedSet, runbookTitle, agentSummary,
-          savedRunbook, saveLoading, error } = state;
+export function GenerateRunbookModal({ ticket, onClose, onAgentStarted }: Props) {
+  const [state, actions] = useAgentSession(ticket, onAgentStarted);
+  const { issueDescription, starting, error } = state;
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -39,80 +26,67 @@ export function GenerateRunbookModal({ ticket, onClose }: Props) {
 
   if (!ticket) return null;
 
-  const handleClose = () => {
-    actions.stopPolling();
-    onClose();
-  };
-
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
     >
-      <div onClick={e => e.stopPropagation()} className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <div onClick={e => e.stopPropagation()} className="max-w-2xl w-full">
         <Card variant="elevated">
-          {/* Header */}
           <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-neutral-100">
-            <div className="min-w-0">
-              <h3 className="text-xl font-bold text-neutral-900">{PHASE_TITLES[phase]}</h3>
-              {issueDescription && (
-                <p className="mt-0.5 text-xs text-neutral-500 truncate max-w-xl">
-                  {issueDescription.replace(/\n/g, ' ').slice(0, 120)}
-                  {issueDescription.length > 120 ? '…' : ''}
-                </p>
-              )}
-            </div>
-            <Button variant="ghost" size="sm" onClick={handleClose}>
+            <h3 className="text-xl font-bold text-neutral-900">Run Agent</h3>
+            <Button variant="ghost" size="sm" onClick={onClose}>
               <XMarkIcon className="h-6 w-6" />
             </Button>
           </div>
 
           <CardContent padding="md">
-            {phase === 'running' && (
-              <AgentRunningLog
-                logLines={logLines}
-                sessionStatus={sessionStatus}
-                error={error}
-                onClose={handleClose}
-              />
-            )}
+            <form onSubmit={actions.startAgent} className="space-y-4">
+              <Card variant="outlined" className="border-blue-200 bg-blue-50">
+                <CardContent padding="sm">
+                  <p className="text-sm text-blue-800 font-medium">
+                    The agent will connect to the target server, diagnose the issue, and propose
+                    a fix plan for your approval before executing anything.
+                  </p>
+                </CardContent>
+              </Card>
 
-            {phase === 'approving' && (
-              <AgentPlanApproval
-                planSteps={planSteps}
-                planDiagnosis={planDiagnosis}
-                rejectFeedback={rejectFeedback}
-                approveLoading={approveLoading}
-                rejectLoading={rejectLoading}
-                error={error}
-                onUpdateStep={actions.updatePlanStep}
-                onRemoveStep={actions.removePlanStep}
-                onAddStep={actions.addPlanStep}
-                onMoveStep={actions.movePlanStep}
-                onSetRejectFeedback={actions.setRejectFeedback}
-                onApprove={actions.approvePlan}
-                onReject={actions.rejectPlan}
-              />
-            )}
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">
+                  Issue Description *
+                </label>
+                <textarea
+                  value={issueDescription}
+                  onChange={e => actions.setIssueDescription(e.target.value)}
+                  rows={6}
+                  className="w-full px-3 py-2.5 border-2 border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-neutral-900 transition-all"
+                  placeholder="Describe the issue…"
+                  required
+                />
+              </div>
 
-            {phase === 'review' && (
-              <AgentStepReview
-                steps={steps}
-                weedSet={weedSet}
-                agentSummary={agentSummary}
-                runbookTitle={runbookTitle}
-                saveLoading={saveLoading}
-                error={error}
-                onToggleWeed={actions.toggleWeed}
-                onTitleChange={actions.setRunbookTitle}
-                onSave={actions.saveRunbook}
-                onDiscard={handleClose}
-              />
-            )}
+              {error && (
+                <Card variant="outlined" className="border-red-200 bg-red-50">
+                  <CardContent padding="sm">
+                    <p className="text-sm text-red-800">{error}</p>
+                  </CardContent>
+                </Card>
+              )}
 
-            {phase === 'done' && savedRunbook && (
-              <AgentDoneScreen runbook={savedRunbook} onClose={handleClose} />
-            )}
-
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" onClick={onClose} disabled={starting}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={starting}
+                  disabled={starting || !issueDescription.trim()}
+                >
+                  Start Agent
+                </Button>
+              </div>
+            </form>
           </CardContent>
         </Card>
       </div>
