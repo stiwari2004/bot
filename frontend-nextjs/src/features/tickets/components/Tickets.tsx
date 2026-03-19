@@ -9,12 +9,13 @@ import {
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { TicketDetailModal } from './TicketDetailModal';
-import { GenerateRunbookModal } from './GenerateRunbookModal';
 import { useTicketsData } from '../hooks/useTicketsData';
 import type { Ticket } from '../types';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { apiConfig } from '@/lib/api-config';
+import { authFetch } from '@/lib/auth-fetch';
 
 interface TicketsProps {
   onSessionLaunched?: (sessionId: number) => void;
@@ -22,7 +23,8 @@ interface TicketsProps {
 
 export function Tickets({ onSessionLaunched }: TicketsProps) {
   const [executing, setExecuting] = useState<number | null>(null);
-  const [showGenerateRunbook, setShowGenerateRunbook] = useState(false);
+  const [runAgentLoading, setRunAgentLoading] = useState(false);
+  const [runAgentError, setRunAgentError] = useState<string | null>(null);
   const [newTicketId, setNewTicketId] = useState<number | null>(null);
   const [showNewTicketToast, setShowNewTicketToast] = useState(false);
   const hasInitializedRef = useRef(false);
@@ -57,6 +59,32 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
       // Error already handled in hook
     } finally {
       setExecuting(null);
+    }
+  };
+
+  const handleRunAgent = async () => {
+    const ticket = ticketDetail || tickets.find((t) => t.id === selectedTicket);
+    if (!ticket) return;
+    setRunAgentLoading(true);
+    setRunAgentError(null);
+    try {
+      const desc = `${ticket.title}${ticket.description ? '\n\n' + ticket.description : ''}`;
+      const res = await authFetch(apiConfig.endpoints.executions.agentSessions(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issue_description: desc, ticket_id: ticket.id, tenant_id: 1 }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail || 'Failed to start agent');
+      }
+      const data = await res.json();
+      setSelectedTicket(null);
+      if (onSessionLaunched) onSessionLaunched(data.session_id);
+    } catch (err) {
+      setRunAgentError(err instanceof Error ? err.message : 'Failed to start agent');
+    } finally {
+      setRunAgentLoading(false);
     }
   };
 
@@ -264,24 +292,11 @@ export function Tickets({ onSessionLaunched }: TicketsProps) {
           onClose={() => setSelectedTicket(null)}
           onExecute={handleExecute}
           executing={executing}
-          onGenerateRunbook={() => setShowGenerateRunbook(true)}
+          onGenerateRunbook={handleRunAgent}
+          runAgentLoading={runAgentLoading}
+          runAgentError={runAgentError}
           onRefresh={() => selectedTicket && fetchTicketDetail(selectedTicket)}
           onSessionLaunched={onSessionLaunched}
-        />
-      )}
-
-      {/* Generate Runbook Modal */}
-      {showGenerateRunbook && (ticketDetail || selectedTicket) && (
-        <GenerateRunbookModal
-          ticket={ticketDetail || tickets.find((t) => t.id === selectedTicket) || null}
-          onClose={() => {
-            console.log('Closing GenerateRunbookModal');
-            setShowGenerateRunbook(false);
-            fetchTickets();
-            if (selectedTicket) {
-              fetchTicketDetail(selectedTicket);
-            }
-          }}
         />
       )}
 

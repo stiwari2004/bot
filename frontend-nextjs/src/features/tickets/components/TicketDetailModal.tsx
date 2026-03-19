@@ -21,6 +21,8 @@ interface TicketDetailModalProps {
   onExecute: (ticketId: number, runbookId: number) => Promise<void>;
   executing: number | null;
   onGenerateRunbook: () => void;
+  runAgentLoading?: boolean;
+  runAgentError?: string | null;
   onRefresh?: () => void;
   onSessionLaunched?: (sessionId: number) => void;
 }
@@ -32,6 +34,8 @@ export function TicketDetailModal({
   onExecute,
   executing,
   onGenerateRunbook,
+  runAgentLoading = false,
+  runAgentError,
   onRefresh,
   onSessionLaunched,
 }: TicketDetailModalProps) {
@@ -202,9 +206,11 @@ export function TicketDetailModal({
             variant="secondary"
             size="sm"
             onClick={onGenerateRunbook}
+            isLoading={runAgentLoading}
+            disabled={runAgentLoading}
             leftIcon={<PlusIcon className="h-4 w-4" />}
           >
-            Create new runbook
+            Run Agent
           </Button>
         </CardHeader>
         <CardContent padding="md">
@@ -256,15 +262,25 @@ export function TicketDetailModal({
                 <Button
                   variant="warning"
                   onClick={onGenerateRunbook}
+                  isLoading={runAgentLoading}
+                  disabled={runAgentLoading}
                   leftIcon={<PlusIcon className="h-4 w-4" />}
                 >
-                  Create new runbook
+                  Run Agent
                 </Button>
               </CardContent>
             </Card>
           )}
         </CardContent>
       </Card>
+
+      {runAgentError && (
+        <Card variant="outlined" className="border-error-200 bg-error-50">
+          <CardContent padding="sm">
+            <p className="text-sm text-error-800">{runAgentError}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {executionSessions.length > 0 && (
         <Card variant="elevated">
