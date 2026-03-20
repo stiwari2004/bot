@@ -250,7 +250,7 @@ class RunbookCrystalliser:
 
         # Store via RunbookRepository
         from app.repositories.runbook_repository import RunbookRepository
-        repo = RunbookRepository()
+        repo = RunbookRepository(db)
         runbook = repo.create(
             db=db,
             tenant_id=tenant_id,
