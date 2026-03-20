@@ -271,6 +271,10 @@ export function AgentWorkspace({ initialSessionId = null }: AgentWorkspaceProps)
               stepActionError={stepActionError}
               onControlAction={handleControlAction}
               onStepApproval={handleStepApproval}
+              onRetry={(newSessionId) => {
+                fetchSessions();
+                setActiveSessionId(newSessionId);
+              }}
             />
           )}
 

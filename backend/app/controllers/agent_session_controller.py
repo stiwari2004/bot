@@ -198,6 +198,22 @@ class AgentSessionController(BaseController):
 
         return result
 
+    async def retry_agent_session(self, session_id: int) -> Dict[str, Any]:
+        """Create a new agent session with the same issue as a failed one."""
+        session = self.execution_repo.get_by_id(session_id)
+        if not session:
+            raise self.not_found("Session", session_id)
+        meta = session.meta_data or {}
+        issue_description = meta.get("issue_description", "")
+        if not issue_description:
+            raise self.bad_request("Original session has no issue description to retry.")
+        return await self.create_agent_session(
+            issue_description=issue_description,
+            ticket_id=session.ticket_id,
+            user_id=session.user_id,
+            connection_id=meta.get("connection_id"),
+        )
+
     def get_agent_session_steps_for_review(self, session_id: int) -> Dict[str, Any]:
         from app.services.execution.command_classifier import get_command_classifier
         session = self.execution_repo.get_by_id(session_id)

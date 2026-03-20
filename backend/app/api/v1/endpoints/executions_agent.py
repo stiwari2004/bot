@@ -106,3 +106,9 @@ async def review_agent_session(session_id: int, data: AgentSessionReview, db: Se
 async def get_agent_session_steps_for_review(session_id: int, db: Session = Depends(get_db)):
     """Return all steps formatted for the human review UI."""
     return ExecutionController(db, tenant_id=1).get_agent_session_steps_for_review(session_id)
+
+
+@router.post("/demo/agent-sessions/{session_id}/retry")
+async def retry_agent_session(session_id: int, db: Session = Depends(get_db)):
+    """Start a new agent session using the same issue description as the failed session."""
+    return await ExecutionController(db, tenant_id=1).retry_agent_session(session_id)

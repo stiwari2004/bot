@@ -108,3 +108,6 @@ class ExecutionController:
 
     def get_agent_session_steps_for_review(self, session_id: int) -> Dict[str, Any]:
         return self._agent_ctrl.get_agent_session_steps_for_review(session_id)
+
+    async def retry_agent_session(self, session_id: int) -> Dict[str, Any]:
+        return await self._agent_ctrl.retry_agent_session(session_id)

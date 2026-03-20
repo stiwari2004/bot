@@ -122,6 +122,7 @@ const createEndpoints = (baseUrl: string) => ({
     agentSessionPlan: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/agent-sessions/${sessionId}/plan`,
     agentSessionPlanApprove: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/agent-sessions/${sessionId}/plan/approve`,
     agentSessionPlanReject: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/agent-sessions/${sessionId}/plan/reject`,
+    agentSessionRetry: (sessionId: number) => `${baseUrl}/api/v1/executions/demo/agent-sessions/${sessionId}/retry`,
   },
   settings: {
     executionMode: () => `${baseUrl}/api/v1/settings/execution-mode/demo`,
