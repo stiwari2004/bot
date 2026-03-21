@@ -66,21 +66,34 @@ class _AgentDiagnoseMixin:
                 break
 
             if action.get("action") == "diagnosis_complete":
-                findings      = action.get("findings") or {}
-                proposed_plan = action.get("proposed_plan") or []
+                findings   = action.get("findings") or {}
+                approaches = action.get("approaches") or []
 
-                if not proposed_plan:
+                # Backward compat: wrap legacy proposed_plan as a single approach
+                if not approaches:
+                    legacy = action.get("proposed_plan") or []
+                    if legacy:
+                        approaches = [{
+                            "id": "A",
+                            "title": "Proposed Plan",
+                            "rationale": "",
+                            "risk": "medium",
+                            "steps": legacy,
+                        }]
+
+                if not approaches:
                     history.append({
                         "step": step_number,
                         "command": "(diagnosis_complete)",
-                        "output": "[ERROR] diagnosis_complete must include a proposed_plan. Provide one.",
+                        "output": "[ERROR] diagnosis_complete must include at least one approach with steps. Provide approaches array.",
                         "success": False,
                     })
                     step_number += 1
                     continue
 
                 session.meta_data["diagnosis"]         = findings
-                session.meta_data["proposed_plan"]     = proposed_plan
+                session.meta_data["approaches"]        = approaches
+                session.meta_data["proposed_plan"]     = None  # set after user selects approach
                 session.meta_data["diagnosis_history"] = history
                 session.meta_data["phase"]             = "awaiting_plan_approval"
                 session.status = "awaiting_plan_approval"
@@ -88,10 +101,10 @@ class _AgentDiagnoseMixin:
                 db.commit()
 
                 await self.event_publisher.publish_raw(db, session, {
-                    "event_type":    "agent.plan_ready",
-                    "diagnosis":     findings,
-                    "proposed_plan": proposed_plan,
-                    "message":       "Diagnosis complete. Review and approve the plan to proceed.",
+                    "event_type": "agent.plan_ready",
+                    "diagnosis":  findings,
+                    "approaches": approaches,
+                    "message":    "Diagnosis complete. Select an approach and approve to begin execution.",
                 })
                 return
 
@@ -234,15 +247,27 @@ class _AgentDiagnoseMixin:
                 break
 
             if action.get("action") == "diagnosis_complete":
-                findings      = action.get("findings") or meta.get("diagnosis") or {}
-                proposed_plan = action.get("proposed_plan") or []
+                findings   = action.get("findings") or meta.get("diagnosis") or {}
+                approaches = action.get("approaches") or []
 
-                if not proposed_plan:
+                if not approaches:
+                    legacy = action.get("proposed_plan") or []
+                    if legacy:
+                        approaches = [{
+                            "id": "A",
+                            "title": "Revised Plan",
+                            "rationale": "",
+                            "risk": "medium",
+                            "steps": legacy,
+                        }]
+
+                if not approaches:
                     continue
 
                 rejection_count = meta.get("plan_rejection_count", 0)
                 session.meta_data["diagnosis"]         = findings
-                session.meta_data["proposed_plan"]     = proposed_plan
+                session.meta_data["approaches"]        = approaches
+                session.meta_data["proposed_plan"]     = None
                 session.meta_data["diagnosis_history"] = history
                 session.meta_data["phase"]             = "awaiting_plan_approval"
                 session.status = "awaiting_plan_approval"
@@ -252,9 +277,9 @@ class _AgentDiagnoseMixin:
                 await self.event_publisher.publish_raw(db, session, {
                     "event_type":      "agent.plan_revised",
                     "diagnosis":       findings,
-                    "proposed_plan":   proposed_plan,
+                    "approaches":      approaches,
                     "revision_number": rejection_count,
-                    "message":         "Plan revised based on your feedback. Please review.",
+                    "message":         "Plan revised based on your feedback. Select an approach to proceed.",
                 })
                 return
 

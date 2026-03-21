@@ -34,10 +34,14 @@ class PlanStep(BaseModel):
 
 
 class PlanApproveRequest(BaseModel):
-    """Approve the plan — optionally with human-edited steps (reordered, removed, or modified)."""
+    """Approve the plan — must specify which approach to run (and optionally edit its steps)."""
+    selected_approach_id: Optional[str] = Field(
+        default=None,
+        description="The approach id (e.g. 'A', 'B') the human selected to execute.",
+    )
     proposed_plan: Optional[List[Dict[str, Any]]] = Field(
         default=None,
-        description="Human-edited plan. If omitted, uses agent's original. Order = execution order.",
+        description="Human-edited steps. If omitted, uses the selected approach's steps as-is.",
     )
 
 
@@ -81,8 +85,11 @@ async def approve_agent_plan(
     db: Session = Depends(get_db),
 ):
     """Approve the plan — optionally with human-edited steps (reorder, remove, edit). Execution uses the submitted plan."""
-    proposed_plan = data.proposed_plan if data and data.proposed_plan else None
-    return ExecutionController(db, tenant_id=1).approve_agent_plan(session_id, proposed_plan)
+    selected_approach_id = data.selected_approach_id if data else None
+    proposed_plan = data.proposed_plan if data else None
+    return ExecutionController(db, tenant_id=1).approve_agent_plan(
+        session_id, selected_approach_id, proposed_plan
+    )
 
 
 @router.post("/demo/agent-sessions/{session_id}/plan/reject")
@@ -108,7 +115,19 @@ async def get_agent_session_steps_for_review(session_id: int, db: Session = Depe
     return ExecutionController(db, tenant_id=1).get_agent_session_steps_for_review(session_id)
 
 
+class AgentSessionRetry(BaseModel):
+    user_direction: Optional[str] = Field(
+        default=None,
+        description="What NOT to do and what approach to try instead. Injected into the new session's context.",
+    )
+
+
 @router.post("/demo/agent-sessions/{session_id}/retry")
-async def retry_agent_session(session_id: int, db: Session = Depends(get_db)):
-    """Start a new agent session using the same issue description as the failed session."""
-    return await ExecutionController(db, tenant_id=1).retry_agent_session(session_id)
+async def retry_agent_session(
+    session_id: int,
+    data: Optional[AgentSessionRetry] = None,
+    db: Session = Depends(get_db),
+):
+    """Start a new agent session using the same issue description, with optional directional feedback."""
+    user_direction = data.user_direction if data else None
+    return await ExecutionController(db, tenant_id=1).retry_agent_session(session_id, user_direction)

@@ -98,13 +98,19 @@ class AgentSessionController(BaseController):
             "status": session.status,
             "phase": meta.get("phase", "unknown"),
             "diagnosis": meta.get("diagnosis"),
+            "approaches": meta.get("approaches") or [],
             "proposed_plan": meta.get("proposed_plan"),
             "plan_approved": meta.get("plan_approved"),
             "plan_rejection_count": meta.get("plan_rejection_count", 0),
             "plan_rejection_feedback": meta.get("plan_rejection_feedback", []),
         }
 
-    def approve_agent_plan(self, session_id: int, proposed_plan: Optional[List] = None) -> Dict[str, Any]:
+    def approve_agent_plan(
+        self,
+        session_id: int,
+        selected_approach_id: Optional[str] = None,
+        proposed_plan: Optional[List] = None,
+    ) -> Dict[str, Any]:
         from sqlalchemy.orm.attributes import flag_modified
         session = self.execution_repo.get_by_id(session_id)
         if not session:
@@ -113,8 +119,25 @@ class AgentSessionController(BaseController):
             raise self.bad_request(
                 f"Session is not awaiting plan approval (current status: {session.status})"
             )
+
+        # Resolve the plan from the selected approach if no explicit steps provided
+        if proposed_plan is None and selected_approach_id:
+            approaches = session.meta_data.get("approaches") or []
+            approach = next((a for a in approaches if a.get("id") == selected_approach_id), None)
+            if approach:
+                proposed_plan = approach.get("steps") or []
+            else:
+                raise self.bad_request(f"Approach '{selected_approach_id}' not found in session.")
+
         if proposed_plan is not None:
             session.meta_data["proposed_plan"] = proposed_plan
+            session.meta_data["selected_approach_id"] = selected_approach_id
+
+        if not session.meta_data.get("proposed_plan"):
+            raise self.bad_request(
+                "No plan to approve. Provide selected_approach_id or proposed_plan."
+            )
+
         session.meta_data["plan_approved"] = True
         session.meta_data["plan_rejected"] = False
         flag_modified(session, "meta_data")
@@ -122,6 +145,7 @@ class AgentSessionController(BaseController):
         return {
             "session_id": session_id,
             "approved": True,
+            "selected_approach_id": selected_approach_id,
             "message": "Plan approved — execution will begin shortly.",
         }
 
@@ -198,8 +222,12 @@ class AgentSessionController(BaseController):
 
         return result
 
-    async def retry_agent_session(self, session_id: int) -> Dict[str, Any]:
-        """Create a new agent session with the same issue as a failed one."""
+    async def retry_agent_session(
+        self,
+        session_id: int,
+        user_direction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a new agent session with the same issue, injecting directional feedback if provided."""
         session = self.execution_repo.get_by_id(session_id)
         if not session:
             raise self.not_found("Session", session_id)
@@ -207,8 +235,20 @@ class AgentSessionController(BaseController):
         issue_description = meta.get("issue_description", "")
         if not issue_description:
             raise self.bad_request("Original session has no issue description to retry.")
+
+        # Inject direction so the agent doesn't repeat the same approach
+        if user_direction and user_direction.strip():
+            enriched_description = (
+                f"{issue_description}\n\n"
+                f"[PREVIOUS ATTEMPT CONTEXT]\n"
+                f"Session {session_id} already ran and did not resolve the issue.\n"
+                f"User guidance for this retry: {user_direction.strip()}"
+            )
+        else:
+            enriched_description = issue_description
+
         return await self.create_agent_session(
-            issue_description=issue_description,
+            issue_description=enriched_description,
             ticket_id=session.ticket_id,
             user_id=session.user_id,
             connection_id=meta.get("connection_id"),

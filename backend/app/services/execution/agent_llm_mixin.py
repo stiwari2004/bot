@@ -138,7 +138,7 @@ Respond with ONE of:
   "reasoning": "what you are looking for and why"
 }}
 
-2. Declare diagnosis complete (include BOTH findings AND plan):
+2. Declare diagnosis complete with 2–3 alternative approaches:
 {{
   "action": "diagnosis_complete",
   "findings": {{
@@ -146,10 +146,28 @@ Respond with ONE of:
     "evidence": ["key fact 1", "key fact 2"],
     "confidence": "high|medium|low"
   }},
-  "proposed_plan": [
-    {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
+  "approaches": [
+    {{
+      "id": "A",
+      "title": "Short label for this approach (≤8 words)",
+      "rationale": "Why this approach, what it targets, expected impact",
+      "risk": "low|medium|high",
+      "steps": [
+        {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
+      ]
+    }},
+    {{
+      "id": "B",
+      "title": "Second approach title",
+      "rationale": "Different strategy or different target",
+      "risk": "low|medium|high",
+      "steps": [
+        {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
+      ]
+    }}
   ]
-}}"""
+}}
+IMPORTANT: Always provide at least 2 approaches ordered from safest/least invasive to most invasive. The human will PICK which approach to run — do NOT collapse them into one plan."""
 
         logger.info("Diagnose LLM call (history=%d, rejections=%d)", len(history), len(rejection_feedbacks))
         raw = await asyncio.wait_for(
