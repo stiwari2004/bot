@@ -119,8 +119,13 @@ or (only when usage is BELOW the warning threshold and no errors):
             "Use READ-ONLY commands only: df, du, ls, cat, grep, ps, top, free, "
             "journalctl (read), systemctl status, netstat, lsof, find (without -delete/-exec rm). "
             "When you have identified the root cause and can propose a fix plan, respond with diagnosis_complete. "
-            "IMPORTANT: diagnosis_complete MUST always include a non-empty proposed_plan. "
-            "The human will review, edit, reorder, and remove steps before approving. "
+            "CRITICAL BRANCHING RULES for diagnosis_complete:\n"
+            "1. Look at your actual command output. Identify the 2-3 LARGEST contributors (top-level directories or processes).\n"
+            "2. Each approach must target a DIFFERENT top-level contributor — do NOT create sub-branches of the same directory.\n"
+            "3. Order approaches: safest/lowest-risk FIRST, highest-risk LAST.\n"
+            "4. Label each approach with the ACTUAL directory/service name and size from your output (e.g. 'Clear /var logs — 44G').\n"
+            "5. Do NOT guess or hallucinate directory names — only use what appeared in command output.\n"
+            "The human will PICK which approach to run — they cannot see intermediate steps, only the final approaches.\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
@@ -138,7 +143,7 @@ Respond with ONE of:
   "reasoning": "what you are looking for and why"
 }}
 
-2. Declare diagnosis complete with 2–3 alternative approaches:
+2. Declare diagnosis complete with 2–3 alternative approaches (each targeting a DIFFERENT top contributor):
 {{
   "action": "diagnosis_complete",
   "findings": {{
@@ -149,25 +154,36 @@ Respond with ONE of:
   "approaches": [
     {{
       "id": "A",
-      "title": "Short label for this approach (≤8 words)",
-      "rationale": "Why this approach, what it targets, expected impact",
-      "risk": "low|medium|high",
+      "title": "Clean /var logs (44G)",
+      "rationale": "Safest option — removes old log files from /var which is the largest consumer. No service disruption.",
+      "risk": "low",
       "steps": [
         {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
       ]
     }},
     {{
       "id": "B",
-      "title": "Second approach title",
-      "rationale": "Different strategy or different target",
-      "risk": "low|medium|high",
+      "title": "Clear /usr package cache (3.2G)",
+      "rationale": "Safe — removes cached package files from /usr. Frees less space but zero risk.",
+      "risk": "low",
+      "steps": [
+        {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
+      ]
+    }},
+    {{
+      "id": "C",
+      "title": "Remove /opt application data (4.5G)",
+      "rationale": "Higher risk — removes application files. Only do this if the above approaches are insufficient.",
+      "risk": "high",
       "steps": [
         {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
       ]
     }}
   ]
 }}
-IMPORTANT: Always provide at least 2 approaches ordered from safest/least invasive to most invasive. The human will PICK which approach to run — do NOT collapse them into one plan."""
+RULES: Replace the example titles/rationale above with ACTUAL directory names and sizes from your command output.
+Each approach targets a DIFFERENT top-level directory. Order safest first. At least 2 approaches required.
+The human picks ONE approach — do NOT collapse them into a single plan."""
 
         logger.info("Diagnose LLM call (history=%d, rejections=%d)", len(history), len(rejection_feedbacks))
         raw = await asyncio.wait_for(

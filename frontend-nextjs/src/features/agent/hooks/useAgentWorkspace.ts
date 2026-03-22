@@ -317,9 +317,11 @@ export function useAgentWorkspace(
   }, []);
 
   const fetchSessionDetail = useCallback(
-    async (sessionId: number) => {
-      setLoadingDetail(true);
-      setDetailError(null);
+    async (sessionId: number, background = false) => {
+      if (!background) {
+        setLoadingDetail(true);
+        setDetailError(null);
+      }
       try {
         const [detailRes, eventsRes] = await Promise.all([
           fetch(`${API_BASE}/api/v1/executions/demo/sessions/${sessionId}`),
@@ -367,9 +369,9 @@ export function useAgentWorkspace(
           setInitialEvents([]);
         }
       } catch (error: any) {
-        setDetailError(error?.message || 'Failed to load session');
+        if (!background) setDetailError(error?.message || 'Failed to load session');
       } finally {
-        setLoadingDetail(false);
+        if (!background) setLoadingDetail(false);
       }
     },
     []
@@ -1480,7 +1482,7 @@ export function useAgentWorkspace(
       // Poll for session updates every 5 seconds if session is not completed
       pollIntervalRef.current = setInterval(async () => {
         if (activeSessionIdRef.current === activeSessionId) {
-          await fetchSessionDetail(activeSessionId);
+          await fetchSessionDetail(activeSessionId, true); // background=true: don't flash loading
         } else {
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
