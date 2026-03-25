@@ -93,6 +93,9 @@ class ExecutionController:
     def get_agent_session_plan(self, session_id: int) -> Dict[str, Any]:
         return self._agent_ctrl.get_agent_session_plan(session_id)
 
+    async def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
+        return await self._agent_ctrl.select_approach(session_id, approach_id)
+
     def approve_agent_plan(self, session_id: int, selected_approach_id: Optional[str] = None, proposed_plan: Optional[List] = None) -> Dict[str, Any]:
         return self._agent_ctrl.approve_agent_plan(session_id, selected_approach_id, proposed_plan)
 

@@ -249,22 +249,24 @@ class RunbookCrystalliser:
         runbook_body = f"```yaml\n{runbook_yaml}\n```"
 
         # Store via RunbookRepository
+        import json as _json
         from app.repositories.runbook_repository import RunbookRepository
         repo = RunbookRepository(db)
         runbook = repo.create(
             tenant_id=tenant_id,
             title=runbook_title,
             body_md=runbook_body,
-            service=ticket_info.get("service", "general"),
-            issue_type=ticket_info.get("issue_type", "general"),
-            os_type=ticket_info.get("os_type", "linux"),
-            meta_data={
+            status="approved",
+            meta_data=_json.dumps({
                 "source": "agent_crystallised",
                 "session_id": session.id,
                 "agent_summary": agent_summary,
-                "approved": True,   # proven by real execution
+                "approved": True,
                 "created_by_user_id": created_by_user_id,
-            },
+                "service": ticket_info.get("service", "general"),
+                "issue_type": ticket_info.get("issue_type", "general"),
+                "os_type": ticket_info.get("os_type", "linux"),
+            }),
         )
 
         # Mark session as crystallised

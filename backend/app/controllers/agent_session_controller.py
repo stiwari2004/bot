@@ -105,6 +105,31 @@ class AgentSessionController(BaseController):
             "plan_rejection_feedback": meta.get("plan_rejection_feedback", []),
         }
 
+    async def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
+        """
+        Human selected an approach — call the LLM to generate the detailed plan for it.
+        Returns the generated steps so the UI can render them for editing.
+        """
+        from app.services.execution.agent_executor import get_agent_executor
+        session = self.execution_repo.get_by_id(session_id)
+        if not session:
+            raise self.not_found("Session", session_id)
+        if session.status != "awaiting_plan_approval":
+            raise self.bad_request(
+                f"Session is not awaiting plan approval (current status: {session.status})"
+            )
+        executor = get_agent_executor()
+        steps = await executor.generate_plan_for_approach(
+            db          = self.db,
+            session_id  = session_id,
+            approach_id = approach_id,
+        )
+        return {
+            "session_id":  session_id,
+            "approach_id": approach_id,
+            "steps":       steps,
+        }
+
     def approve_agent_plan(
         self,
         session_id: int,
@@ -120,23 +145,18 @@ class AgentSessionController(BaseController):
                 f"Session is not awaiting plan approval (current status: {session.status})"
             )
 
-        # Resolve the plan from the selected approach if no explicit steps provided
-        if proposed_plan is None and selected_approach_id:
-            approaches = session.meta_data.get("approaches") or []
-            approach = next((a for a in approaches if a.get("id") == selected_approach_id), None)
-            if approach:
-                proposed_plan = approach.get("steps") or []
-            else:
-                raise self.bad_request(f"Approach '{selected_approach_id}' not found in session.")
-
+        # Use human-edited steps if provided, otherwise use the LLM-generated plan
         if proposed_plan is not None:
             session.meta_data["proposed_plan"] = proposed_plan
-            session.meta_data["selected_approach_id"] = selected_approach_id
-
-        if not session.meta_data.get("proposed_plan"):
+        elif session.meta_data.get("generated_plan"):
+            session.meta_data["proposed_plan"] = session.meta_data["generated_plan"]
+        else:
             raise self.bad_request(
-                "No plan to approve. Provide selected_approach_id or proposed_plan."
+                "No plan to approve. Select an approach first to generate the plan."
             )
+
+        if selected_approach_id:
+            session.meta_data["selected_approach_id"] = selected_approach_id
 
         session.meta_data["plan_approved"] = True
         session.meta_data["plan_rejected"] = False

@@ -64,7 +64,45 @@ class AgentExecutor(
         from app.services.llm_service_gemini import GeminiLLMService
         self._llm = GeminiLLMService()
 
-    # ── Public entry point ────────────────────────────────────────────────────
+    # ── Public entry points ───────────────────────────────────────────────────
+
+    async def generate_plan_for_approach(
+        self,
+        db: Session,
+        session_id: int,
+        approach_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Given an awaiting_plan_approval session and a chosen approach id,
+        call the LLM to generate a detailed step-by-step plan for that approach.
+        Stores the result as generated_plan in session meta_data and returns the steps.
+        """
+        from typing import List as _List
+        session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        meta      = session.meta_data or {}
+        approaches: list = meta.get("approaches") or []
+        approach  = next((a for a in approaches if a.get("id") == approach_id), None)
+        if not approach:
+            raise ValueError(f"Approach '{approach_id}' not found in session {session_id}")
+
+        connection_config = meta.get("connection_config") or {}
+        steps = await self._llm_plan_generate(
+            approach          = approach,
+            diagnosis         = meta.get("diagnosis") or {},
+            diagnosis_history = meta.get("diagnosis_history") or [],
+            connection_config = connection_config,
+            issue_description = meta.get("issue_description") or "",
+        )
+
+        session.meta_data["generated_plan"]       = steps
+        session.meta_data["selected_approach_id"] = approach_id
+        flag_modified(session, "meta_data")
+        db.commit()
+
+        return steps
 
     async def run(
         self,
@@ -99,6 +137,7 @@ class AgentExecutor(
             **existing_meta,
             "agent_session":           True,
             "issue_description":       issue_description,
+            "connection_config":       connection_config,  # stored so plan generation can reuse it
             "phase":                   "precheck",
             "precheck":                {},
             "diagnosis_history":       [],

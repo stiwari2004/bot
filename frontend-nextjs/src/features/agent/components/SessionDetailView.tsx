@@ -80,6 +80,7 @@ function PlanApprovalPanel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [steps, setSteps] = useState<PlanStep[]>([]);
   const [loading, setLoading] = useState(true);
+  const [planGenerating, setPlanGenerating] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
   const [showReject, setShowReject] = useState(false);
@@ -100,19 +101,9 @@ function PlanApprovalPanel({
           title: a.title ?? `Approach ${i + 1}`,
           rationale: a.rationale ?? '',
           risk: a.risk ?? 'medium',
-          steps: (a.steps || []).map((s: PlanStep, j: number) => ({
-            step: s.step ?? j + 1,
-            intent: s.intent ?? '',
-            command: s.command ?? '',
-            risk: s.risk ?? 'medium',
-          })),
+          steps: [],
         }));
         setApproaches(appr);
-        // If only one approach, auto-select it
-        if (appr.length === 1) {
-          setSelectedId(appr[0].id);
-          setSteps(appr[0].steps);
-        }
       } catch (e) {
         if (!cancelled) setError('Could not load plan — try refreshing.');
       } finally {
@@ -123,12 +114,37 @@ function PlanApprovalPanel({
     return () => { cancelled = true; };
   }, [sessionId]);
 
-  const selectApproach = (id: string) => {
-    const approach = approaches.find(a => a.id === id);
-    if (!approach) return;
+  const selectApproach = async (id: string) => {
+    if (planGenerating || selectedId === id) return;
     setSelectedId(id);
-    setSteps(approach.steps.map((s, i) => ({ ...s, step: i + 1 })));
+    setSteps([]);
     setError(null);
+    setPlanGenerating(true);
+    try {
+      const res = await authFetch(
+        apiConfig.endpoints.executions.agentSessionPlanSelectApproach(sessionId),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approach_id: id }),
+        }
+      );
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Failed to generate plan');
+      const data = await res.json();
+      setSteps(
+        (data.steps || []).map((s: PlanStep, i: number) => ({
+          step: s.step ?? i + 1,
+          intent: s.intent ?? '',
+          command: s.command ?? '',
+          risk: s.risk ?? 'medium',
+        }))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate plan');
+      setSelectedId(null);
+    } finally {
+      setPlanGenerating(false);
+    }
   };
 
   const updateStep = (idx: number, field: keyof PlanStep, value: string) =>
@@ -226,34 +242,45 @@ function PlanApprovalPanel({
             Choose an approach
           </p>
           <div className="space-y-2">
-            {approaches.map(approach => (
-              <button
-                key={approach.id}
-                type="button"
-                onClick={() => selectApproach(approach.id)}
-                className={`w-full text-left rounded-lg border p-3 transition-all ${
-                  selectedId === approach.id
-                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                    : 'border-neutral-200 bg-white hover:border-blue-300 hover:bg-blue-50/40'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-xs font-bold flex-shrink-0 ${
-                      selectedId === approach.id ? 'bg-blue-600 text-white' : 'bg-neutral-200 text-neutral-600'
-                    }`}>{approach.id}</span>
-                    <span className="text-sm font-semibold text-neutral-900">{approach.title}</span>
+            {approaches.map(approach => {
+              const isSelected = selectedId === approach.id;
+              const isLoading  = isSelected && planGenerating;
+              return (
+                <button
+                  key={approach.id}
+                  type="button"
+                  onClick={() => selectApproach(approach.id)}
+                  disabled={planGenerating}
+                  className={`w-full text-left rounded-lg border p-3 transition-all disabled:cursor-wait ${
+                    isSelected
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                      : 'border-neutral-200 bg-white hover:border-blue-300 hover:bg-blue-50/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-2">
+                      {isLoading ? (
+                        <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin flex-shrink-0" />
+                      ) : (
+                        <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-xs font-bold flex-shrink-0 ${
+                          isSelected ? 'bg-blue-600 text-white' : 'bg-neutral-200 text-neutral-600'
+                        }`}>{approach.id}</span>
+                      )}
+                      <span className="text-sm font-semibold text-neutral-900">{approach.title}</span>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium uppercase ${RISK_BADGE[approach.risk] || RISK_BADGE.medium}`}>
+                      {approach.risk}
+                    </span>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium uppercase ${RISK_BADGE[approach.risk] || RISK_BADGE.medium}`}>
-                    {approach.risk}
-                  </span>
-                </div>
-                {approach.rationale && (
-                  <p className="text-xs text-neutral-600 ml-7">{approach.rationale}</p>
-                )}
-                <p className="text-xs text-neutral-400 ml-7 mt-0.5">{approach.steps.length} step{approach.steps.length !== 1 ? 's' : ''}</p>
-              </button>
-            ))}
+                  {approach.rationale && (
+                    <p className="text-xs text-neutral-600 ml-7">{approach.rationale}</p>
+                  )}
+                  {isLoading && (
+                    <p className="text-xs text-blue-600 ml-7 mt-0.5 animate-pulse">Generating remediation plan…</p>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

@@ -143,47 +143,44 @@ Respond with ONE of:
   "reasoning": "what you are looking for and why"
 }}
 
-2. Declare diagnosis complete with 2–3 alternative approaches (each targeting a DIFFERENT top contributor):
+2. Declare diagnosis complete with 2–3 alternative approaches (NO steps — steps are generated separately):
 {{
   "action": "diagnosis_complete",
   "findings": {{
     "root_cause": "concise description of the problem",
-    "evidence": ["key fact 1", "key fact 2"],
+    "evidence": ["key fact 1 with actual values from output", "key fact 2"],
     "confidence": "high|medium|low"
   }},
   "approaches": [
     {{
       "id": "A",
-      "title": "Clean /var logs (44G)",
-      "rationale": "Safest option — removes old log files from /var which is the largest consumer. No service disruption.",
+      "title": "Clean /var logs (44G freed)",
+      "rationale": "Safest — removes old journal and rotated logs from /var. No service disruption.",
       "risk": "low",
-      "steps": [
-        {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
-      ]
+      "target": "/var"
     }},
     {{
       "id": "B",
-      "title": "Clear /usr package cache (3.2G)",
-      "rationale": "Safe — removes cached package files from /usr. Frees less space but zero risk.",
+      "title": "Clear /usr package cache (3.2G freed)",
+      "rationale": "Safe — removes apt/yum cached packages. Zero impact on running services.",
       "risk": "low",
-      "steps": [
-        {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
-      ]
+      "target": "/usr"
     }},
     {{
       "id": "C",
-      "title": "Remove /opt application data (4.5G)",
-      "rationale": "Higher risk — removes application files. Only do this if the above approaches are insufficient.",
+      "title": "Remove /opt application data (4.5G freed)",
+      "rationale": "Higher risk — removes application files. Use only if above approaches are insufficient.",
       "risk": "high",
-      "steps": [
-        {{"step": 1, "intent": "what this achieves", "command": "exact command", "risk": "low|medium|high"}}
-      ]
+      "target": "/opt"
     }}
   ]
 }}
-RULES: Replace the example titles/rationale above with ACTUAL directory names and sizes from your command output.
-Each approach targets a DIFFERENT top-level directory. Order safest first. At least 2 approaches required.
-The human picks ONE approach — do NOT collapse them into a single plan."""
+RULES:
+- Replace ALL example values above with ACTUAL directory names and sizes from your command output.
+- Each approach targets a DIFFERENT top-level directory found in your du/df output.
+- Do NOT invent directory names — only use what appeared in command output.
+- Order: safest first, most invasive last. Minimum 2 approaches.
+- Do NOT include steps — steps are generated after the human picks an approach."""
 
         logger.info("Diagnose LLM call (history=%d, rejections=%d)", len(history), len(rejection_feedbacks))
         raw = await asyncio.wait_for(
@@ -191,6 +188,72 @@ The human picks ONE approach — do NOT collapse them into a single plan."""
             timeout=60.0,
         )
         return self._parse_llm_response(raw)
+
+    async def _llm_plan_generate(
+        self,
+        approach: Dict[str, Any],
+        diagnosis: Dict[str, Any],
+        diagnosis_history: List[Dict],
+        connection_config: Dict[str, Any],
+        issue_description: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Second LLM call: given a chosen approach and full diagnosis context,
+        produce a complete multi-step remediation plan for that ONE approach.
+        """
+        server = connection_config.get("host") or connection_config.get("server_name") or "target"
+
+        system_prompt = (
+            "You are an SRE agent generating a detailed remediation plan. "
+            "The human has already run a diagnosis and chosen which approach to take. "
+            "Your job is to produce a complete, step-by-step plan for that ONE approach. "
+            "Each step must be a real, executable shell command. "
+            "Include verification steps at the end to confirm the issue is resolved. "
+            "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
+        )
+
+        history_text = self._format_history(diagnosis_history)
+        root_cause   = (diagnosis or {}).get("root_cause", "")
+        evidence     = "\n".join(f"  - {e}" for e in (diagnosis or {}).get("evidence", []))
+
+        user_prompt = f"""Issue: {issue_description}
+Server: {server}
+
+Diagnosis findings:
+  Root cause: {root_cause}
+  Evidence:
+{evidence}
+
+Diagnostic commands already run (use this output to build precise commands):
+{history_text}
+
+Chosen approach:
+  ID: {approach.get('id')}
+  Title: {approach.get('title')}
+  Target: {approach.get('target', '')}
+  Rationale: {approach.get('rationale')}
+  Risk: {approach.get('risk')}
+
+Generate a complete multi-step plan for this approach. Include:
+1. Any safety checks or pre-flight steps first
+2. The core remediation commands (using ACTUAL paths/values from the diagnostic output above)
+3. A final verification step to confirm space freed / issue resolved
+
+Respond with:
+{{
+  "steps": [
+    {{"step": 1, "intent": "what this achieves", "command": "exact shell command", "risk": "low|medium|high"}},
+    {{"step": 2, "intent": "...", "command": "...", "risk": "..."}}
+  ]
+}}"""
+
+        logger.info("Plan generate LLM call for approach %s", approach.get("id"))
+        raw = await asyncio.wait_for(
+            self._llm._chat_once_with_system(system_prompt, user_prompt),
+            timeout=60.0,
+        )
+        parsed = self._parse_llm_response(raw)
+        return parsed.get("steps") or []
 
     async def _llm_execute(
         self,

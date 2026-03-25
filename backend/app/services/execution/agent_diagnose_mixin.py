@@ -69,23 +69,25 @@ class _AgentDiagnoseMixin:
                 findings   = action.get("findings") or {}
                 approaches = action.get("approaches") or []
 
-                # Backward compat: wrap legacy proposed_plan as a single approach
+                # Backward compat: wrap legacy proposed_plan as a single approach (no steps needed)
                 if not approaches:
                     legacy = action.get("proposed_plan") or []
                     if legacy:
                         approaches = [{
                             "id": "A",
                             "title": "Proposed Plan",
-                            "rationale": "",
+                            "rationale": "Agent-generated plan",
                             "risk": "medium",
-                            "steps": legacy,
+                            "target": "",
                         }]
+                        # Store legacy steps as generated_plan directly
+                        session.meta_data["generated_plan"] = legacy
 
                 if not approaches:
                     history.append({
                         "step": step_number,
                         "command": "(diagnosis_complete)",
-                        "output": "[ERROR] diagnosis_complete must include at least one approach with steps. Provide approaches array.",
+                        "output": "[ERROR] diagnosis_complete must include an approaches array. Provide at least one approach.",
                         "success": False,
                     })
                     step_number += 1
@@ -93,7 +95,8 @@ class _AgentDiagnoseMixin:
 
                 session.meta_data["diagnosis"]         = findings
                 session.meta_data["approaches"]        = approaches
-                session.meta_data["proposed_plan"]     = None  # set after user selects approach
+                session.meta_data["proposed_plan"]     = None  # set after user selects approach + plan generated
+                session.meta_data["generated_plan"]    = session.meta_data.get("generated_plan")  # preserve if set above
                 session.meta_data["diagnosis_history"] = history
                 session.meta_data["phase"]             = "awaiting_plan_approval"
                 session.status = "awaiting_plan_approval"
@@ -104,7 +107,7 @@ class _AgentDiagnoseMixin:
                     "event_type": "agent.plan_ready",
                     "diagnosis":  findings,
                     "approaches": approaches,
-                    "message":    "Diagnosis complete. Select an approach and approve to begin execution.",
+                    "message":    "Diagnosis complete. Select an approach to generate the remediation plan.",
                 })
                 return
 
@@ -256,9 +259,9 @@ class _AgentDiagnoseMixin:
                         approaches = [{
                             "id": "A",
                             "title": "Revised Plan",
-                            "rationale": "",
+                            "rationale": "Agent-revised plan based on feedback",
                             "risk": "medium",
-                            "steps": legacy,
+                            "target": "",
                         }]
 
                 if not approaches:
@@ -268,6 +271,7 @@ class _AgentDiagnoseMixin:
                 session.meta_data["diagnosis"]         = findings
                 session.meta_data["approaches"]        = approaches
                 session.meta_data["proposed_plan"]     = None
+                session.meta_data["generated_plan"]    = None  # clear previous generated plan
                 session.meta_data["diagnosis_history"] = history
                 session.meta_data["phase"]             = "awaiting_plan_approval"
                 session.status = "awaiting_plan_approval"
@@ -279,7 +283,7 @@ class _AgentDiagnoseMixin:
                     "diagnosis":       findings,
                     "approaches":      approaches,
                     "revision_number": rejection_count,
-                    "message":         "Plan revised based on your feedback. Select an approach to proceed.",
+                    "message":         "Approaches revised based on your feedback. Select one to generate the plan.",
                 })
                 return
 

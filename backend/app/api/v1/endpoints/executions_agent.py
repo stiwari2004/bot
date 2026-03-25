@@ -78,6 +78,20 @@ async def get_agent_session_plan(session_id: int, db: Session = Depends(get_db))
     return ExecutionController(db, tenant_id=1).get_agent_session_plan(session_id)
 
 
+class ApproachSelectRequest(BaseModel):
+    approach_id: str = Field(..., min_length=1, description="The approach id chosen by the human (e.g. 'A', 'B').")
+
+
+@router.post("/demo/agent-sessions/{session_id}/plan/select-approach")
+async def select_approach(
+    session_id: int,
+    data: ApproachSelectRequest,
+    db: Session = Depends(get_db),
+):
+    """Human selects an approach — triggers LLM plan generation for that branch. Returns the steps."""
+    return await ExecutionController(db, tenant_id=1).select_approach(session_id, data.approach_id)
+
+
 @router.post("/demo/agent-sessions/{session_id}/plan/approve")
 async def approve_agent_plan(
     session_id: int,
