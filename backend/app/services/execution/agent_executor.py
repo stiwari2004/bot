@@ -23,7 +23,7 @@ Step tagging: command_payload["phase"] = "diagnose" | "execute"
   Diagnose steps are auto-weeded during crystallisation (discovery, not runbook steps).
 """
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -77,7 +77,6 @@ class AgentExecutor(
         call the LLM to generate a detailed step-by-step plan for that approach.
         Stores the result as generated_plan in session meta_data and returns the steps.
         """
-        from typing import List as _List
         session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
         if not session:
             raise ValueError(f"Session {session_id} not found")
