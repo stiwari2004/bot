@@ -49,6 +49,16 @@ class AgentSessionController(BaseController):
         self.db.commit()
         self.db.refresh(session)
 
+        # If the ticket was previously closed as false_positive, clear that
+        # classification so triage does not block this explicit retry.
+        if ticket_id:
+            from app.models.ticket import Ticket
+            ticket = self.db.query(Ticket).filter(Ticket.id == ticket_id).first()
+            if ticket and ticket.classification == "false_positive":
+                ticket.classification = None
+                ticket.status = "open"
+                self.db.commit()
+
         try:
             conn_service = ConnectionService()
             connection_config = await conn_service.get_connection_config(self.db, session, None)

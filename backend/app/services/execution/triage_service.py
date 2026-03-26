@@ -65,15 +65,21 @@ class TriageService:
             )
             return "suppressed"
 
-        # ── Already classified as false positive — don't waste tokens ─────────
+        # ── Already classified as false positive — skip unless manually reopened ─
         if ticket.classification == "false_positive":
-            self._mark_session_suppressed(
-                db, session,
-                change_ticket_id=None,
-                change_ticket_ext=None,
-                reason="Ticket already classified as false positive",
-            )
-            return "suppressed"
+            if ticket.status == "open":
+                # Human explicitly reopened it — clear the stale classification
+                # so the agent re-evaluates with fresh eyes
+                ticket.classification = None
+                db.commit()
+            else:
+                self._mark_session_suppressed(
+                    db, session,
+                    change_ticket_id=None,
+                    change_ticket_ext=None,
+                    reason="Ticket already classified as false positive",
+                )
+                return "suppressed"
 
         # ── Active change window check ─────────────────────────────────────────
         from app.services.change_window_service import get_change_window_service
