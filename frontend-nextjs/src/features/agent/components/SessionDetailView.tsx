@@ -386,6 +386,88 @@ function PlanApprovalPanel({
   );
 }
 
+// ── Post-execution review panel ────────────────────────────────────────────────
+
+function SessionReviewPanel({
+  sessionId,
+  agentSummary,
+  onDone,
+}: {
+  sessionId: number;
+  agentSummary?: string;
+  onDone: (runbookId?: number) => void;
+}) {
+  const [saveAsRunbook, setSaveAsRunbook] = useState(false);
+  const [runbookTitle, setRunbookTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch(apiConfig.endpoints.executions.agentSessionReview(sessionId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weed_step_numbers: [],
+          save_as_runbook: saveAsRunbook,
+          runbook_title: saveAsRunbook && runbookTitle.trim() ? runbookTitle.trim() : undefined,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Failed to save');
+      const data = await res.json();
+      onDone(data.runbook_id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {agentSummary && (
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+          <p className="text-xs font-semibold text-neutral-600 mb-1 uppercase tracking-wide">Agent Summary</p>
+          <p className="text-sm text-neutral-800">{agentSummary}</p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          id="save-runbook"
+          checked={saveAsRunbook}
+          onChange={e => setSaveAsRunbook(e.target.checked)}
+          className="h-4 w-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+        />
+        <label htmlFor="save-runbook" className="text-sm text-neutral-800 font-medium cursor-pointer">
+          Save successful steps as a runbook for future use
+        </label>
+      </div>
+
+      {saveAsRunbook && (
+        <input
+          type="text"
+          value={runbookTitle}
+          onChange={e => setRunbookTitle(e.target.value)}
+          placeholder="Runbook title (auto-generated if blank)"
+          className="w-full px-3 py-2 text-sm border border-neutral-300 rounded-lg text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+        />
+      )}
+
+      {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+
+      <div className="flex justify-end pt-2 border-t border-neutral-200">
+        <Button variant="primary" size="sm" onClick={submit} isLoading={saving} disabled={saving}>
+          {saveAsRunbook ? 'Save runbook & close' : 'Close session'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SessionDetailView({
@@ -402,10 +484,12 @@ export function SessionDetailView({
   const normalizedStatus = (session.status || '').toLowerCase();
   const isAwaitingPlanApproval = normalizedStatus === 'awaiting_plan_approval';
   const isFailedOrErrors = normalizedStatus === 'completed_with_errors' || normalizedStatus === 'failed';
+  const isPendingReview = session.pending_review === true;
 
   const [retryLoading, setRetryLoading] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retryDirection, setRetryDirection] = useState('');
+  const [reviewDone, setReviewDone] = useState(false);
   // Key to remount PlanApprovalPanel after rejection (agent replans)
   const [planKey, setPlanKey] = useState(0);
 
@@ -510,6 +594,28 @@ export function SessionDetailView({
               key={planKey}
               sessionId={session.id}
               onApproved={() => setPlanKey(k => k + 1)}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Post-execution review / crystallise panel ── */}
+      {isPendingReview && !reviewDone && (
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-green-400" />
+              <h3 className="text-lg font-semibold text-neutral-800">Execution Complete — Review Steps</h3>
+            </div>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              The agent finished execution. Optionally save the successful steps as a reusable runbook.
+            </p>
+          </CardHeader>
+          <CardContent padding="md">
+            <SessionReviewPanel
+              sessionId={session.id}
+              agentSummary={session.agent_summary}
+              onDone={() => setReviewDone(true)}
             />
           </CardContent>
         </Card>

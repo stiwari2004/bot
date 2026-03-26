@@ -3,6 +3,7 @@ _AgentExecuteMixin — Phase 3 (execute), auto-crystallise, and destructive hand
 for AgentExecutor.
 """
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -20,6 +21,13 @@ _MAX_OUTPUT_CHARS       = 400
 _CAUTION_COUNTDOWN_S    = 10
 _APPROVAL_POLL_INTERVAL = 2
 _APPROVAL_TIMEOUT_S     = 300
+
+# Read-only verification commands the agent should run before declaring done
+_VERIFY_RE = re.compile(
+    r'^(df|free|du|ps|top|systemctl\s+status|netstat|ss|lsof|iostat|vmstat|'
+    r'cat\s+/proc|uname|uptime|ping|curl|wget|check)',
+    re.IGNORECASE,
+)
 
 
 class _AgentExecuteMixin:
@@ -45,6 +53,7 @@ class _AgentExecuteMixin:
             ExecutionStep.session_id == session.id
         ).scalar() or 0
         step_number = max_step + 1
+        verification_forced = False  # Only inject the verification nudge once
 
         for iteration in range(_MAX_EXECUTE_ITERATIONS):
             try:
@@ -71,6 +80,23 @@ class _AgentExecuteMixin:
                 break
 
             if action.get("action") == "done":
+                # Enforce verification before closing: if no read-only check was
+                # the last real command, inject a nudge and force one more iteration.
+                if history and not verification_forced and not self._history_has_verification(history):
+                    verification_forced = True
+                    history.append({
+                        "step": step_number,
+                        "command": "[SYSTEM]",
+                        "output": (
+                            "SYSTEM: You must run a read-only verification command "
+                            "BEFORE declaring done — e.g. `df -h` for disk space, "
+                            "`free -h` for memory, `systemctl status <svc>` for services. "
+                            "Run the verification now, then report the result in your done summary."
+                        ),
+                        "success": False,
+                    })
+                    logger.info("Execute phase: forcing verification step before done (iteration %d)", iteration)
+                    continue
                 final_summary = action.get("summary", "Execution complete.")
                 resolved      = bool(action.get("resolved", True))
                 logger.info("Execute phase done after %d steps: %s", step_number - (max_step + 1), final_summary)
@@ -187,6 +213,16 @@ class _AgentExecuteMixin:
         db.commit()
 
         return resolved, final_summary
+
+    @staticmethod
+    def _history_has_verification(history: List[Dict]) -> bool:
+        """Return True if the last real (non-SYSTEM) command looks like a read-only verification."""
+        for entry in reversed(history):
+            cmd = (entry.get("command") or "").strip()
+            if not cmd or cmd == "[SYSTEM]":
+                continue
+            return bool(_VERIFY_RE.match(cmd))
+        return False
 
     async def _auto_crystallise(self, db: Session, session: ExecutionSession) -> None:
         """

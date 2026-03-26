@@ -53,6 +53,17 @@ class SessionSerializer:
         except Exception as e:
             logger.warning(f"Error getting assignment metadata for session {session.id}: {e}")
 
+        # Agent-session fields — expose review/crystallise context to the UI
+        try:
+            meta = session.meta_data or {}
+            if meta.get("agent_session"):
+                payload["agent_summary"]   = meta.get("agent_summary", "")
+                payload["agent_resolved"]  = meta.get("agent_resolved", False)
+                payload["pending_review"]  = meta.get("pending_review", False)
+                payload["issue_description"] = meta.get("issue_description") or session.issue_description
+        except Exception as e:
+            logger.warning(f"Error adding agent fields for session {session.id}: {e}")
+
         return payload
 
     def _serialize_step(self, step: ExecutionStep) -> Dict[str, Any]:

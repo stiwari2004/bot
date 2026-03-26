@@ -282,7 +282,11 @@ Respond with:
             "You are already connected to the target server — every command runs directly on it. "
             "Execute the approved plan step by step. "
             "Adapt if a step fails — try an alternative that achieves the same intent. "
-            "After completing all steps, verify the fix worked, then respond with done. "
+            "MANDATORY: After completing all remediation steps, you MUST run a read-only verification "
+            "command (e.g. `df -h` for disk space, `free -h` for memory, `systemctl status <svc>` for services) "
+            "to confirm the current state. Only AFTER seeing the verification output should you respond with done. "
+            "Set resolved=true ONLY if the verification confirms the issue is fixed. "
+            "Set resolved=false if the issue persists despite your best efforts. "
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 

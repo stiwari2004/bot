@@ -26,6 +26,10 @@ export interface ExecutionSessionDetail extends ExecutionSessionSummary {
   sandbox_profile?: string | null;
   steps: ExecutionStep[];
   connection?: Record<string, any> | null;
+  // Agent session review fields
+  agent_summary?: string;
+  agent_resolved?: boolean;
+  pending_review?: boolean;
 }
 
 export interface RunbookOption {
