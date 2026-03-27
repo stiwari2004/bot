@@ -252,6 +252,24 @@ class AgentSessionController(BaseController):
 
         return result
 
+    def record_feedback(self, session_id: int, feedback: str) -> Dict[str, Any]:
+        """Persist human feedback on a completed session without starting a retry."""
+        from sqlalchemy.orm.attributes import flag_modified
+        session = self.execution_repo.get_by_id(session_id)
+        if not session:
+            raise self.not_found("Session", session_id)
+        meta = session.meta_data or {}
+        feedbacks = list(meta.get("user_feedback") or [])
+        from datetime import datetime, timezone
+        feedbacks.append({
+            "text": feedback.strip(),
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        })
+        session.meta_data["user_feedback"] = feedbacks
+        flag_modified(session, "meta_data")
+        self.db.commit()
+        return {"session_id": session_id, "feedback_recorded": True, "total_feedback": len(feedbacks)}
+
     async def retry_agent_session(
         self,
         session_id: int,

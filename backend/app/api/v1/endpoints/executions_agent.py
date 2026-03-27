@@ -129,6 +129,20 @@ async def get_agent_session_steps_for_review(session_id: int, db: Session = Depe
     return ExecutionController(db, tenant_id=1).get_agent_session_steps_for_review(session_id)
 
 
+class AgentSessionFeedback(BaseModel):
+    feedback: str = Field(..., min_length=1, description="Human feedback on what went wrong or what to improve.")
+
+
+@router.post("/demo/agent-sessions/{session_id}/feedback")
+async def record_agent_feedback(
+    session_id: int,
+    data: AgentSessionFeedback,
+    db: Session = Depends(get_db),
+):
+    """Record human feedback on a completed session for system learning, without retrying."""
+    return ExecutionController(db, tenant_id=1).record_agent_feedback(session_id, data.feedback)
+
+
 class AgentSessionRetry(BaseModel):
     user_direction: Optional[str] = Field(
         default=None,

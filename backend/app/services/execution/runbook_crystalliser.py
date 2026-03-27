@@ -36,6 +36,8 @@ def _deparameterise(command: str, resolved_inputs: Dict[str, str]) -> str:
     """
     Replace concrete resolved values back with {{variable}} placeholders.
     Longest values are replaced first to avoid partial replacements.
+    Any {{placeholder}} tokens already present are preserved as-is (they will
+    become runbook input variables).
     """
     if not resolved_inputs:
         return command
@@ -44,8 +46,10 @@ def _deparameterise(command: str, resolved_inputs: Dict[str, str]) -> str:
     # Sort by value length descending (replace longer strings first)
     for var, val in sorted(resolved_inputs.items(), key=lambda x: -len(str(x[1]))):
         val_str = str(val)
-        if val_str and val_str in result:
-            result = result.replace(val_str, f"{{{{{var}}}}}")
+        if val_str and len(val_str) > 1 and val_str in result:
+            # Don't replace values that are already a placeholder token
+            if not val_str.startswith("{{"):
+                result = result.replace(val_str, f"{{{{{var}}}}}")
     return result
 
 

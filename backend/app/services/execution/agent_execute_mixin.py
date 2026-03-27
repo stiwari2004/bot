@@ -109,6 +109,14 @@ class _AgentExecuteMixin:
                 logger.warning("Execute phase: LLM returned empty command at iteration %d", iteration)
                 break
 
+            # Resolve any remaining {{variable}} placeholders against known values.
+            # This is a safety net — the LLM should generate concrete commands, but
+            # if it doesn't, substitute from resolved_inputs and strip unresolvable ones.
+            command = self._resolve_placeholders(command, resolved_inputs)
+            if not command:
+                logger.warning("Execute phase: command reduced to empty after placeholder resolution — skipping")
+                continue
+
             classification = self.classifier.classify(command)
 
             await self.event_publisher.publish_raw(db, session, {
@@ -213,6 +221,21 @@ class _AgentExecuteMixin:
         db.commit()
 
         return resolved, final_summary
+
+    @staticmethod
+    def _resolve_placeholders(command: str, resolved_inputs: Dict[str, str]) -> str:
+        """
+        Replace any {{variable}} placeholders in a command with known resolved values.
+        Placeholders with no known value are removed (with surrounding whitespace trimmed).
+        Returns the resolved command, or empty string if the entire command becomes empty.
+        """
+        import re as _re
+        result = command
+        for var, val in (resolved_inputs or {}).items():
+            result = result.replace(f"{{{{{var}}}}}", str(val))
+        # Strip any remaining unresolvable placeholders
+        result = _re.sub(r'\s*\{\{\w+\}\}\s*', ' ', result).strip()
+        return result
 
     @staticmethod
     def _history_has_verification(history: List[Dict]) -> bool:

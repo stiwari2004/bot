@@ -209,6 +209,14 @@ RULES:
             "Your job is to produce a complete, step-by-step plan for that ONE approach. "
             "Each step must be a real, executable shell command. "
             "Include verification steps at the end to confirm the issue is resolved. "
+            "CRITICAL RULES — COMMANDS MUST BE IMMEDIATELY EXECUTABLE:\n"
+            "1. Use ONLY concrete, literal values from the diagnostic output provided. "
+            "   For example: `du -sh /var/log` NOT `du -sh {{largest_dir}}`.\n"
+            "2. Do NOT use {{placeholder}}, <variable>, or any template syntax. "
+            "   Every command must run as-is without any substitution.\n"
+            "3. Copy exact paths, filenames, and sizes directly from the diagnostic output.\n"
+            "4. The first step MUST NOT be the server hostname or server name — "
+            "   you are already connected, start with the actual remediation.\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
@@ -224,7 +232,7 @@ Diagnosis findings:
   Evidence:
 {evidence}
 
-Diagnostic commands already run (use this output to build precise commands):
+Diagnostic commands already run — EXTRACT EXACT VALUES FROM THIS OUTPUT:
 {history_text}
 
 Chosen approach:
@@ -235,14 +243,17 @@ Chosen approach:
   Risk: {approach.get('risk')}
 
 Generate a complete multi-step plan for this approach. Include:
-1. Any safety checks or pre-flight steps first
-2. The core remediation commands (using ACTUAL paths/values from the diagnostic output above)
-3. A final verification step to confirm space freed / issue resolved
+1. Any safety checks or pre-flight steps first (using actual paths from above)
+2. The core remediation commands (using ACTUAL, LITERAL paths/values from the diagnostic output above — NO placeholders)
+3. A final verification step (e.g., df -h or du -sh <target>) to confirm the issue is resolved
+
+EXAMPLE of CORRECT step: {{"step": 1, "intent": "check current disk usage", "command": "df -h /", "risk": "low"}}
+EXAMPLE of WRONG step:   {{"step": 1, "intent": "check current disk usage", "command": "df -h {{{{mount_point}}}}", "risk": "low"}}
 
 Respond with:
 {{
   "steps": [
-    {{"step": 1, "intent": "what this achieves", "command": "exact shell command", "risk": "low|medium|high"}},
+    {{"step": 1, "intent": "what this achieves", "command": "exact literal shell command with no placeholders", "risk": "low|medium|high"}},
     {{"step": 2, "intent": "...", "command": "...", "risk": "..."}}
   ]
 }}"""
