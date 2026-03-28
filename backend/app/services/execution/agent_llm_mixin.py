@@ -11,7 +11,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 _HISTORY_KEEP_LAST = 5
-_MAX_OUTPUT_CHARS  = 400
+_MAX_OUTPUT_CHARS  = 800   # enough for full du -sh /* output
 
 
 class _AgentLLMMixin:
@@ -118,13 +118,16 @@ or (only when usage is BELOW the warning threshold and no errors):
             "Your ONLY goal right now is to understand the problem. Do NOT fix anything yet. "
             "Use READ-ONLY commands only: df, du, ls, cat, grep, ps, top, free, "
             "journalctl (read), systemctl status, netstat, lsof, find (without -delete/-exec rm). "
-            "When you have identified the root cause and can propose a fix plan, respond with diagnosis_complete. "
-            "CRITICAL BRANCHING RULES for diagnosis_complete:\n"
-            "1. Look at your actual command output. Identify the 2-3 LARGEST contributors (top-level directories or processes).\n"
-            "2. Each approach must target a DIFFERENT top-level contributor — do NOT create sub-branches of the same directory.\n"
+            "EFFICIENCY RULES:\n"
+            "- Use the most direct commands to identify the root cause and its top contributors.\n"
+            "- Follow the evidence: each command should be informed by the previous output.\n"
+            "- Do NOT repeat similar commands. Do NOT run more than 6 commands total.\n"
+            "- Once you know what is causing the problem and where, declare diagnosis_complete.\n"
+            "BRANCHING RULES for diagnosis_complete:\n"
+            "1. Identify the 2-3 biggest contributors to the problem from your actual command output.\n"
+            "2. Each approach must target a DIFFERENT contributor — not sub-paths of the same one.\n"
             "3. Order approaches: safest/lowest-risk FIRST, highest-risk LAST.\n"
-            "4. Label each approach with the ACTUAL directory/service name and size from your output (e.g. 'Clear /var logs — 44G').\n"
-            "5. Do NOT guess or hallucinate directory names — only use what appeared in command output.\n"
+            "4. Use ACTUAL names, paths, and sizes from your output — do NOT invent or guess values.\n"
             "The human will PICK which approach to run — they cannot see intermediate steps, only the final approaches.\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
@@ -155,24 +158,24 @@ Respond with ONE of:
   "approaches": [
     {{
       "id": "A",
-      "title": "<ACTUAL top directory from du output> (<ACTUAL size from output> to recover)",
+      "title": "<ACTUAL resource/component name from your output> (<ACTUAL metric/size> — what you found)",
       "rationale": "<why this is the safest option based on what you found>",
       "risk": "low|medium|high",
-      "target": "<ACTUAL path from output>"
+      "target": "<ACTUAL path, service, or resource from your output>"
     }},
     {{
       "id": "B",
-      "title": "<SECOND largest contributor from du output> (<ACTUAL size> to recover)",
+      "title": "<SECOND contributor from your output> (<ACTUAL metric/size>)",
       "rationale": "<why this is the next option>",
       "risk": "low|medium|high",
-      "target": "<ACTUAL path from output>"
+      "target": "<ACTUAL path, service, or resource from your output>"
     }}
   ]
 }}
 RULES:
-- The <ACTUAL ...> placeholders above are instructions to YOU — replace them with real values from your output.
-- Each approach targets a DIFFERENT top-level directory found in your du/df output.
-- Do NOT copy example directories like /var, /usr, /opt — use what YOUR commands returned.
+- The <ACTUAL ...> placeholders above are instructions to YOU — replace them with real values from your command output.
+- Each approach targets a DIFFERENT contributor — do NOT create sub-variations of the same thing.
+- Do NOT invent or copy example values — use ONLY what YOUR commands returned.
 - Order: safest first, most invasive last. Minimum 2 approaches.
 - Do NOT include steps — steps are generated after the human picks an approach."""
 
@@ -202,15 +205,20 @@ RULES:
             "The human has already run a diagnosis and chosen which approach to take. "
             "Your job is to produce a complete, step-by-step plan for that ONE approach. "
             "Each step must be a real, executable shell command. "
-            "Include verification steps at the end to confirm the issue is resolved. "
+            "PLAN COMPLETENESS RULES:\n"
+            "- Think about ALL the actions needed to fully resolve the issue, not just one command.\n"
+            "- Cover every relevant sub-cause under the chosen target: "
+            "a thorough plan typically has 3-6 steps.\n"
+            "- Include a final read-only verification step to confirm the issue is resolved "
+            "(e.g. re-check the metric that was alerting).\n"
+            "- Use ONLY the target and paths from the chosen approach — do NOT touch unrelated areas.\n"
             "CRITICAL RULES — COMMANDS MUST BE IMMEDIATELY EXECUTABLE:\n"
             "1. Use ONLY concrete, literal values from the diagnostic output provided. "
-            "   For example: `du -sh /var/log` NOT `du -sh {{largest_dir}}`.\n"
+            "   Copy exact paths, filenames, and values — do NOT guess or invent them.\n"
             "2. Do NOT use {{placeholder}}, <variable>, or any template syntax. "
             "   Every command must run as-is without any substitution.\n"
-            "3. Copy exact paths, filenames, and sizes directly from the diagnostic output.\n"
-            "4. The first step MUST NOT be the server hostname or server name — "
-            "   you are already connected, start with the actual remediation.\n"
+            "3. The first step MUST NOT be the server hostname or a read-only check — "
+            "   start with the actual remediation.\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
@@ -237,12 +245,12 @@ Chosen approach:
   Risk: {approach.get('risk')}
 
 Generate a complete multi-step plan for this approach. Include:
-1. Any safety checks or pre-flight steps first (using actual paths from above)
-2. The core remediation commands (using ACTUAL, LITERAL paths/values from the diagnostic output above — NO placeholders)
-3. A final verification step (e.g., df -h or du -sh <target>) to confirm the issue is resolved
+1. The core remediation commands (using ACTUAL, LITERAL paths/values from the diagnostic output above — NO placeholders)
+2. Cover all relevant sub-causes under the chosen target — a thorough plan has 3-6 steps
+3. A final verification step that re-checks the original symptom to confirm it is resolved
 
-EXAMPLE of CORRECT step: {{"step": 1, "intent": "check current disk usage", "command": "df -h /", "risk": "low"}}
-EXAMPLE of WRONG step:   {{"step": 1, "intent": "check current disk usage", "command": "df -h {{{{mount_point}}}}", "risk": "low"}}
+EXAMPLE of CORRECT step: {{"step": 1, "intent": "what this step achieves", "command": "actual-command --with real-values", "risk": "low"}}
+EXAMPLE of WRONG step:   {{"step": 1, "intent": "what this step achieves", "command": "command --flag {{{{some_placeholder}}}}", "risk": "low"}}
 
 Respond with:
 {{
@@ -288,10 +296,16 @@ Respond with:
             "Execute the approved plan step by step. "
             "Adapt if a step fails — try an alternative that achieves the same intent. "
             "MANDATORY: After completing all remediation steps, you MUST run a read-only verification "
-            "command (e.g. `df -h` for disk space, `free -h` for memory, `systemctl status <svc>` for services) "
-            "to confirm the current state. Only AFTER seeing the verification output should you respond with done. "
-            "Set resolved=true ONLY if the verification confirms the issue is fixed. "
-            "Set resolved=false if the issue persists despite your best efforts. "
+            "command that directly re-checks the original symptom "
+            "(e.g. `df -h` for disk space, `free -h` for memory, `systemctl status <svc>` for services). "
+            "Only AFTER seeing the verification output should you respond with done.\n"
+            "VERIFICATION RULES:\n"
+            "- Read the verification output carefully. If the metric that was alerting has NOT improved "
+            "  to a healthy level, the issue is NOT resolved — continue with more remediation steps.\n"
+            "- Do NOT declare done with resolved=true if the symptom is still present.\n"
+            "- Only declare resolved=true when the verification output confirms the problem is gone.\n"
+            "- If you have genuinely exhausted all options and the issue persists, "
+            "  declare done with resolved=false.\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 

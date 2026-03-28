@@ -13,9 +13,9 @@ from app.services.infrastructure import get_connector
 
 logger = get_logger(__name__)
 
-_MAX_DIAGNOSE_ITERATIONS = 15
-_MAX_REPLAN_COMMANDS     = 5
-_MAX_OUTPUT_CHARS        = 400
+_MAX_DIAGNOSE_ITERATIONS = 8    # 2-4 commands typical; 8 is the hard ceiling
+_MAX_REPLAN_COMMANDS     = 3
+_MAX_OUTPUT_CHARS        = 800  # enough for full du -sh /* output
 _APPROVAL_POLL_INTERVAL  = 2
 _PLAN_APPROVAL_TIMEOUT_S = 1800
 
