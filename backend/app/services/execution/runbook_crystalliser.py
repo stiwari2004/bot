@@ -162,6 +162,94 @@ def _deparameterise_patterns(command: str) -> Tuple[str, Dict[str, Any]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Discovery precheck templates
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Each entry declares which {{variables}} it produces, the command to run,
+# and the `extracts` hint consumed by the step execution engine.
+# Order matters: mount_point must be discovered before largest_dir.
+_DISCOVERY_PRECHECKS: List[Dict[str, Any]] = [
+    {
+        "vars":     {"mount_point", "disk_usage_pct"},
+        "name":     "Identify the full filesystem",
+        "command":  "df -h",
+        "extracts": "mount_point",
+    },
+    {
+        "vars":     {"largest_dir"},
+        "name":     "Find the largest directory on the filesystem",
+        "command":  "du -sh {{mount_point}}/* 2>/dev/null | sort -rh | head -10",
+        "extracts": "largest_dir",
+    },
+    {
+        "vars":     {"large_files", "largest_file"},
+        "name":     "Find large files consuming disk space",
+        "command":  "find {{mount_point}} -maxdepth 5 -size +100M -type f 2>/dev/null | head -20",
+        "extracts": "large_files",
+    },
+    {
+        "vars":     {"service_name"},
+        "name":     "List failed system services",
+        "command":  "systemctl list-units --state=failed --no-pager",
+        "extracts": "service_name",
+    },
+    {
+        "vars":     {"top_process", "top_pid"},
+        "name":     "Identify top CPU-consuming process",
+        "command":  "ps aux --sort=-%cpu | head -5",
+        "extracts": "top_process",
+    },
+    {
+        "vars":     {"available_memory"},
+        "name":     "Check available memory",
+        "command":  "free -h",
+        "extracts": "available_memory",
+    },
+]
+
+
+def _build_discovery_prechecks(inputs_needed: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Return the minimal ordered set of discovery prechecks needed to populate
+    every {{variable}} referenced by the execute steps.
+    """
+    var_names = set(inputs_needed.keys())
+    result = []
+    for spec in _DISCOVERY_PRECHECKS:
+        if spec["vars"] & var_names:
+            result.append({
+                "name":     spec["name"],
+                "command":  spec["command"],
+                "extracts": spec["extracts"],
+            })
+    return result
+
+
+def _build_verification_postchecks(inputs_needed: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Return a postcheck that re-runs the primary metric command to confirm
+    the remediation worked.
+    """
+    postchecks = []
+    if "mount_point" in inputs_needed or "disk_usage_pct" in inputs_needed:
+        postchecks.append({
+            "name":    "Verify disk space has been freed",
+            "command": "df -h {{mount_point}}",
+        })
+    if "available_memory" in inputs_needed:
+        postchecks.append({
+            "name":    "Verify memory state after remediation",
+            "command": "free -h",
+        })
+    if "service_name" in inputs_needed:
+        postchecks.append({
+            "name":    "Verify service status after remediation",
+            "command": "systemctl status {{service_name}}",
+        })
+    return postchecks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helpers shared with other modules
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -331,6 +419,19 @@ class RunbookCrystalliser:
                     "issue_type": (ticket.meta_data or {}).get("issue_type") or "general",
                 }
 
+        # ── Build discovery prechecks & verification postchecks ──────────────
+        # Prechecks run on the new server BEFORE the remediation steps,
+        # discovering real values (mount_point, largest_dir, etc.) so that
+        # every {{variable}} in the execute steps gets substituted with the
+        # actual path/value for that server — not the original server's values.
+        discovery_prechecks = _build_discovery_prechecks(inputs_needed)
+        verification_postchecks = _build_verification_postchecks(inputs_needed)
+
+        logger.info(
+            "Crystalliser: adding %d discovery prechecks, %d verification postchecks",
+            len(discovery_prechecks), len(verification_postchecks),
+        )
+
         # ── Assemble runbook spec ─────────────────────────────────────────────
         runbook_spec = {
             "title":       runbook_title,
@@ -345,9 +446,9 @@ class RunbookCrystalliser:
             "crystallised_from_session": session.id,
             "crystallised_at": datetime.now(timezone.utc).isoformat(),
             "inputs":     list(inputs_needed.values()),
-            "prechecks":  [],
+            "prechecks":  discovery_prechecks,
             "steps":      runbook_steps,
-            "postchecks": [],
+            "postchecks": verification_postchecks,
         }
 
         runbook_body = "```yaml\n" + yaml.dump(
