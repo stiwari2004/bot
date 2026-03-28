@@ -143,7 +143,8 @@ Respond with ONE of:
   "reasoning": "what you are looking for and why"
 }}
 
-2. Declare diagnosis complete with 2–3 alternative approaches (NO steps — steps are generated separately):
+2. Declare diagnosis complete with 2–3 alternative approaches (NO steps — steps are generated separately).
+   Use ONLY real directory names and sizes from your command output — NO invented or example values:
 {{
   "action": "diagnosis_complete",
   "findings": {{
@@ -154,31 +155,24 @@ Respond with ONE of:
   "approaches": [
     {{
       "id": "A",
-      "title": "Clean /var logs (44G freed)",
-      "rationale": "Safest — removes old journal and rotated logs from /var. No service disruption.",
-      "risk": "low",
-      "target": "/var"
+      "title": "<ACTUAL top directory from du output> (<ACTUAL size from output> to recover)",
+      "rationale": "<why this is the safest option based on what you found>",
+      "risk": "low|medium|high",
+      "target": "<ACTUAL path from output>"
     }},
     {{
       "id": "B",
-      "title": "Clear /usr package cache (3.2G freed)",
-      "rationale": "Safe — removes apt/yum cached packages. Zero impact on running services.",
-      "risk": "low",
-      "target": "/usr"
-    }},
-    {{
-      "id": "C",
-      "title": "Remove /opt application data (4.5G freed)",
-      "rationale": "Higher risk — removes application files. Use only if above approaches are insufficient.",
-      "risk": "high",
-      "target": "/opt"
+      "title": "<SECOND largest contributor from du output> (<ACTUAL size> to recover)",
+      "rationale": "<why this is the next option>",
+      "risk": "low|medium|high",
+      "target": "<ACTUAL path from output>"
     }}
   ]
 }}
 RULES:
-- Replace ALL example values above with ACTUAL directory names and sizes from your command output.
+- The <ACTUAL ...> placeholders above are instructions to YOU — replace them with real values from your output.
 - Each approach targets a DIFFERENT top-level directory found in your du/df output.
-- Do NOT invent directory names — only use what appeared in command output.
+- Do NOT copy example directories like /var, /usr, /opt — use what YOUR commands returned.
 - Order: safest first, most invasive last. Minimum 2 approaches.
 - Do NOT include steps — steps are generated after the human picks an approach."""
 
