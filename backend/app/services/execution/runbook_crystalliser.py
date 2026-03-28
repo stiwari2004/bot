@@ -4,18 +4,25 @@ Runbook Crystalliser — converts a proven execution trace into a reusable runbo
 Called after the human reviews the agent session, marks weeds, and clicks
 "Save as Runbook".  Produces a YAML runbook that:
 
-  1. Contains only non-weed steps
-  2. De-parameterises specific values back into {{variable}} placeholders
-  3. Documents HOW each placeholder is resolved (from which command's output)
-  4. Stores the runbook via the existing RunbookRepository
+  1. Contains only successful non-weed execute-phase steps
+  2. Generalises device-specific values back into {{variable}} placeholders
+     so the runbook is reusable across any server with the same issue
+  3. Documents what each placeholder means and its smart default
+  4. Stores the runbook via RunbookRepository
 
-The stored runbook is battle-tested — every step in it succeeded during the
-agent's real execution on real infrastructure.
+Generalisation strategy (two passes):
+  Pass 1 — Path/value deparameterisation:
+    Re-runs all output parsers on the full step trace (diagnose + execute)
+    to rediscover concrete values (mount points, largest dirs, service names,
+    etc.) and replace them with {{variable}} tokens.
+  Pass 2 — Pattern deparameterisation:
+    Replaces hard-coded numeric/size literals in commands with {{variable}}
+    tokens (e.g. "--vacuum-size=500M" → "--vacuum-size={{vacuum_size}}").
 """
 import re
 import yaml
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -26,74 +33,183 @@ logger = get_logger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# De-parameterisation helpers
+# Pass 1 — rediscover concrete values from step outputs
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Maps a concrete value back to a template variable IF the value looks like
-# something that was resolved from system output.  We do this by checking
-# the resolved_inputs dict and substituting values back to {{variable}}.
-def _deparameterise(command: str, resolved_inputs: Dict[str, str]) -> str:
+def _build_discovered_inputs(all_steps: List[ExecutionStep]) -> Dict[str, str]:
     """
-    Replace concrete resolved values back with {{variable}} placeholders.
-    Longest values are replaced first to avoid partial replacements.
-    Any {{placeholder}} tokens already present are preserved as-is (they will
-    become runbook input variables).
+    Re-run every output parser on the full step trace to recover the
+    concrete values the agent discovered, regardless of whether {{variables}}
+    were used during execution.  Diagnose steps are included because they
+    often produce the values used by later execute steps.
     """
-    if not resolved_inputs:
+    from app.services.execution.output_extractor import (
+        _detect_command_type,
+        _parse_df, _parse_du, _parse_find_large_files,
+        _parse_systemctl_failed, _parse_ps_top_cpu,
+        _parse_free_memory, _parse_netstat_ports, _parse_hostname,
+    )
+
+    parsers = {
+        "df":               _parse_df,
+        "du":               _parse_du,
+        "find_large":       _parse_find_large_files,
+        "systemctl_failed": _parse_systemctl_failed,
+        "ps_top_cpu":       _parse_ps_top_cpu,
+        "hostname":         _parse_hostname,
+        "free_memory":      _parse_free_memory,
+        "netstat":          _parse_netstat_ports,
+    }
+
+    discovered: Dict[str, str] = {}
+    for step in all_steps:
+        if not step.output or not step.command:
+            continue
+        cmd_type = _detect_command_type(step.command)
+        parser = parsers.get(cmd_type or "")
+        if parser:
+            extracted = parser(step.output)
+            discovered.update(extracted)
+            if extracted:
+                logger.debug(
+                    "Crystalliser: discovered from step %d (%s) → %s",
+                    step.step_number, cmd_type, list(extracted.keys()),
+                )
+
+    return discovered
+
+
+def _deparameterise_values(command: str, discovered: Dict[str, str]) -> str:
+    """
+    Replace concrete discovered values with {{variable}} placeholders.
+    Longest values substituted first to avoid partial-match bugs.
+    """
+    if not discovered:
         return command
 
     result = command
-    # Sort by value length descending (replace longer strings first)
-    for var, val in sorted(resolved_inputs.items(), key=lambda x: -len(str(x[1]))):
+    for var, val in sorted(discovered.items(), key=lambda x: -len(str(x[1]))):
         val_str = str(val)
-        if val_str and len(val_str) > 1 and val_str in result:
-            # Don't replace values that are already a placeholder token
-            if not val_str.startswith("{{"):
-                result = result.replace(val_str, f"{{{{{var}}}}}")
+        if len(val_str) > 1 and not val_str.startswith("{{") and val_str in result:
+            result = result.replace(val_str, f"{{{{{var}}}}}")
+
     return result
 
 
-def _infer_extracts(command: str) -> Optional[str]:
-    """
-    Given a command, infer what variable name it extracts for subsequent steps.
-    Returns the variable name or None.
-    """
-    cmd = command.strip().lower()
-    cmd = re.sub(r'^(sudo\s+-S[^\s]*\s+|sudo\s+)', '', cmd)
+# ─────────────────────────────────────────────────────────────────────────────
+# Pass 2 — pattern-based deparameterisation for numeric/size literals
+# ─────────────────────────────────────────────────────────────────────────────
 
-    if re.match(r'df\b', cmd):
-        return "mount_point"
-    if re.match(r'du\b', cmd):
-        return "largest_dir"
-    if re.search(r'find\b.*-size', cmd):
-        return "large_files"
-    if re.search(r'systemctl\b.*failed', cmd):
-        return "service_name"
-    if re.match(r'ps\b.*aux', cmd):
-        return "top_process"
-    if re.match(r'hostname\b', cmd):
-        return "hostname"
-    if re.match(r'free\b', cmd):
-        return "available_memory"
+# Each entry: (compiled_regex, replacement_template, var_name, default_value, description)
+_PARAM_PATTERNS: List[Tuple[re.Pattern, str, str, str, str]] = [
+    (
+        re.compile(r'(--vacuum-size=)\d+[KMGTkmgt]?[Bb]?', re.IGNORECASE),
+        r'\g<1>{{vacuum_size}}',
+        'vacuum_size', '500M',
+        'Max size for journalctl vacuum (e.g. 500M, 1G)',
+    ),
+    (
+        re.compile(r'(--vacuum-time=)\d+\w+', re.IGNORECASE),
+        r'\g<1>{{vacuum_time}}',
+        'vacuum_time', '2weeks',
+        'Max age for journalctl vacuum (e.g. 2weeks, 30days)',
+    ),
+    (
+        re.compile(r'(-mtime\s+\+)\d+'),
+        r'\g<1>{{retention_days}}',
+        'retention_days', '30',
+        'Age threshold in days for file cleanup',
+    ),
+    (
+        re.compile(r'(-mtime\s+-)\d+'),
+        r'\g<1>{{recent_days}}',
+        'recent_days', '1',
+        'Recency threshold in days',
+    ),
+    (
+        re.compile(r'(-size\s+\+)\d+[kKmMgG]'),
+        r'\g<1>{{min_file_size}}',
+        'min_file_size', '100M',
+        'Minimum file size to target (e.g. 100M, 1G)',
+    ),
+    (
+        re.compile(r'(rotate\s+)\d+', re.IGNORECASE),
+        r'\g<1>{{log_rotate_count}}',
+        'log_rotate_count', '5',
+        'Number of rotated log files to keep',
+    ),
+    (
+        re.compile(r'(maxsize\s+)\d+[MmGg]', re.IGNORECASE),
+        r'\g<1>{{max_log_size}}',
+        'max_log_size', '100M',
+        'Maximum log file size before rotation',
+    ),
+]
+
+
+def _deparameterise_patterns(command: str) -> Tuple[str, Dict[str, Any]]:
+    """
+    Apply pattern-based deparameterisation for size/numeric literals.
+    Returns (rewritten_command, {var_name: default_value}).
+    """
+    result = command
+    new_inputs: Dict[str, Any] = {}
+    for pattern, replacement, var_name, default, _desc in _PARAM_PATTERNS:
+        if pattern.search(result):
+            result = pattern.sub(replacement, result)
+            new_inputs[var_name] = default
+    return result, new_inputs
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers shared with other modules
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _infer_extracts(command: str) -> Optional[str]:
+    """Given a command, infer what variable it produces for downstream steps."""
+    cmd = re.sub(r'^(sudo\s+)', '', command.strip().lower())
+    if re.match(r'df\b', cmd):    return "mount_point"
+    if re.match(r'du\b', cmd):    return "largest_dir"
+    if re.search(r'find\b.*-size', cmd): return "large_files"
+    if re.search(r'systemctl\b.*failed', cmd): return "service_name"
+    if re.match(r'ps\b.*aux', cmd): return "top_process"
+    if re.match(r'hostname\b', cmd): return "hostname"
+    if re.match(r'free\b', cmd):  return "available_memory"
     return None
 
 
-def _infer_smart_defaults(command: str) -> Dict[str, Any]:
-    """
-    Given a command, infer what smart defaults it uses for {{variables}}.
-    Returns a dict of variable_name → default_value.
-    """
+def _input_description(var: str) -> str:
+    """Human-readable description for a known variable name."""
+    descriptions = {
+        "mount_point":       "Filesystem mount point with the highest disk usage",
+        "largest_dir":       "Directory consuming the most space under mount_point",
+        "large_files":       "Comma-separated paths of large files found",
+        "largest_file":      "Single largest file path found",
+        "service_name":      "Name of the failed or problematic service",
+        "top_process":       "Name of the top CPU-consuming process",
+        "top_pid":           "PID of the top CPU-consuming process",
+        "hostname":          "Server hostname",
+        "available_memory":  "Available memory reported by free -h",
+        "disk_usage_pct":    "Current disk usage percentage",
+        "vacuum_size":       "Max size for journalctl vacuum (e.g. 500M, 1G)",
+        "vacuum_time":       "Max age for journalctl vacuum (e.g. 2weeks)",
+        "retention_days":    "Age threshold in days for file cleanup",
+        "min_file_size":     "Minimum file size to target (e.g. 100M)",
+        "log_rotate_count":  "Number of rotated log files to keep",
+        "max_log_size":      "Maximum log file size before rotation",
+    }
+    return descriptions.get(var, f"Value of {var} resolved at runtime")
+
+
+def _smart_default(var: str) -> Optional[str]:
+    """Safe default value for a known variable."""
     from app.services.execution.output_extractor import _SMART_DEFAULTS, _SMART_DEFAULT_PATTERNS
-    defaults = {}
-    for var in re.findall(r'\{\{(\w+)\}\}', command):
-        if var in _SMART_DEFAULTS:
-            defaults[var] = _SMART_DEFAULTS[var]
-        else:
-            for pattern, default in _SMART_DEFAULT_PATTERNS:
-                if re.match(pattern, var):
-                    defaults[var] = default
-                    break
-    return defaults
+    if var in _SMART_DEFAULTS:
+        return _SMART_DEFAULTS[var]
+    for pattern, default in _SMART_DEFAULT_PATTERNS:
+        if re.match(pattern, var):
+            return default
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,7 +218,7 @@ def _infer_smart_defaults(command: str) -> Dict[str, Any]:
 
 class RunbookCrystalliser:
     """
-    Converts a successful agent execution trace into a stored runbook.
+    Converts a successful agent execution trace into a stored, generalised runbook.
     """
 
     async def crystallise(
@@ -114,23 +230,8 @@ class RunbookCrystalliser:
         tenant_id: int,
         created_by_user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Build and store the runbook from the agent's execution trace.
-
-        Args:
-            db:                  DB session
-            session:             The completed agent ExecutionSession
-            weed_step_numbers:   Step numbers the human marked as weeds (excluded)
-            runbook_title:       Title for the new runbook
-            tenant_id:           Tenant to store it under
-            created_by_user_id:  Optional user who triggered the crystallisation
-
-        Returns:
-            { "runbook_id": int, "runbook_title": str, "steps_included": int,
-              "steps_excluded": int }
-        """
-        # Load all steps
-        steps: List[ExecutionStep] = (
+        # ── Load all steps (diagnose + execute) ───────────────────────────────
+        all_steps: List[ExecutionStep] = (
             db.query(ExecutionStep)
             .filter(ExecutionStep.session_id == session.id)
             .order_by(ExecutionStep.step_number)
@@ -138,70 +239,76 @@ class RunbookCrystalliser:
         )
 
         session_meta = session.meta_data or {}
-        resolved_inputs: Dict[str, str] = session_meta.get("resolved_inputs") or {}
         agent_summary: str = session_meta.get("agent_summary") or ""
 
-        # Filter: keep only successful, non-weed steps
+        # ── Rediscover concrete values from the full trace ────────────────────
+        # Use ALL steps (including diagnose weeds) — diagnosis often produces
+        # the values (mount points, dirs) referenced by execute steps.
+        discovered = _build_discovered_inputs(all_steps)
+
+        # Merge with anything tracked during execution (may be empty)
+        tracked = session_meta.get("resolved_inputs") or {}
+        discovered.update(tracked)
+
+        logger.info(
+            "Crystalliser: discovered inputs from session %d: %s",
+            session.id, list(discovered.keys()),
+        )
+
+        # ── Select steps to keep ──────────────────────────────────────────────
         kept_steps = []
         excluded = 0
-        for step in steps:
+        for step in all_steps:
             payload = step.command_payload or {}
-            is_weed = (
-                step.step_number in weed_step_numbers
-                or payload.get("weed") is True
-            )
-            if is_weed or not step.success:
+            is_weed = step.step_number in weed_step_numbers or payload.get("weed") is True
+            is_diagnose = payload.get("phase") == "diagnose"
+
+            if is_weed or is_diagnose or not step.success:
                 excluded += 1
                 logger.info(
                     "Crystalliser: excluding step %d (%s)",
                     step.step_number,
-                    "weed" if is_weed else "failed",
+                    "weed" if is_weed else "diagnose" if is_diagnose else "failed",
                 )
                 continue
             kept_steps.append(step)
 
         if not kept_steps:
-            raise ValueError(
-                "No successful non-weed steps to crystallise into a runbook."
-            )
+            raise ValueError("No successful execute-phase steps to crystallise into a runbook.")
 
-        # Build the runbook YAML structure
+        # ── Build generalised runbook steps ───────────────────────────────────
         runbook_steps = []
         inputs_needed: Dict[str, Any] = {}
 
         for step in kept_steps:
             raw_command = step.command or ""
 
-            # De-parameterise: replace concrete values back to {{variables}}
-            templ_command = _deparameterise(raw_command, resolved_inputs)
+            # Pass 1: replace discovered concrete values with {{variables}}
+            templ_command = _deparameterise_values(raw_command, discovered)
 
-            # Collect any {{variables}} in the template command as declared inputs
+            # Pass 2: replace hard-coded numeric/size literals
+            templ_command, pattern_inputs = _deparameterise_patterns(templ_command)
+
+            # Collect declared inputs from all {{variables}} present
             for var in re.findall(r'\{\{(\w+)\}\}', templ_command):
                 if var not in inputs_needed:
-                    defaults = _infer_smart_defaults(templ_command)
+                    default = _smart_default(var) or pattern_inputs.get(var)
                     inputs_needed[var] = {
-                        "name": var,
-                        "required": var not in defaults,
-                        "default": defaults.get(var),
-                        "description": f"Resolved from system during initial execution",
+                        "name":        var,
+                        "required":    default is None,
+                        "default":     default,
+                        "description": _input_description(var),
                     }
 
             step_entry: Dict[str, Any] = {
-                "name": (step.command_payload or {}).get("reasoning") or f"Step {step.step_number}",
+                "name":    payload.get("reasoning") or f"Step {step.step_number}",
                 "command": templ_command,
             }
 
-            # Document extraction metadata (how does this step feed later steps)
             extracts = _infer_extracts(raw_command)
             if extracts:
                 step_entry["extracts"] = extracts
 
-            # Smart defaults used
-            smart = _infer_smart_defaults(templ_command)
-            if smart:
-                step_entry["default_inputs"] = smart
-
-            # Mark state-changing steps as requiring approval
             from app.services.execution.command_classifier import get_command_classifier
             clf = get_command_classifier()
             classification = clf.classify(raw_command)
@@ -212,49 +319,49 @@ class RunbookCrystalliser:
 
             runbook_steps.append(step_entry)
 
-        # Determine service type and OS from session metadata
-        ticket_info = {}
+        # ── Ticket metadata ───────────────────────────────────────────────────
+        ticket_info: Dict[str, str] = {}
         if session.ticket_id:
             from app.models.ticket import Ticket
             ticket = db.query(Ticket).filter(Ticket.id == session.ticket_id).first()
             if ticket:
                 ticket_info = {
-                    "service": ticket.service or "general",
-                    "os_type": (ticket.meta_data or {}).get("os_type") or "linux",
+                    "service":    ticket.service or "general",
+                    "os_type":    (ticket.meta_data or {}).get("os_type") or "linux",
                     "issue_type": (ticket.meta_data or {}).get("issue_type") or "general",
                 }
 
-        # Build full runbook spec
+        # ── Assemble runbook spec ─────────────────────────────────────────────
         runbook_spec = {
-            "title": runbook_title,
+            "title":       runbook_title,
             "description": (
                 f"Auto-generated from successful agent execution. "
                 f"Original issue: {agent_summary or 'See session metadata.'}"
             ),
-            "service": ticket_info.get("service", "general"),
-            "os_type": ticket_info.get("os_type", "linux"),
+            "service":    ticket_info.get("service", "general"),
+            "os_type":    ticket_info.get("os_type", "linux"),
             "issue_type": ticket_info.get("issue_type", "general"),
-            "source": "agent_crystallised",
+            "source":     "agent_crystallised",
             "crystallised_from_session": session.id,
             "crystallised_at": datetime.now(timezone.utc).isoformat(),
-            "inputs": list(inputs_needed.values()),
-            "prechecks": [],
-            "steps": runbook_steps,
+            "inputs":     list(inputs_needed.values()),
+            "prechecks":  [],
+            "steps":      runbook_steps,
             "postchecks": [],
         }
 
-        # Render to YAML
-        runbook_yaml = yaml.dump(
+        runbook_body = "```yaml\n" + yaml.dump(
             runbook_spec,
             default_flow_style=False,
             allow_unicode=True,
             sort_keys=False,
-        )
-        runbook_body = f"```yaml\n{runbook_yaml}\n```"
+        ) + "```"
 
-        # Store via RunbookRepository
+        # ── Persist ───────────────────────────────────────────────────────────
         import json as _json
         from app.repositories.runbook_repository import RunbookRepository
+        from sqlalchemy.orm.attributes import flag_modified
+
         repo = RunbookRepository(db)
         runbook = repo.create(
             tenant_id=tenant_id,
@@ -262,38 +369,41 @@ class RunbookCrystalliser:
             body_md=runbook_body,
             status="approved",
             meta_data=_json.dumps({
-                "source": "agent_crystallised",
-                "session_id": session.id,
-                "agent_summary": agent_summary,
-                "approved": True,
-                "created_by_user_id": created_by_user_id,
-                "service": ticket_info.get("service", "general"),
-                "issue_type": ticket_info.get("issue_type", "general"),
-                "os_type": ticket_info.get("os_type", "linux"),
+                "source":              "agent_crystallised",
+                "session_id":          session.id,
+                "agent_summary":       agent_summary,
+                "approved":            True,
+                "created_by_user_id":  created_by_user_id,
+                "service":             ticket_info.get("service", "general"),
+                "issue_type":          ticket_info.get("issue_type", "general"),
+                "os_type":             ticket_info.get("os_type", "linux"),
+                "discovered_inputs":   discovered,
             }),
         )
 
-        # Mark session as crystallised
-        from sqlalchemy.orm.attributes import flag_modified
         session.meta_data["crystallised"] = True
         session.meta_data["crystallised_runbook_id"] = runbook.id
         flag_modified(session, "meta_data")
         db.commit()
 
         logger.info(
-            "Crystallised runbook id=%d '%s' from session %d (%d steps, %d excluded)",
-            runbook.id, runbook_title, session.id, len(kept_steps), excluded,
+            "Crystallised runbook id=%d '%s' from session %d "
+            "(%d steps kept, %d excluded, %d inputs generalised)",
+            runbook.id, runbook_title, session.id,
+            len(kept_steps), excluded, len(inputs_needed),
         )
 
         return {
-            "runbook_id": runbook.id,
-            "runbook_title": runbook_title,
-            "steps_included": len(kept_steps),
-            "steps_excluded": excluded,
+            "runbook_id":       runbook.id,
+            "runbook_title":    runbook_title,
+            "steps_included":   len(kept_steps),
+            "steps_excluded":   excluded,
+            "inputs_declared":  len(inputs_needed),
         }
 
 
-# Singleton
+# ── Singleton ─────────────────────────────────────────────────────────────────
+
 _crystalliser: Optional[RunbookCrystalliser] = None
 
 
