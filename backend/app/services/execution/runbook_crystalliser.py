@@ -208,12 +208,54 @@ _DISCOVERY_PRECHECKS: List[Dict[str, Any]] = [
 ]
 
 
+_DISK_VARS = {"mount_point", "disk_usage_pct", "largest_dir", "large_files", "largest_file"}
+
+# Regex matching read-only / diagnostic commands that belong in postchecks,
+# not in the remediation steps list.
+_READ_ONLY_RE = re.compile(
+    r'^(sudo\s+)?(df|du|free|ps\s+aux|top|uptime|systemctl\s+status|cat\s+/proc|'
+    r'hostname|uname|iostat|vmstat|netstat|ss\s+-|lsof)\b',
+    re.IGNORECASE,
+)
+
+
+def _is_read_only(command: str) -> bool:
+    return bool(_READ_ONLY_RE.match(command.strip()))
+
+
+def _step_name(payload: Dict[str, Any], command: str, step_number: int) -> str:
+    """
+    Derive a concise step name.  Uses the first sentence of the LLM's
+    reasoning if it is short enough; otherwise falls back to the command verb.
+    """
+    reasoning = (payload.get("reasoning") or "").strip()
+    # Take only the first sentence
+    first = re.split(r'(?<=[.!?])\s', reasoning, maxsplit=1)[0].strip()
+    # Accept it only if it is short and doesn't look like a meta-comment
+    meta_keywords = ("system requested", "verification", "final read-only", "step 7")
+    if first and len(first) <= 120 and not any(kw in first.lower() for kw in meta_keywords):
+        return first
+    # Fall back: derive from the command itself
+    cmd = re.sub(r'^sudo\s+', '', command.strip())
+    verb = cmd.split()[0] if cmd.split() else "step"
+    return f"Run {verb} (step {step_number})"
+
+
 def _build_discovery_prechecks(inputs_needed: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Return the minimal ordered set of discovery prechecks needed to populate
     every {{variable}} referenced by the execute steps.
+
+    Handles transitive dependencies: if largest_dir is needed its precheck
+    uses {{mount_point}}, so df -h must also be added even if mount_point
+    is not directly in inputs_needed.
     """
     var_names = set(inputs_needed.keys())
+
+    # Expand: any disk-space variable implies mount_point must be discovered first
+    if var_names & _DISK_VARS:
+        var_names.add("mount_point")
+
     result = []
     for spec in _DISCOVERY_PRECHECKS:
         if spec["vars"] & var_names:
@@ -227,18 +269,18 @@ def _build_discovery_prechecks(inputs_needed: Dict[str, Any]) -> List[Dict[str, 
 
 def _build_verification_postchecks(inputs_needed: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Return a postcheck that re-runs the primary metric command to confirm
+    Return postchecks that re-run the primary metric command to confirm
     the remediation worked.
     """
     postchecks = []
-    if "mount_point" in inputs_needed or "disk_usage_pct" in inputs_needed:
+    if inputs_needed.keys() & _DISK_VARS:
         postchecks.append({
             "name":    "Verify disk space has been freed",
-            "command": "df -h {{mount_point}}",
+            "command": "df -h",
         })
     if "available_memory" in inputs_needed:
         postchecks.append({
-            "name":    "Verify memory state after remediation",
+            "name":    "Verify memory after remediation",
             "command": "free -h",
         })
     if "service_name" in inputs_needed:
@@ -367,8 +409,13 @@ class RunbookCrystalliser:
         # ── Build generalised runbook steps ───────────────────────────────────
         runbook_steps = []
         inputs_needed: Dict[str, Any] = {}
+        seen_commands: set = set()  # for deduplication
+
+        from app.services.execution.command_classifier import get_command_classifier
+        clf = get_command_classifier()
 
         for step in kept_steps:
+            payload = step.command_payload or {}
             raw_command = step.command or ""
 
             # Pass 1: replace discovered concrete values with {{variables}}
@@ -376,6 +423,24 @@ class RunbookCrystalliser:
 
             # Pass 2: replace hard-coded numeric/size literals
             templ_command, pattern_inputs = _deparameterise_patterns(templ_command)
+
+            # Skip pure read-only / diagnostic commands — they belong in
+            # postchecks, not in the remediation steps list.
+            if _is_read_only(templ_command):
+                logger.debug(
+                    "Crystalliser: skipping read-only step %d (%s) — will appear in postchecks",
+                    step.step_number, templ_command[:60],
+                )
+                continue
+
+            # Deduplicate: if the same command has already been added, skip it.
+            if templ_command in seen_commands:
+                logger.debug(
+                    "Crystalliser: deduplicating step %d (command already in runbook)",
+                    step.step_number,
+                )
+                continue
+            seen_commands.add(templ_command)
 
             # Collect declared inputs from all {{variables}} present
             for var in re.findall(r'\{\{(\w+)\}\}', templ_command):
@@ -389,7 +454,7 @@ class RunbookCrystalliser:
                     }
 
             step_entry: Dict[str, Any] = {
-                "name":    payload.get("reasoning") or f"Step {step.step_number}",
+                "name":    _step_name(payload, templ_command, step.step_number),
                 "command": templ_command,
             }
 
@@ -397,8 +462,6 @@ class RunbookCrystalliser:
             if extracts:
                 step_entry["extracts"] = extracts
 
-            from app.services.execution.command_classifier import get_command_classifier
-            clf = get_command_classifier()
             classification = clf.classify(raw_command)
             if classification.level >= 3:
                 step_entry["requires_approval"] = True
@@ -406,6 +469,11 @@ class RunbookCrystalliser:
                 step_entry["caution"] = classification.reason
 
             runbook_steps.append(step_entry)
+
+        if not runbook_steps:
+            raise ValueError(
+                "No remediation steps remain after filtering read-only and duplicate commands."
+            )
 
         # ── Ticket metadata ───────────────────────────────────────────────────
         ticket_info: Dict[str, str] = {}
