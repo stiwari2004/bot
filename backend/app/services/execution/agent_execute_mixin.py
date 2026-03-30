@@ -53,7 +53,8 @@ class _AgentExecuteMixin:
             ExecutionStep.session_id == session.id
         ).scalar() or 0
         step_number = max_step + 1
-        verification_forced = False  # Only inject the verification nudge once
+        verification_forced = False   # Only inject the verification nudge once
+        self._resolution_challenged = False  # Only challenge premature done once
 
         for iteration in range(_MAX_EXECUTE_ITERATIONS):
             try:
@@ -80,8 +81,7 @@ class _AgentExecuteMixin:
                 break
 
             if action.get("action") == "done":
-                # Enforce verification before closing: if no read-only check was
-                # the last real command, inject a nudge and force one more iteration.
+                # Gate 1: must run a verification command before declaring done.
                 if history and not verification_forced and not self._history_has_verification(history):
                     verification_forced = True
                     history.append({
@@ -89,17 +89,39 @@ class _AgentExecuteMixin:
                         "command": "[SYSTEM]",
                         "output": (
                             "SYSTEM: You must run a read-only verification command "
-                            "BEFORE declaring done — e.g. `df -h` for disk space, "
-                            "`free -h` for memory, `systemctl status <svc>` for services. "
-                            "Run the verification now, then report the result in your done summary."
+                            "BEFORE declaring done — re-check the original symptom "
+                            "(e.g. df -h for disk, free -h for memory, systemctl status <svc> for services). "
+                            "Run the verification now, then assess whether the issue is resolved."
                         ),
                         "success": False,
                     })
                     logger.info("Execute phase: forcing verification step before done (iteration %d)", iteration)
                     continue
+
+                # Gate 2: if LLM claims resolved=true but the summary or last
+                # verification output still looks problematic, push back once.
+                claimed_resolved = bool(action.get("resolved", False))
+                if claimed_resolved and not self._verify_resolution(history, action.get("summary", "")):
+                    if not getattr(self, "_resolution_challenged", False):
+                        self._resolution_challenged = True
+                        history.append({
+                            "step": step_number,
+                            "command": "[SYSTEM]",
+                            "output": (
+                                "SYSTEM: Your verification output or summary suggests the issue "
+                                "may NOT be fully resolved. If the problem metric is still at a "
+                                "critical level, you MUST run additional remediation steps before "
+                                "declaring done. If you have genuinely exhausted all options, "
+                                "declare done with resolved=false."
+                            ),
+                            "success": False,
+                        })
+                        logger.info("Execute phase: challenging premature resolved=true (iteration %d)", iteration)
+                        continue
+
                 final_summary = action.get("summary", "Execution complete.")
-                resolved      = bool(action.get("resolved", True))
-                logger.info("Execute phase done after %d steps: %s", step_number - (max_step + 1), final_summary)
+                resolved      = claimed_resolved
+                logger.info("Execute phase done after %d steps: resolved=%s", step_number - (max_step + 1), resolved)
                 break
 
             command   = (action.get("command") or "").strip()
@@ -246,6 +268,42 @@ class _AgentExecuteMixin:
                 continue
             return bool(_VERIFY_RE.match(cmd))
         return False
+
+    @staticmethod
+    def _verify_resolution(history: List[Dict], summary: str) -> bool:
+        """
+        Heuristic check: does the recent verification output and summary suggest
+        the issue is actually resolved?  Returns False (challenge the claim) if
+        obvious still-critical signals are detected.
+        """
+        # Look at the last real command's output for obvious still-failing signals
+        for entry in reversed(history):
+            cmd = (entry.get("command") or "").strip()
+            if not cmd or cmd == "[SYSTEM]":
+                continue
+            output = (entry.get("output") or "").lower()
+            # Disk: 100% or >=95% usage
+            if re.search(r'\b(100|9[5-9])%', output):
+                return False
+            # Service still failed
+            if re.search(r'\bactive\s*\(failed\)|\bfailed\b.*\.service', output):
+                return False
+            # Memory: 0 or near-0 available
+            if re.search(r'avail\s+\d+[mk]\b', output, re.IGNORECASE):
+                # very small available memory (M or K range)
+                return False
+            break  # only check the last real command
+
+        # Also catch obvious "still broken" language in the summary
+        bad_phrases = [
+            "still full", "still at 100", "no space", "not resolved",
+            "could not free", "unable to free", "issue persists",
+        ]
+        summary_lower = summary.lower()
+        if any(p in summary_lower for p in bad_phrases):
+            return False
+
+        return True
 
     async def _auto_crystallise(self, db: Session, session: ExecutionSession) -> None:
         """
