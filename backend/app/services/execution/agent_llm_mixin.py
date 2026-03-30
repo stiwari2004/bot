@@ -120,9 +120,14 @@ or (only when usage is BELOW the warning threshold and no errors):
             "journalctl (read), systemctl status, netstat, lsof, find (without -delete/-exec rm). "
             "EFFICIENCY RULES:\n"
             "- Use the most direct commands to identify the root cause and its top contributors.\n"
-            "- Follow the evidence: each command should be informed by the previous output.\n"
-            "- Do NOT repeat similar commands. Do NOT run more than 6 commands total.\n"
-            "- Once you know what is causing the problem and where, declare diagnosis_complete.\n"
+            "- Follow the evidence: each command must be informed by the previous output.\n"
+            "- Do NOT repeat the same or a near-identical command (e.g. df -h and df -h / are the same).\n"
+            "- Do NOT run more than 6 commands total.\n"
+            "- DRILL DEEPER before concluding: if a command reveals one contributor is significantly "
+            "larger than others, run ONE more command to look inside that specific path "
+            "(e.g. du -sh /thatpath/* | sort -rh | head -20) so you know exactly what is large inside it. "
+            "Do NOT propose an approach targeting a directory without first understanding its contents.\n"
+            "- Once you have drilled into the top contributor and know what is inside, declare diagnosis_complete.\n"
             "BRANCHING RULES for diagnosis_complete:\n"
             "1. Identify the 2-3 biggest contributors to the problem from your actual command output.\n"
             "2. Each approach must target a DIFFERENT contributor — not sub-paths of the same one.\n"
@@ -244,10 +249,12 @@ Chosen approach:
   Rationale: {approach.get('rationale')}
   Risk: {approach.get('risk')}
 
-Generate a complete multi-step plan for this approach. Include:
-1. The core remediation commands (using ACTUAL, LITERAL paths/values from the diagnostic output above — NO placeholders)
-2. Cover all relevant sub-causes under the chosen target — a thorough plan has 3-6 steps
-3. A final verification step that re-checks the original symptom to confirm it is resolved
+Generate a complete multi-step plan for this approach. Rules:
+1. Read the diagnostic output above carefully — it shows exactly what is large/broken inside the target.
+2. Write cleanup/fix commands that target the SPECIFIC files, directories, or services found in that output.
+   Do NOT write generic commands that ignore what was actually found.
+3. Cover all significant sub-causes visible in the diagnostic output — a thorough plan has 3-6 steps.
+4. End with a verification step that re-checks the original symptom (e.g. re-run the metric command).
 
 EXAMPLE of CORRECT step: {{"step": 1, "intent": "what this step achieves", "command": "actual-command --with real-values", "risk": "low"}}
 EXAMPLE of WRONG step:   {{"step": 1, "intent": "what this step achieves", "command": "command --flag {{{{some_placeholder}}}}", "risk": "low"}}
@@ -382,22 +389,22 @@ If the issue cannot be resolved after best efforts:
                 "resolved": False, "done": True, "_parse_error": True}
 
     def _format_history(self, history: List[Dict]) -> str:
+        """
+        Format the command history for the LLM.
+        ALL steps include their output — older steps are truncated to 300 chars
+        so the LLM retains the facts (which dir was large, what the error was)
+        even when the list grows long.
+        """
         if not history:
             return "(no steps run yet)"
-        if len(history) > _HISTORY_KEEP_LAST:
-            older  = history[:-_HISTORY_KEEP_LAST]
-            recent = history[-_HISTORY_KEEP_LAST:]
-            older_summary = "; ".join(
-                f"step {h['step']}: {h['command'][:40]} → {'OK' if h['success'] else 'FAIL'}"
-                for h in older
+        lines = []
+        for i, h in enumerate(history):
+            is_recent = i >= len(history) - _HISTORY_KEEP_LAST
+            max_chars = _MAX_OUTPUT_CHARS if is_recent else 300
+            output = (h.get("output") or "").strip()
+            lines.append(
+                f"Step {h['step']}: $ {h['command']}\n"
+                f"Output: {output[:max_chars]}"
+                + (" [truncated]" if len(output) > max_chars else "")
             )
-            text  = f"[Earlier steps summary]: {older_summary}\n\n"
-            text += "\n".join(
-                f"Step {h['step']}: $ {h['command']}\nOutput: {h['output'][:_MAX_OUTPUT_CHARS]}"
-                for h in recent
-            )
-            return text
-        return "\n".join(
-            f"Step {h['step']}: $ {h['command']}\nOutput: {h['output'][:_MAX_OUTPUT_CHARS]}"
-            for h in history
-        )
+        return "\n\n".join(lines)
