@@ -5,7 +5,7 @@ for AgentExecutor.
 import asyncio
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session
@@ -16,8 +16,9 @@ from app.models.execution_session import ExecutionSession, ExecutionStep
 
 logger = get_logger(__name__)
 
-_MAX_EXECUTE_ITERATIONS = 15
-_MAX_OUTPUT_CHARS       = 400
+_MAX_EXECUTE_ITERATIONS = 15   # kept; plan now runs deterministically
+_MAX_VERIFY_ITERATIONS  = 5    # LLM turns for post-plan verification
+_MAX_OUTPUT_CHARS       = 800  # enough to see full df -h / du -sh output
 _CAUTION_COUNTDOWN_S    = 10
 _APPROVAL_POLL_INTERVAL = 2
 _APPROVAL_TIMEOUT_S     = 300
@@ -41,102 +42,36 @@ class _AgentExecuteMixin:
         connection_config: Dict[str, Any],
         issue_description: str,
     ) -> Tuple[bool, str]:
-        """Execute the approved plan. Returns (resolved, final_summary)."""
+        """
+        Execute the approved plan deterministically — each approved step runs
+        in order via SSH.  The LLM is NOT consulted to pick what to run next;
+        it is only used to:
+          1. Adapt a single step if it fails (one retry attempt)
+          2. Run a final verification after all steps complete
+          3. Produce a summary
+        """
         meta          = session.meta_data or {}
         proposed_plan = meta.get("proposed_plan") or []
         history: List[Dict] = []
         resolved_inputs: Dict[str, str] = {}
-        final_summary = ""
         resolved      = False
+        final_summary = ""
 
         max_step = db.query(sqlfunc.max(ExecutionStep.step_number)).filter(
             ExecutionStep.session_id == session.id
         ).scalar() or 0
         step_number = max_step + 1
-        verification_forced = False   # Only inject the verification nudge once
-        self._resolution_challenged = False  # Only challenge premature done once
 
-        for iteration in range(_MAX_EXECUTE_ITERATIONS):
-            try:
-                action = await self._llm_execute(
-                    issue_description=issue_description,
-                    connection_config=connection_config,
-                    proposed_plan=proposed_plan,
-                    history=history,
-                    resolved_inputs=resolved_inputs,
-                )
-            except Exception as e:
-                logger.error("Execute LLM call failed: %s", e)
-                await self.event_publisher.publish_raw(db, session, {
-                    "event_type": "agent.error",
-                    "message":    f"LLM call failed during execution: {e}",
-                })
-                break
+        # ── Phase A: run every approved plan step in order ────────────────────
+        for plan_item in proposed_plan:
+            raw_command = (plan_item.get("command") or "").strip()
+            intent      = plan_item.get("intent") or plan_item.get("name") or raw_command[:60]
 
-            if action.get("_parse_error"):
-                await self.event_publisher.publish_raw(db, session, {
-                    "event_type": "agent.error",
-                    "message":    "Could not parse LLM response during execution — ending session.",
-                })
-                break
+            if not raw_command:
+                continue
 
-            if action.get("action") == "done":
-                # Gate 1: must run a verification command before declaring done.
-                if history and not verification_forced and not self._history_has_verification(history):
-                    verification_forced = True
-                    history.append({
-                        "step": step_number,
-                        "command": "[SYSTEM]",
-                        "output": (
-                            "SYSTEM: You must run a read-only verification command "
-                            "BEFORE declaring done — re-check the original symptom "
-                            "(e.g. df -h for disk, free -h for memory, systemctl status <svc> for services). "
-                            "Run the verification now, then assess whether the issue is resolved."
-                        ),
-                        "success": False,
-                    })
-                    logger.info("Execute phase: forcing verification step before done (iteration %d)", iteration)
-                    continue
-
-                # Gate 2: if LLM claims resolved=true but the summary or last
-                # verification output still looks problematic, push back once.
-                claimed_resolved = bool(action.get("resolved", False))
-                if claimed_resolved and not self._verify_resolution(history, action.get("summary", "")):
-                    if not getattr(self, "_resolution_challenged", False):
-                        self._resolution_challenged = True
-                        history.append({
-                            "step": step_number,
-                            "command": "[SYSTEM]",
-                            "output": (
-                                "SYSTEM: Your verification output or summary suggests the issue "
-                                "may NOT be fully resolved. If the problem metric is still at a "
-                                "critical level, you MUST run additional remediation steps before "
-                                "declaring done. If you have genuinely exhausted all options, "
-                                "declare done with resolved=false."
-                            ),
-                            "success": False,
-                        })
-                        logger.info("Execute phase: challenging premature resolved=true (iteration %d)", iteration)
-                        continue
-
-                final_summary = action.get("summary", "Execution complete.")
-                resolved      = claimed_resolved
-                logger.info("Execute phase done after %d steps: resolved=%s", step_number - (max_step + 1), resolved)
-                break
-
-            command   = (action.get("command") or "").strip()
-            reasoning = (action.get("reasoning") or "")
-
+            command = self._resolve_placeholders(raw_command, resolved_inputs)
             if not command:
-                logger.warning("Execute phase: LLM returned empty command at iteration %d", iteration)
-                break
-
-            # Resolve any remaining {{variable}} placeholders against known values.
-            # This is a safety net — the LLM should generate concrete commands, but
-            # if it doesn't, substitute from resolved_inputs and strip unresolvable ones.
-            command = self._resolve_placeholders(command, resolved_inputs)
-            if not command:
-                logger.warning("Execute phase: command reduced to empty after placeholder resolution — skipping")
                 continue
 
             classification = self.classifier.classify(command)
@@ -144,15 +79,15 @@ class _AgentExecuteMixin:
             await self.event_publisher.publish_raw(db, session, {
                 "event_type":   "agent.reasoning",
                 "step_number":  step_number,
-                "reasoning":    reasoning,
+                "reasoning":    intent,
                 "command":      command,
                 "safety_level": classification.level,
                 "safety_label": classification.label,
             })
 
-            # Level 4 — BLOCKED
+            # Level 4 — always blocked
             if classification.level == 4:
-                logger.warning("Execute phase: BLOCKED command: %s", command[:80])
+                logger.warning("Execute phase: BLOCKED plan step: %s", command[:80])
                 await self.event_publisher.publish_raw(db, session, {
                     "event_type":  "agent.command_blocked",
                     "step_number": step_number,
@@ -160,20 +95,18 @@ class _AgentExecuteMixin:
                     "reason":      classification.reason,
                 })
                 history.append({
-                    "step":    step_number,
-                    "command": command,
-                    "output":  f"[BLOCKED] {classification.reason}. Choose a different approach.",
-                    "success": False,
+                    "step": step_number, "command": command,
+                    "output": f"[BLOCKED] {classification.reason}", "success": False,
                 })
                 step_number += 1
                 continue
 
-            # Level 3 — DESTRUCTIVE
+            # Level 3 — destructive, requires human approval
             if classification.level == 3:
                 step_number = await self._handle_destructive(
                     db=db, session=session, connector=connector,
                     connection_config=connection_config,
-                    command=command, reasoning=reasoning,
+                    command=command, reasoning=intent,
                     classification=classification,
                     step_number=step_number, history=history,
                     resolved_inputs=resolved_inputs,
@@ -183,7 +116,7 @@ class _AgentExecuteMixin:
                     break
                 continue
 
-            # Level 2 — CAUTION
+            # Level 2 — caution countdown
             if classification.level == 2:
                 await self.event_publisher.publish_raw(db, session, {
                     "event_type":        "agent.caution",
@@ -201,10 +134,9 @@ class _AgentExecuteMixin:
                 if session.status == "abandoned":
                     break
 
-            # Level 1 or post-countdown Level 2
-            step_db = self._create_step(db, session, step_number, command, reasoning, phase="execute")
+            # Run the step
+            step_db = self._create_step(db, session, step_number, command, intent, phase="execute")
             result  = await self._execute_step(connector, connection_config, command, step_db, db, session)
-
             output  = result.get("output") or result.get("error") or ""
             success = result.get("success", False)
 
@@ -217,12 +149,9 @@ class _AgentExecuteMixin:
                     resolved_inputs.update(extracted)
 
             history.append({
-                "step":    step_number,
-                "command": command,
-                "output":  output[:_MAX_OUTPUT_CHARS],
-                "success": success,
+                "step": step_number, "command": command,
+                "output": output[:_MAX_OUTPUT_CHARS], "success": success,
             })
-
             await self.event_publisher.publish_raw(db, session, {
                 "event_type":     "agent.step_completed",
                 "step_number":    step_number,
@@ -232,9 +161,89 @@ class _AgentExecuteMixin:
             })
             step_number += 1
 
-        if not resolved and not final_summary:
-            final_summary = f"Agent reached maximum iterations ({_MAX_EXECUTE_ITERATIONS}) without confirming resolution."
-            logger.warning(final_summary)
+            # If a step failed, ask LLM for a one-shot adaptation
+            if not success:
+                adapted = await self._adapt_failed_step(
+                    plan_item=plan_item, failed_output=output,
+                    history=history, resolved_inputs=resolved_inputs,
+                    issue_description=issue_description,
+                    connection_config=connection_config,
+                )
+                if adapted:
+                    adapted = self._resolve_placeholders(adapted, resolved_inputs)
+                    step_db2 = self._create_step(db, session, step_number, adapted, f"[retry] {intent}", phase="execute")
+                    result2  = await self._execute_step(connector, connection_config, adapted, step_db2, db, session)
+                    out2     = result2.get("output") or result2.get("error") or ""
+                    history.append({
+                        "step": step_number, "command": adapted,
+                        "output": out2[:_MAX_OUTPUT_CHARS], "success": result2.get("success", False),
+                    })
+                    await self.event_publisher.publish_raw(db, session, {
+                        "event_type":     "agent.step_completed",
+                        "step_number":    step_number,
+                        "command":        adapted,
+                        "success":        result2.get("success", False),
+                        "output_preview": out2[:200],
+                    })
+                    step_number += 1
+
+        # ── Phase B: verification ─────────────────────────────────────────────
+        # Ask LLM to run a verification command and summarise the result.
+        # We allow up to _MAX_VERIFY_ITERATIONS LLM turns for this.
+        for _ in range(_MAX_VERIFY_ITERATIONS):
+            if session.status == "abandoned":
+                break
+            try:
+                action = await self._llm_execute(
+                    issue_description=issue_description,
+                    connection_config=connection_config,
+                    proposed_plan=proposed_plan,
+                    history=history,
+                    resolved_inputs=resolved_inputs,
+                )
+            except Exception as e:
+                logger.error("Verification LLM call failed: %s", e)
+                break
+
+            if action.get("_parse_error"):
+                break
+
+            if action.get("action") == "done":
+                claimed = bool(action.get("resolved", False))
+                # Code-level gate: if verification output shows issue still critical,
+                # do not accept resolved=true
+                if claimed and not self._verify_resolution(history, action.get("summary", "")):
+                    logger.warning("Execute phase: LLM claimed resolved but metric still critical — marking unresolved")
+                    claimed = False
+                final_summary = action.get("summary", "Execution complete.")
+                resolved      = claimed
+                break
+
+            # LLM wants to run a verification command
+            command   = (action.get("command") or "").strip()
+            reasoning = (action.get("reasoning") or "verification")
+            if not command:
+                break
+
+            command = self._resolve_placeholders(command, resolved_inputs)
+            step_db = self._create_step(db, session, step_number, command, reasoning, phase="execute")
+            result  = await self._execute_step(connector, connection_config, command, step_db, db, session)
+            output  = result.get("output") or result.get("error") or ""
+            history.append({
+                "step": step_number, "command": command,
+                "output": output[:_MAX_OUTPUT_CHARS], "success": result.get("success", False),
+            })
+            await self.event_publisher.publish_raw(db, session, {
+                "event_type":     "agent.step_completed",
+                "step_number":    step_number,
+                "command":        command,
+                "success":        result.get("success", False),
+                "output_preview": output[:200],
+            })
+            step_number += 1
+
+        if not final_summary:
+            final_summary = "Execution complete — all approved steps ran."
 
         session.meta_data["agent_summary"]   = final_summary
         session.meta_data["agent_resolved"]  = resolved
@@ -243,6 +252,44 @@ class _AgentExecuteMixin:
         db.commit()
 
         return resolved, final_summary
+
+    async def _adapt_failed_step(
+        self,
+        plan_item: Dict[str, Any],
+        failed_output: str,
+        history: List[Dict],
+        resolved_inputs: Dict[str, str],
+        issue_description: str,
+        connection_config: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        Ask the LLM for a single alternative command when a plan step fails.
+        Returns the adapted command string, or None if no adaptation needed.
+        """
+        try:
+            from app.services.execution.agent_llm_mixin import _AgentLLMMixin
+            intent = plan_item.get("intent") or plan_item.get("name") or ""
+            original = plan_item.get("command") or ""
+            raw = await self._llm._chat_once_with_system(
+                system_prompt=(
+                    "You are an SRE agent. A remediation step failed. "
+                    "Suggest ONE alternative command that achieves the same intent. "
+                    "Reply with ONLY a JSON object: {\"command\": \"the alternative command\"}. "
+                    "If no alternative is possible, reply: {\"command\": \"\"}."
+                ),
+                user_prompt=(
+                    f"Failed command: {original}\n"
+                    f"Intent: {intent}\n"
+                    f"Error output: {failed_output[:400]}\n"
+                    f"Suggest an alternative:"
+                ),
+            )
+            import json as _json
+            data = _json.loads(raw.strip())
+            return (data.get("command") or "").strip() or None
+        except Exception as e:
+            logger.debug("Step adaptation failed: %s", e)
+            return None
 
     @staticmethod
     def _resolve_placeholders(command: str, resolved_inputs: Dict[str, str]) -> str:
