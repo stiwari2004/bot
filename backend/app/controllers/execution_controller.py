@@ -93,8 +93,8 @@ class ExecutionController:
     def get_agent_session_plan(self, session_id: int) -> Dict[str, Any]:
         return self._agent_ctrl.get_agent_session_plan(session_id)
 
-    async def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
-        return await self._agent_ctrl.select_approach(session_id, approach_id)
+    def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
+        return self._agent_ctrl.select_approach(session_id, approach_id)
 
     def approve_agent_plan(self, session_id: int, selected_approach_id: Optional[str] = None, proposed_plan: Optional[List] = None) -> Dict[str, Any]:
         return self._agent_ctrl.approve_agent_plan(session_id, selected_approach_id, proposed_plan)
@@ -111,6 +111,9 @@ class ExecutionController:
 
     def get_agent_session_steps_for_review(self, session_id: int) -> Dict[str, Any]:
         return self._agent_ctrl.get_agent_session_steps_for_review(session_id)
+
+    def confirm_agent_resolution(self, session_id: int, human_resolved: bool) -> Dict[str, Any]:
+        return self._agent_ctrl.confirm_resolution(session_id, human_resolved)
 
     def record_agent_feedback(self, session_id: int, feedback: str) -> Dict[str, Any]:
         return self._agent_ctrl.record_feedback(session_id, feedback)

@@ -104,23 +104,26 @@ class AgentSessionController(BaseController):
             raise self.not_found("Session", session_id)
         meta = session.meta_data or {}
         return {
-            "session_id": session_id,
-            "status": session.status,
-            "phase": meta.get("phase", "unknown"),
-            "diagnosis": meta.get("diagnosis"),
-            "approaches": meta.get("approaches") or [],
+            "session_id":    session_id,
+            "status":        session.status,
+            "phase":         meta.get("phase", "unknown"),
+            "diagnosis":     meta.get("diagnosis"),
+            "approaches":    meta.get("approaches") or [],
             "proposed_plan": meta.get("proposed_plan"),
+            "generated_plan": meta.get("generated_plan"),   # populated after targeted discovery
+            "discovering":   bool(meta.get("pending_discovery_approach_id")),
             "plan_approved": meta.get("plan_approved"),
             "plan_rejection_count": meta.get("plan_rejection_count", 0),
             "plan_rejection_feedback": meta.get("plan_rejection_feedback", []),
         }
 
-    async def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
+    def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
         """
-        Human selected an approach — call the LLM to generate the detailed plan for it.
-        Returns the generated steps so the UI can render them for editing.
+        Human selected an approach — store the selection and signal the agent loop
+        to run targeted discovery on the chosen target before generating the plan.
+        The frontend should poll GET /plan until `generated_plan` appears.
         """
-        from app.services.execution.agent_executor import get_agent_executor
+        from sqlalchemy.orm.attributes import flag_modified
         session = self.execution_repo.get_by_id(session_id)
         if not session:
             raise self.not_found("Session", session_id)
@@ -128,16 +131,16 @@ class AgentSessionController(BaseController):
             raise self.bad_request(
                 f"Session is not awaiting plan approval (current status: {session.status})"
             )
-        executor = get_agent_executor()
-        steps = await executor.generate_plan_for_approach(
-            db          = self.db,
-            session_id  = session_id,
-            approach_id = approach_id,
-        )
+        # Clear any previous generated plan so the agent loop knows to regenerate
+        session.meta_data["pending_discovery_approach_id"] = approach_id
+        session.meta_data["generated_plan"] = None
+        flag_modified(session, "meta_data")
+        self.db.commit()
         return {
             "session_id":  session_id,
             "approach_id": approach_id,
-            "steps":       steps,
+            "status":      "discovering",
+            "message":     "Running targeted investigation on the selected area — poll GET /plan for steps.",
         }
 
     def approve_agent_plan(
@@ -251,6 +254,65 @@ class AgentSessionController(BaseController):
                 raise self.bad_request(str(ve))
 
         return result
+
+    def confirm_resolution(self, session_id: int, human_resolved: bool) -> Dict[str, Any]:
+        """
+        Human confirms whether the issue is actually fixed.
+        - human_resolved=True  → ticket closed as resolved, runbook crystallised
+        - human_resolved=False → ticket escalated, session flagged for retry
+        """
+        from sqlalchemy.orm.attributes import flag_modified
+        from datetime import datetime, timezone
+
+        session = self.execution_repo.get_by_id(session_id)
+        if not session:
+            raise self.not_found("Session", session_id)
+        if session.status not in ("awaiting_human_confirmation", "completed", "completed_with_errors"):
+            raise self.bad_request(
+                f"Session is not awaiting confirmation (current status: {session.status})"
+            )
+
+        session.meta_data["human_confirmed_resolved"] = human_resolved
+        session.meta_data["pending_review"]           = False
+
+        if human_resolved:
+            session.status       = "completed"
+            session.completed_at = datetime.now(timezone.utc)
+            session.meta_data["phase"] = "done"
+        else:
+            session.status       = "completed_with_errors"
+            session.completed_at = datetime.now(timezone.utc)
+            session.meta_data["phase"] = "done"
+
+        flag_modified(session, "meta_data")
+        self.db.commit()
+
+        # Update ticket
+        if session.ticket_id:
+            try:
+                from app.services.ticket_status_service import get_ticket_status_service
+                get_ticket_status_service().update_ticket_on_execution_complete(
+                    db=self.db,
+                    ticket_id=session.ticket_id,
+                    execution_status="completed",
+                    issue_resolved=human_resolved,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Could not update ticket %d on confirmation: %s", session.ticket_id, e
+                )
+
+        return {
+            "session_id": session_id,
+            "human_resolved": human_resolved,
+            "ticket_status": "resolved" if human_resolved else "escalated",
+            "message": (
+                "Ticket closed as resolved. Runbook will be crystallised from this session."
+                if human_resolved else
+                "Ticket escalated. Consider retrying with different guidance."
+            ),
+        }
 
     def record_feedback(self, session_id: int, feedback: str) -> Dict[str, Any]:
         """Persist human feedback on a completed session without starting a retry."""

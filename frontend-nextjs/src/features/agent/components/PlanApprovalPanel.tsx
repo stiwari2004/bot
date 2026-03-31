@@ -52,15 +52,47 @@ export function PlanApprovalPanel({ sessionId, onApproved }: Props) {
     setError(null);
     setPlanGenerating(true);
     try {
-      const data: any = await selectApproach(sessionId, id);
-      setSteps(
-        (data.steps || []).map((s: PlanStep, i: number) => ({
-          step: s.step ?? i + 1,
-          intent: s.intent ?? '',
-          command: s.command ?? '',
-          risk: s.risk ?? 'medium',
-        }))
-      );
+      const res: any = await selectApproach(sessionId, id);
+
+      // Backend now runs targeted discovery asynchronously — poll until generated_plan appears
+      if (res?.status === 'discovering') {
+        const POLL_INTERVAL = 2000;
+        const POLL_TIMEOUT  = 120_000; // 2 min max
+        const start = Date.now();
+        let plan: PlanStep[] | null = null;
+
+        while (Date.now() - start < POLL_TIMEOUT) {
+          await new Promise(r => setTimeout(r, POLL_INTERVAL));
+          const planData: any = await fetchSessionPlan(sessionId);
+          if (planData?.generated_plan?.length) {
+            plan = planData.generated_plan;
+            break;
+          }
+        }
+
+        if (!plan) {
+          throw new Error('Plan generation timed out — try selecting the approach again.');
+        }
+
+        setSteps(
+          plan.map((s: PlanStep, i: number) => ({
+            step: s.step ?? i + 1,
+            intent: s.intent ?? '',
+            command: s.command ?? '',
+            risk: s.risk ?? 'medium',
+          }))
+        );
+      } else {
+        // Legacy path: plan returned directly (shouldn't happen but keep for safety)
+        setSteps(
+          (res.steps || []).map((s: PlanStep, i: number) => ({
+            step: s.step ?? i + 1,
+            intent: s.intent ?? '',
+            command: s.command ?? '',
+            risk: s.risk ?? 'medium',
+          }))
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to generate plan');
       setSelectedId(null);
@@ -168,7 +200,7 @@ export function PlanApprovalPanel({ sessionId, onApproved }: Props) {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium uppercase ${RISK_BADGE[approach.risk] || RISK_BADGE.medium}`}>{approach.risk}</span>
                   </div>
                   {approach.rationale && <p className="text-xs text-neutral-600 ml-7">{approach.rationale}</p>}
-                  {isGenerating && <p className="text-xs text-blue-600 ml-7 mt-0.5 animate-pulse">Generating remediation plan…</p>}
+                  {isGenerating && <p className="text-xs text-blue-600 ml-7 mt-0.5 animate-pulse">Investigating target and generating plan…</p>}
                 </button>
               );
             })}

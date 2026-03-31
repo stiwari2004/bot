@@ -1,6 +1,5 @@
 """
-_AgentExecuteMixin — Phase 3 (execute), auto-crystallise, and destructive handler
-for AgentExecutor.
+_AgentExecuteMixin — Phase 3 (execute) for AgentExecutor.
 """
 import asyncio
 import re
@@ -16,23 +15,15 @@ from app.models.execution_session import ExecutionSession, ExecutionStep
 
 logger = get_logger(__name__)
 
-_MAX_EXECUTE_ITERATIONS = 15   # kept; plan now runs deterministically
-_MAX_VERIFY_ITERATIONS  = 5    # LLM turns for post-plan verification
-_MAX_OUTPUT_CHARS       = 800  # enough to see full df -h / du -sh output
+_MAX_EXECUTE_ITERATIONS = 20   # LLM-driven loop ceiling
+_MAX_OUTPUT_CHARS       = 800
 _CAUTION_COUNTDOWN_S    = 10
 _APPROVAL_POLL_INTERVAL = 2
 _APPROVAL_TIMEOUT_S     = 300
 
-# Read-only verification commands the agent should run before declaring done
-_VERIFY_RE = re.compile(
-    r'^(df|free|du|ps|top|systemctl\s+status|netstat|ss|lsof|iostat|vmstat|'
-    r'cat\s+/proc|uname|uptime|ping|curl|wget|check)',
-    re.IGNORECASE,
-)
-
 
 class _AgentExecuteMixin:
-    """Phase 3: approved plan execution, auto-crystallise, Level-3 destructive handler."""
+    """Phase 3: LLM-driven execution with safety gates and human resolution confirmation."""
 
     async def _execute_phase(
         self,
@@ -43,12 +34,17 @@ class _AgentExecuteMixin:
         issue_description: str,
     ) -> Tuple[bool, str]:
         """
-        Execute the approved plan deterministically — each approved step runs
-        in order via SSH.  The LLM is NOT consulted to pick what to run next;
-        it is only used to:
-          1. Adapt a single step if it fails (one retry attempt)
-          2. Run a final verification after all steps complete
-          3. Produce a summary
+        LLM-driven execution loop.  The approved plan is provided as a guide;
+        the LLM decides what to run next after seeing each step's output.
+        It reasons about failures and adapts — no hardcoded recovery recipes.
+
+        Safety gates remain:
+          Level 2 (CAUTION)     → countdown + auto-proceed
+          Level 3 (DESTRUCTIVE) → dry-run preview + explicit human approval
+          Level 4 (BLOCKED)     → refused
+
+        Returns (resolved, final_summary) — resolved reflects what the LLM
+        declared AND passes the code-level _verify_resolution gate.
         """
         meta          = session.meta_data or {}
         proposed_plan = meta.get("proposed_plan") or []
@@ -62,15 +58,68 @@ class _AgentExecuteMixin:
         ).scalar() or 0
         step_number = max_step + 1
 
-        # ── Phase A: run every approved plan step in order ────────────────────
-        for plan_item in proposed_plan:
-            raw_command = (plan_item.get("command") or "").strip()
-            intent      = plan_item.get("intent") or plan_item.get("name") or raw_command[:60]
+        for iteration in range(_MAX_EXECUTE_ITERATIONS):
+            db.refresh(session)
+            if session.status == "abandoned":
+                break
 
-            if not raw_command:
-                continue
+            try:
+                action = await self._llm_execute(
+                    issue_description=issue_description,
+                    connection_config=connection_config,
+                    proposed_plan=proposed_plan,
+                    history=history,
+                    resolved_inputs=resolved_inputs,
+                )
+            except Exception as e:
+                logger.error("Execute LLM call failed (iter %d): %s", iteration, e)
+                await self.event_publisher.publish_raw(db, session, {
+                    "event_type": "agent.error",
+                    "message":    f"LLM call failed during execution: {e}",
+                })
+                break
 
-            command = self._resolve_placeholders(raw_command, resolved_inputs)
+            if action.get("_parse_error"):
+                break
+
+            # ── Agent declares done ───────────────────────────────────────────
+            if action.get("action") == "done":
+                claimed       = bool(action.get("resolved", False))
+                final_summary = action.get("summary", "Execution complete.")
+
+                # Code-level gate: verify the claim is supported by actual output
+                if claimed and not self._verify_resolution(history, final_summary):
+                    logger.warning(
+                        "Execute: LLM claimed resolved=true but metric still critical — "
+                        "injecting feedback and continuing"
+                    )
+                    # Feed back to the LLM as a failed verification so it continues
+                    history.append({
+                        "step":    step_number,
+                        "command": "[VERIFICATION GATE]",
+                        "output":  (
+                            "Your last verification output still shows the issue as critical. "
+                            "Do NOT declare resolved=true yet. "
+                            "Run df -h (or free -h / systemctl status) to check the current metric, "
+                            "then continue remediation if it has not improved."
+                        ),
+                        "success": False,
+                    })
+                    step_number += 1
+                    continue
+
+                resolved = claimed
+                break
+
+            # ── Agent wants to run a command ──────────────────────────────────
+            command   = (action.get("command") or "").strip()
+            reasoning = (action.get("reasoning") or "")
+
+            if not command:
+                logger.warning("Execute LLM returned empty command at iteration %d", iteration)
+                break
+
+            command = self._resolve_placeholders(command, resolved_inputs)
             if not command:
                 continue
 
@@ -79,7 +128,7 @@ class _AgentExecuteMixin:
             await self.event_publisher.publish_raw(db, session, {
                 "event_type":   "agent.reasoning",
                 "step_number":  step_number,
-                "reasoning":    intent,
+                "reasoning":    reasoning,
                 "command":      command,
                 "safety_level": classification.level,
                 "safety_label": classification.label,
@@ -87,7 +136,7 @@ class _AgentExecuteMixin:
 
             # Level 4 — always blocked
             if classification.level == 4:
-                logger.warning("Execute phase: BLOCKED plan step: %s", command[:80])
+                logger.warning("Execute: BLOCKED command: %s", command[:80])
                 await self.event_publisher.publish_raw(db, session, {
                     "event_type":  "agent.command_blocked",
                     "step_number": step_number,
@@ -95,18 +144,20 @@ class _AgentExecuteMixin:
                     "reason":      classification.reason,
                 })
                 history.append({
-                    "step": step_number, "command": command,
-                    "output": f"[BLOCKED] {classification.reason}", "success": False,
+                    "step":    step_number,
+                    "command": command,
+                    "output":  f"[BLOCKED — level 4] {classification.reason}. Choose a safer alternative.",
+                    "success": False,
                 })
                 step_number += 1
                 continue
 
-            # Level 3 — destructive, requires human approval
+            # Level 3 — requires human approval
             if classification.level == 3:
                 step_number = await self._handle_destructive(
                     db=db, session=session, connector=connector,
                     connection_config=connection_config,
-                    command=command, reasoning=intent,
+                    command=command, reasoning=reasoning,
                     classification=classification,
                     step_number=step_number, history=history,
                     resolved_inputs=resolved_inputs,
@@ -135,7 +186,7 @@ class _AgentExecuteMixin:
                     break
 
             # Run the step
-            step_db = self._create_step(db, session, step_number, command, intent, phase="execute")
+            step_db = self._create_step(db, session, step_number, command, reasoning, phase="execute")
             result  = await self._execute_step(connector, connection_config, command, step_db, db, session)
             output  = result.get("output") or result.get("error") or ""
             success = result.get("success", False)
@@ -149,8 +200,10 @@ class _AgentExecuteMixin:
                     resolved_inputs.update(extracted)
 
             history.append({
-                "step": step_number, "command": command,
-                "output": output[:_MAX_OUTPUT_CHARS], "success": success,
+                "step":    step_number,
+                "command": command,
+                "output":  output[:_MAX_OUTPUT_CHARS],
+                "success": success,
             })
             await self.event_publisher.publish_raw(db, session, {
                 "event_type":     "agent.step_completed",
@@ -161,89 +214,8 @@ class _AgentExecuteMixin:
             })
             step_number += 1
 
-            # If a step failed, ask LLM for a one-shot adaptation
-            if not success:
-                adapted = await self._adapt_failed_step(
-                    plan_item=plan_item, failed_output=output,
-                    history=history, resolved_inputs=resolved_inputs,
-                    issue_description=issue_description,
-                    connection_config=connection_config,
-                )
-                if adapted:
-                    adapted = self._resolve_placeholders(adapted, resolved_inputs)
-                    step_db2 = self._create_step(db, session, step_number, adapted, f"[retry] {intent}", phase="execute")
-                    result2  = await self._execute_step(connector, connection_config, adapted, step_db2, db, session)
-                    out2     = result2.get("output") or result2.get("error") or ""
-                    history.append({
-                        "step": step_number, "command": adapted,
-                        "output": out2[:_MAX_OUTPUT_CHARS], "success": result2.get("success", False),
-                    })
-                    await self.event_publisher.publish_raw(db, session, {
-                        "event_type":     "agent.step_completed",
-                        "step_number":    step_number,
-                        "command":        adapted,
-                        "success":        result2.get("success", False),
-                        "output_preview": out2[:200],
-                    })
-                    step_number += 1
-
-        # ── Phase B: verification ─────────────────────────────────────────────
-        # Ask LLM to run a verification command and summarise the result.
-        # We allow up to _MAX_VERIFY_ITERATIONS LLM turns for this.
-        for _ in range(_MAX_VERIFY_ITERATIONS):
-            if session.status == "abandoned":
-                break
-            try:
-                action = await self._llm_execute(
-                    issue_description=issue_description,
-                    connection_config=connection_config,
-                    proposed_plan=proposed_plan,
-                    history=history,
-                    resolved_inputs=resolved_inputs,
-                )
-            except Exception as e:
-                logger.error("Verification LLM call failed: %s", e)
-                break
-
-            if action.get("_parse_error"):
-                break
-
-            if action.get("action") == "done":
-                claimed = bool(action.get("resolved", False))
-                # Code-level gate: if verification output shows issue still critical,
-                # do not accept resolved=true
-                if claimed and not self._verify_resolution(history, action.get("summary", "")):
-                    logger.warning("Execute phase: LLM claimed resolved but metric still critical — marking unresolved")
-                    claimed = False
-                final_summary = action.get("summary", "Execution complete.")
-                resolved      = claimed
-                break
-
-            # LLM wants to run a verification command
-            command   = (action.get("command") or "").strip()
-            reasoning = (action.get("reasoning") or "verification")
-            if not command:
-                break
-
-            command = self._resolve_placeholders(command, resolved_inputs)
-            step_db = self._create_step(db, session, step_number, command, reasoning, phase="execute")
-            result  = await self._execute_step(connector, connection_config, command, step_db, db, session)
-            output  = result.get("output") or result.get("error") or ""
-            history.append({
-                "step": step_number, "command": command,
-                "output": output[:_MAX_OUTPUT_CHARS], "success": result.get("success", False),
-            })
-            await self.event_publisher.publish_raw(db, session, {
-                "event_type":     "agent.step_completed",
-                "step_number":    step_number,
-                "command":        command,
-                "success":        result.get("success", False),
-                "output_preview": output[:200],
-            })
-            step_number += 1
-
         if not final_summary:
-            final_summary = "Execution complete — all approved steps ran."
+            final_summary = "Execution complete — all steps ran."
 
         session.meta_data["agent_summary"]   = final_summary
         session.meta_data["agent_resolved"]  = resolved
@@ -253,125 +225,86 @@ class _AgentExecuteMixin:
 
         return resolved, final_summary
 
-    async def _adapt_failed_step(
-        self,
-        plan_item: Dict[str, Any],
-        failed_output: str,
-        history: List[Dict],
-        resolved_inputs: Dict[str, str],
-        issue_description: str,
-        connection_config: Dict[str, Any],
-    ) -> Optional[str]:
-        """
-        Ask the LLM for a single alternative command when a plan step fails.
-        Returns the adapted command string, or None if no adaptation needed.
-        """
-        try:
-            from app.services.execution.agent_llm_mixin import _AgentLLMMixin
-            intent = plan_item.get("intent") or plan_item.get("name") or ""
-            original = plan_item.get("command") or ""
-            raw = await self._llm._chat_once_with_system(
-                system_prompt=(
-                    "You are an SRE agent. A remediation step failed. "
-                    "Suggest ONE alternative command that achieves the same intent. "
-                    "Reply with ONLY a JSON object: {\"command\": \"the alternative command\"}. "
-                    "If no alternative is possible, reply: {\"command\": \"\"}."
-                ),
-                user_prompt=(
-                    f"Failed command: {original}\n"
-                    f"Intent: {intent}\n"
-                    f"Error output: {failed_output[:400]}\n"
-                    f"Suggest an alternative:"
-                ),
-            )
-            import json as _json
-            data = _json.loads(raw.strip())
-            return (data.get("command") or "").strip() or None
-        except Exception as e:
-            logger.debug("Step adaptation failed: %s", e)
-            return None
-
     @staticmethod
     def _resolve_placeholders(command: str, resolved_inputs: Dict[str, str]) -> str:
-        """
-        Replace any {{variable}} placeholders in a command with known resolved values.
-        Placeholders with no known value are removed (with surrounding whitespace trimmed).
-        Returns the resolved command, or empty string if the entire command becomes empty.
-        """
         import re as _re
         result = command
         for var, val in (resolved_inputs or {}).items():
             result = result.replace(f"{{{{{var}}}}}", str(val))
-        # Strip any remaining unresolvable placeholders
         result = _re.sub(r'\s*\{\{\w+\}\}\s*', ' ', result).strip()
         return result
 
     @staticmethod
-    def _history_has_verification(history: List[Dict]) -> bool:
-        """Return True if the last real (non-SYSTEM) command looks like a read-only verification."""
-        for entry in reversed(history):
-            cmd = (entry.get("command") or "").strip()
-            if not cmd or cmd == "[SYSTEM]":
-                continue
-            return bool(_VERIFY_RE.match(cmd))
-        return False
-
-    @staticmethod
     def _verify_resolution(history: List[Dict], summary: str) -> bool:
         """
-        Heuristic check: does the recent verification output and summary suggest
-        the issue is actually resolved?  Returns False (challenge the claim) if
-        obvious still-critical signals are detected.
+        Heuristic gate: returns False if obvious still-critical signals exist
+        in recent output or the summary — even if the LLM claims resolved=true.
+        Scans the last 5 real commands so a df -h earlier in verification still counts.
         """
-        # Look at the last real command's output for obvious still-failing signals
-        for entry in reversed(history):
-            cmd = (entry.get("command") or "").strip()
-            if not cmd or cmd == "[SYSTEM]":
-                continue
+        _METRIC_RE = re.compile(
+            r'^(df|free|systemctl\s+status|ps\s+aux|ps\s+-ef|service\s+\S+\s+status)',
+            re.IGNORECASE,
+        )
+
+        real_entries = [
+            e for e in history
+            if (e.get("command") or "").strip() and e.get("command") != "[SYSTEM]"
+               and e.get("command") != "[VERIFICATION GATE]"
+        ]
+        recent = real_entries[-5:]
+
+        # If any remediation step failed, require a metric check in recent history
+        plan_failures = sum(
+            1 for e in history
+            if not e.get("success", True) and "[BLOCKED" not in (e.get("output") or "")
+               and e.get("command") not in ("[SYSTEM]", "[VERIFICATION GATE]")
+        )
+        if plan_failures > 0:
+            has_metric_check = any(_METRIC_RE.match(e.get("command") or "") for e in recent)
+            if not has_metric_check:
+                logger.warning(
+                    "_verify_resolution: %d step(s) failed, no metric check in last 5 — "
+                    "refusing resolved=true", plan_failures
+                )
+                return False
+
+        # Scan recent outputs for still-critical signals
+        for entry in recent:
             output = (entry.get("output") or "").lower()
-            # Disk: 100% or >=95% usage
             if re.search(r'\b(100|9[5-9])%', output):
                 return False
-            # Service still failed
             if re.search(r'\bactive\s*\(failed\)|\bfailed\b.*\.service', output):
                 return False
-            # Memory: 0 or near-0 available
-            if re.search(r'avail\s+\d+[mk]\b', output, re.IGNORECASE):
-                # very small available memory (M or K range)
+            if re.search(r'no space left on device|write error.*28', output):
                 return False
-            break  # only check the last real command
 
-        # Also catch obvious "still broken" language in the summary
+        # Memory near-zero: check only the most recent real output
+        for entry in reversed(real_entries):
+            output = (entry.get("output") or "").lower()
+            if re.search(r'avail\s+\d+[mk]\b', output, re.IGNORECASE):
+                return False
+            break
+
         bad_phrases = [
             "still full", "still at 100", "no space", "not resolved",
-            "could not free", "unable to free", "issue persists",
+            "could not free", "unable to free", "issue persists", "write error",
         ]
-        summary_lower = summary.lower()
-        if any(p in summary_lower for p in bad_phrases):
+        if any(p in summary.lower() for p in bad_phrases):
             return False
 
         return True
 
     async def _auto_crystallise(self, db: Session, session: ExecutionSession) -> None:
-        """
-        Automatically crystallise the execution into a runbook.
-        Diagnose-phase steps and failed execute-phase steps are auto-weeded.
-        """
         steps = (
             db.query(ExecutionStep)
             .filter(ExecutionStep.session_id == session.id)
             .all()
         )
-
         weed_numbers = [
             s.step_number for s in steps
             if (s.command_payload or {}).get("phase") == "diagnose"
-            or (
-                (s.command_payload or {}).get("phase") == "execute"
-                and not s.success
-            )
+            or ((s.command_payload or {}).get("phase") == "execute" and not s.success)
         ]
-
         meta  = session.meta_data or {}
         issue = meta.get("issue_description") or meta.get("agent_summary") or f"Session {session.id}"
         title = f"Auto: {issue[:60]}"
@@ -380,8 +313,7 @@ class _AgentExecuteMixin:
         crystalliser = get_runbook_crystalliser()
         try:
             result = await crystalliser.crystallise(
-                db=db,
-                session=session,
+                db=db, session=session,
                 weed_step_numbers=weed_numbers,
                 runbook_title=title,
                 tenant_id=session.tenant_id,
@@ -396,10 +328,8 @@ class _AgentExecuteMixin:
                     f"({result['steps_included']} steps)"
                 ),
             })
-            logger.info(
-                "Auto-crystallised runbook id=%d from session %d",
-                result["runbook_id"], session.id,
-            )
+            logger.info("Auto-crystallised runbook id=%d from session %d",
+                        result["runbook_id"], session.id)
         except ValueError as e:
             logger.warning("Auto-crystallise skipped: %s", e)
 
@@ -417,7 +347,6 @@ class _AgentExecuteMixin:
         resolved_inputs: Dict[str, str],
     ) -> int:
         """Dry-run preview → publish approval-required event → wait for human."""
-
         dry_run_output = ""
         if classification.dry_run_command:
             try:
@@ -453,7 +382,7 @@ class _AgentExecuteMixin:
             ),
         })
 
-        elapsed  = 0
+        elapsed = 0
         approved = False
         while elapsed < _APPROVAL_TIMEOUT_S:
             await asyncio.sleep(_APPROVAL_POLL_INTERVAL)

@@ -171,6 +171,7 @@ class _AgentDiagnoseMixin:
         self,
         db: Session,
         session: ExecutionSession,
+        connector,
         connection_config: Dict[str, Any],
         issue_description: str,
     ) -> bool:
@@ -189,6 +190,19 @@ class _AgentDiagnoseMixin:
                 return False
 
             meta = session.meta_data or {}
+
+            # ── Human picked an approach — run targeted discovery then generate plan ──
+            pending_approach_id = meta.get("pending_discovery_approach_id")
+            if pending_approach_id and not meta.get("generated_plan"):
+                await self._discover_and_generate_plan(
+                    db=db, session=session,
+                    approach_id=pending_approach_id,
+                    connector=connector,
+                    connection_config=connection_config,
+                    issue_description=issue_description,
+                )
+                elapsed = 0  # reset — human now needs time to review the generated plan
+                continue
 
             if meta.get("plan_approved") is True:
                 session.meta_data["phase"] = "executing"
@@ -213,6 +227,93 @@ class _AgentDiagnoseMixin:
         session.status = "abandoned"
         db.commit()
         return False
+
+    async def _discover_and_generate_plan(
+        self,
+        db: Session,
+        session: ExecutionSession,
+        approach_id: str,
+        connector,
+        connection_config: Dict[str, Any],
+        issue_description: str,
+    ) -> None:
+        """
+        After the human picks an approach, run 2 targeted SSH commands on the
+        chosen target to understand its contents, then call _llm_plan_generate
+        with that enriched context so the plan targets specific files/dirs found.
+        """
+        meta       = session.meta_data or {}
+        approaches = meta.get("approaches") or []
+        approach   = next((a for a in approaches if a.get("id") == approach_id), None)
+        if not approach:
+            logger.warning("_discover_and_generate_plan: approach %s not found", approach_id)
+            return
+
+        target = (approach.get("target") or "").strip()
+        diagnosis_history = list(meta.get("diagnosis_history") or [])
+        step_num = len(diagnosis_history) + 1
+
+        await self.event_publisher.publish_raw(db, session, {
+            "event_type": "agent.discovery",
+            "message":    f"Running targeted investigation on {target or 'selected area'}…",
+        })
+
+        # Run deterministic discovery commands on the chosen target
+        discovery_cmds = []
+        if target:
+            discovery_cmds = [
+                f"du -sh {target}/* 2>/dev/null | sort -rh | head -20",
+                f"ls -lah {target}/ 2>/dev/null | head -30",
+            ]
+        else:
+            # No specific target — re-run top-level survey
+            discovery_cmds = ["du -sh /* 2>/dev/null | sort -rh | head -20"]
+
+        enriched_history = list(diagnosis_history)
+        for cmd in discovery_cmds:
+            try:
+                result = await connector.execute_command(
+                    command=cmd,
+                    connection_config=connection_config,
+                    timeout=30,
+                )
+                output = (result.get("output") or result.get("error") or "")[:_MAX_OUTPUT_CHARS]
+                enriched_history.append({
+                    "step":    step_num,
+                    "command": cmd,
+                    "output":  output,
+                    "success": result.get("success", False),
+                })
+                step_num += 1
+                logger.info("Targeted discovery: %s → %d chars output", cmd, len(output))
+            except Exception as e:
+                logger.warning("Targeted discovery command failed: %s — %s", cmd, e)
+
+        # Generate plan with enriched context
+        steps = await self._llm_plan_generate(
+            approach          = approach,
+            diagnosis         = meta.get("diagnosis") or {},
+            diagnosis_history = enriched_history,
+            connection_config = connection_config,
+            issue_description = issue_description,
+        )
+
+        session.meta_data["generated_plan"]                = steps
+        session.meta_data["pending_discovery_approach_id"] = None
+        session.meta_data["selected_approach_id"]          = approach_id
+        flag_modified(session, "meta_data")
+        db.commit()
+
+        await self.event_publisher.publish_raw(db, session, {
+            "event_type":  "agent.plan_generated",
+            "approach_id": approach_id,
+            "step_count":  len(steps),
+            "message":     f"Plan ready — {len(steps)} steps generated. Review and approve.",
+        })
+        logger.info(
+            "Targeted discovery + plan generation complete for session %d approach %s: %d steps",
+            session.id, approach_id, len(steps),
+        )
 
     async def _replan(
         self,

@@ -88,8 +88,8 @@ async def select_approach(
     data: ApproachSelectRequest,
     db: Session = Depends(get_db),
 ):
-    """Human selects an approach — triggers LLM plan generation for that branch. Returns the steps."""
-    return await ExecutionController(db, tenant_id=1).select_approach(session_id, data.approach_id)
+    """Human selects an approach — triggers targeted discovery + plan generation. Returns status."""
+    return ExecutionController(db, tenant_id=1).select_approach(session_id, data.approach_id)
 
 
 @router.post("/demo/agent-sessions/{session_id}/plan/approve")
@@ -127,6 +127,20 @@ async def review_agent_session(session_id: int, data: AgentSessionReview, db: Se
 async def get_agent_session_steps_for_review(session_id: int, db: Session = Depends(get_db)):
     """Return all steps formatted for the human review UI."""
     return ExecutionController(db, tenant_id=1).get_agent_session_steps_for_review(session_id)
+
+
+class AgentResolutionConfirm(BaseModel):
+    resolved: bool = Field(..., description="True if the issue is actually fixed, False if not.")
+
+
+@router.post("/demo/agent-sessions/{session_id}/confirm-resolution")
+async def confirm_agent_resolution(
+    session_id: int,
+    data: AgentResolutionConfirm,
+    db: Session = Depends(get_db),
+):
+    """Human confirms whether the issue is truly resolved. Closes or escalates the ticket accordingly."""
+    return ExecutionController(db, tenant_id=1).confirm_agent_resolution(session_id, data.resolved)
 
 
 class AgentSessionFeedback(BaseModel):

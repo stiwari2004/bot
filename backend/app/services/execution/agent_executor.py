@@ -185,7 +185,7 @@ class AgentExecutor(
 
         # ── Phase 2: Plan approval (with re-plan loop on rejection) ──────────
         approved = await self._wait_for_plan_approval(
-            db, session, connection_config, issue_description
+            db, session, connector, connection_config, issue_description
         )
         if not approved:
             return self._abandoned_result(session)
@@ -198,25 +198,23 @@ class AgentExecutor(
         if session.status == "abandoned":
             return self._abandoned_result(session)
 
-        # ── Auto-crystallise if resolved ─────────────────────────────────────
-        if resolved:
-            await self._auto_crystallise(db, session)
-
-        session.status       = "completed" if resolved else "completed_with_errors"
-        session.completed_at = datetime.now(timezone.utc)
-        session.meta_data["pending_review"] = not resolved
-        session.meta_data["phase"] = "done"
+        # ── Agent done — ask human to confirm resolution ─────────────────────
+        # The ticket is NOT closed here. The human confirms whether the issue
+        # is truly resolved via POST /confirm-resolution. Only then does the
+        # ticket close. This prevents false-positive closures.
+        session.status = "awaiting_human_confirmation"
+        session.meta_data["phase"]          = "awaiting_human_confirmation"
+        session.meta_data["pending_review"] = True
         flag_modified(session, "meta_data")
         db.commit()
 
         await self.event_publisher.publish_raw(db, session, {
-            "event_type": "agent.completed",
-            "resolved":   resolved,
-            "summary":    final_summary,
+            "event_type":      "agent.awaiting_confirmation",
+            "agent_resolved":  resolved,
+            "summary":         final_summary,
             "message": (
-                "Issue resolved and runbook saved."
-                if resolved else
-                "Execution finished with errors — please review the steps."
+                f"Agent believes the issue {'is resolved' if resolved else 'could not be fully resolved'}. "
+                "Please confirm: is the issue actually fixed on your end?"
             ),
         })
 
@@ -224,7 +222,7 @@ class AgentExecutor(
             "success":        resolved,
             "summary":        final_summary,
             "resolved":       resolved,
-            "pending_review": not resolved,
+            "pending_review": True,
         }
 
 

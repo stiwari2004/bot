@@ -61,6 +61,10 @@ export function retrySession(sessionId: number, userDirection?: string) {
   );
 }
 
+export function confirmResolution(sessionId: number, resolved: boolean) {
+  return post(apiConfig.endpoints.executions.agentSessionConfirmResolution(sessionId), { resolved });
+}
+
 export function flagRunbookForReview(runbookId: number) {
   return post(apiConfig.endpoints.quarantine.quarantine(runbookId), { reason: 'review_flag' });
 }

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { PlanApprovalPanel } from './PlanApprovalPanel';
 import { SessionReviewPanel } from './SessionReviewPanel';
 import { FlagForReviewButton } from './FlagForReviewButton';
-import { submitFeedback, retrySession } from '../services/agentSessionService';
+import { submitFeedback, retrySession, confirmResolution } from '../services/agentSessionService';
 
 interface Props {
   session: ExecutionSessionDetail;
@@ -29,16 +29,32 @@ export function SessionDetailView({
   stepActionBusy, stepActionError, onControlAction, onStepApproval, onRetry,
 }: Props) {
   const status = (session.status || '').toLowerCase();
-  const isAwaitingPlan  = status === 'awaiting_plan_approval';
-  const isFailedOrErrors = status === 'completed_with_errors' || status === 'failed';
+  const isAwaitingPlan         = status === 'awaiting_plan_approval';
+  const isAwaitingConfirmation = status === 'awaiting_human_confirmation';
+  const isFailedOrErrors       = status === 'completed_with_errors' || status === 'failed';
 
   const [planKey, setPlanKey] = useState(0);
   const [reviewDone, setReviewDone] = useState(false);
+  const [confirmDone, setConfirmDone] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState<'yes' | 'no' | null>(null);
   const [direction, setDirection] = useState('');
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [retryLoading, setRetryLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleConfirm = async (resolved: boolean) => {
+    setConfirmLoading(resolved ? 'yes' : 'no');
+    setActionError(null);
+    try {
+      await confirmResolution(session.id, resolved);
+      setConfirmDone(true);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to confirm');
+    } finally {
+      setConfirmLoading(null);
+    }
+  };
 
   const handleFeedback = async () => {
     if (!direction.trim()) return;
@@ -124,6 +140,46 @@ export function SessionDetailView({
             <PlanApprovalPanel key={planKey} sessionId={session.id} onApproved={() => setPlanKey(k => k + 1)} />
           </CardContent>
         </Card>
+      )}
+
+      {/* Human resolution confirmation */}
+      {isAwaitingConfirmation && !confirmDone && (
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+              <h3 className="text-lg font-semibold text-neutral-800">Is the issue resolved?</h3>
+            </div>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              The agent has finished execution. Please verify on the server and confirm.
+            </p>
+          </CardHeader>
+          <CardContent padding="md">
+            {session.agent_summary && (
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 mb-4">
+                <span className="font-semibold text-neutral-800">Agent summary: </span>
+                {session.agent_summary}
+              </div>
+            )}
+            {actionError && <p className="text-xs text-red-600 font-medium mb-3">{actionError}</p>}
+            <div className="flex gap-3">
+              <Button variant="success" size="sm" onClick={() => handleConfirm(true)}
+                isLoading={confirmLoading === 'yes'} disabled={confirmLoading !== null}>
+                Yes — issue is fixed
+              </Button>
+              <Button variant="danger" size="sm" onClick={() => handleConfirm(false)}
+                isLoading={confirmLoading === 'no'} disabled={confirmLoading !== null}>
+                No — still broken
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {confirmDone && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 font-medium">
+          Confirmation recorded — ticket status updated.
+        </div>
       )}
 
       {/* Post-execution review */}
