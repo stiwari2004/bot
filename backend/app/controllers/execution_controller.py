@@ -93,14 +93,11 @@ class ExecutionController:
     def get_agent_session_plan(self, session_id: int) -> Dict[str, Any]:
         return self._agent_ctrl.get_agent_session_plan(session_id)
 
-    def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
-        return self._agent_ctrl.select_approach(session_id, approach_id)
+    def set_exclusions(self, session_id: int, exclusions: List[str]) -> Dict[str, Any]:
+        return self._agent_ctrl.set_exclusions(session_id, exclusions)
 
-    def approve_agent_plan(self, session_id: int, selected_approach_id: Optional[str] = None, proposed_plan: Optional[List] = None) -> Dict[str, Any]:
-        return self._agent_ctrl.approve_agent_plan(session_id, selected_approach_id, proposed_plan)
-
-    def reject_agent_plan(self, session_id: int, feedback: str) -> Dict[str, Any]:
-        return self._agent_ctrl.reject_agent_plan(session_id, feedback)
+    def escalate_agent_session(self, session_id: int, reason: Optional[str] = None) -> Dict[str, Any]:
+        return self._agent_ctrl.escalate_session(session_id, reason)
 
     async def review_agent_session(self, session_id: int, weed_step_numbers: List[int],
                                    save_as_runbook: bool,

@@ -1,36 +1,24 @@
-// ── Plan approval types ────────────────────────────────────────────────────────
+// ── Agent target types ─────────────────────────────────────────────────────────
 
-export interface PlanStep {
-  step: number;
-  intent: string;
-  command: string;
-  risk: string;
+export interface DiscoveredTarget {
+  path: string;
+  size: string;
+  type: 'system_logs' | 'package_cache' | 'temp_files' | 'app_data' | 'app_logs' | 'core_dumps' | 'other';
+  description?: string;
 }
 
-export interface Approach {
-  id: string;
-  title: string;
-  rationale: string;
-  risk: string;
-}
-
-export interface PlanDiagnosis {
+export interface AgentDiagnosis {
   root_cause: string;
   evidence: string[];
   confidence: string;
 }
 
-export const RISK_COLORS: Record<string, string> = {
-  low:    'text-green-700 bg-green-50 border-green-200',
-  medium: 'text-amber-700 bg-amber-50 border-amber-200',
-  high:   'text-red-700 bg-red-50 border-red-200',
-};
-
-export const RISK_BADGE: Record<string, string> = {
-  low:    'bg-green-100 text-green-800 border border-green-200',
-  medium: 'bg-amber-100 text-amber-800 border border-amber-200',
-  high:   'bg-red-100 text-red-800 border border-red-200',
-};
+export interface DeleteLogEntry {
+  command: string;
+  requested_at: string | null;
+  decision: 'approved' | 'skipped';
+  decided_at: string;
+}
 
 // ── Execution session types ────────────────────────────────────────────────────
 

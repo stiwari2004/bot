@@ -25,30 +25,6 @@ class AgentSessionCreate(BaseModel):
     connection_id: Optional[int] = None
 
 
-class PlanStep(BaseModel):
-    """Single step in an execution plan — editable by human."""
-    step: int = Field(..., ge=1)
-    intent: str = Field(default="")
-    command: str = Field(..., min_length=1)
-    risk: str = Field(default="medium", description="low|medium|high")
-
-
-class PlanApproveRequest(BaseModel):
-    """Approve the plan — must specify which approach to run (and optionally edit its steps)."""
-    selected_approach_id: Optional[str] = Field(
-        default=None,
-        description="The approach id (e.g. 'A', 'B') the human selected to execute.",
-    )
-    proposed_plan: Optional[List[Dict[str, Any]]] = Field(
-        default=None,
-        description="Human-edited steps. If omitted, uses the selected approach's steps as-is.",
-    )
-
-
-class PlanRejectRequest(BaseModel):
-    feedback: str = Field(..., min_length=1, description="Why the plan is wrong and what to do instead.")
-
-
 class AgentSessionReview(BaseModel):
     """Human review after an agent session — mark weeds + optionally crystallise."""
     weed_step_numbers: List[int] = Field(
@@ -78,38 +54,25 @@ async def get_agent_session_plan(session_id: int, db: Session = Depends(get_db))
     return ExecutionController(db, tenant_id=1).get_agent_session_plan(session_id)
 
 
-class ApproachSelectRequest(BaseModel):
-    approach_id: str = Field(..., min_length=1, description="The approach id chosen by the human (e.g. 'A', 'B').")
+class SetExclusionsRequest(BaseModel):
+    exclusions: List[str] = Field(default_factory=list, description="Paths to exclude from agent scope.")
 
 
-@router.post("/demo/agent-sessions/{session_id}/plan/select-approach")
-async def select_approach(
-    session_id: int,
-    data: ApproachSelectRequest,
-    db: Session = Depends(get_db),
-):
-    """Human selects an approach — triggers targeted discovery + plan generation. Returns status."""
-    return ExecutionController(db, tenant_id=1).select_approach(session_id, data.approach_id)
+@router.post("/demo/agent-sessions/{session_id}/set-exclusions")
+async def set_exclusions(session_id: int, data: SetExclusionsRequest, db: Session = Depends(get_db)):
+    """Human submits exclusion list — agent will not touch excluded paths."""
+    return ExecutionController(db, tenant_id=1).set_exclusions(session_id, data.exclusions)
 
 
-@router.post("/demo/agent-sessions/{session_id}/plan/approve")
-async def approve_agent_plan(
-    session_id: int,
-    data: Optional[PlanApproveRequest] = None,
-    db: Session = Depends(get_db),
-):
-    """Approve the plan — optionally with human-edited steps (reorder, remove, edit). Execution uses the submitted plan."""
-    selected_approach_id = data.selected_approach_id if data else None
-    proposed_plan = data.proposed_plan if data else None
-    return ExecutionController(db, tenant_id=1).approve_agent_plan(
-        session_id, selected_approach_id, proposed_plan
-    )
+class EscalateRequest(BaseModel):
+    reason: Optional[str] = Field(default=None)
 
 
-@router.post("/demo/agent-sessions/{session_id}/plan/reject")
-async def reject_agent_plan(session_id: int, data: PlanRejectRequest, db: Session = Depends(get_db)):
-    """Reject the proposed plan with corrective feedback."""
-    return ExecutionController(db, tenant_id=1).reject_agent_plan(session_id, data.feedback)
+@router.post("/demo/agent-sessions/{session_id}/escalate")
+async def escalate_session(session_id: int, data: Optional[EscalateRequest] = None, db: Session = Depends(get_db)):
+    """Escalate session to next support level when agent cannot resolve."""
+    reason = data.reason if data else None
+    return ExecutionController(db, tenant_id=1).escalate_agent_session(session_id, reason)
 
 
 @router.post("/demo/agent-sessions/{session_id}/review")

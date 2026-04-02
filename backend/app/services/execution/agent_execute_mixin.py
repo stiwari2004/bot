@@ -46,8 +46,9 @@ class _AgentExecuteMixin:
         Returns (resolved, final_summary) — resolved reflects what the LLM
         declared AND passes the code-level _verify_resolution gate.
         """
-        meta          = session.meta_data or {}
-        proposed_plan = meta.get("proposed_plan") or []
+        meta             = session.meta_data or {}
+        approved_targets = meta.get("approved_targets") or []
+        excluded_targets = meta.get("excluded_targets") or []
         history: List[Dict] = []
         resolved_inputs: Dict[str, str] = {}
         resolved      = False
@@ -67,7 +68,8 @@ class _AgentExecuteMixin:
                 action = await self._llm_execute(
                     issue_description=issue_description,
                     connection_config=connection_config,
-                    proposed_plan=proposed_plan,
+                    approved_targets=approved_targets,
+                    excluded_targets=excluded_targets,
                     history=history,
                     resolved_inputs=resolved_inputs,
                 )
@@ -397,6 +399,16 @@ class _AgentExecuteMixin:
                 approved = True
                 session.status               = "in_progress"
                 session.waiting_for_approval = False
+                log_entry = {
+                    "command": command,
+                    "requested_at": step_db.created_at.isoformat() if step_db.created_at else None,
+                    "decision": "approved",
+                    "decided_at": datetime.now(timezone.utc).isoformat(),
+                }
+                delete_log = list(session.meta_data.get("delete_log") or [])
+                delete_log.append(log_entry)
+                session.meta_data["delete_log"] = delete_log
+                flag_modified(session, "meta_data")
                 db.commit()
                 break
 
@@ -408,6 +420,16 @@ class _AgentExecuteMixin:
                 flag_modified(step_db, "command_payload")
                 session.status               = "in_progress"
                 session.waiting_for_approval = False
+                log_entry = {
+                    "command": command,
+                    "requested_at": step_db.created_at.isoformat() if step_db.created_at else None,
+                    "decision": "skipped",
+                    "decided_at": datetime.now(timezone.utc).isoformat(),
+                }
+                delete_log = list(session.meta_data.get("delete_log") or [])
+                delete_log.append(log_entry)
+                session.meta_data["delete_log"] = delete_log
+                flag_modified(session, "meta_data")
                 db.commit()
                 history.append({
                     "step":    step_number,

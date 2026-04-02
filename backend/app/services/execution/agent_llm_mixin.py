@@ -93,18 +93,10 @@ or (only when usage is BELOW the warning threshold and no errors):
         issue_description: str,
         connection_config: Dict[str, Any],
         history: List[Dict],
-        rejection_feedbacks: List[str],
         force_complete: bool = False,
     ) -> Dict[str, Any]:
         """LLM call for the diagnose phase."""
         server = connection_config.get("host") or connection_config.get("server_name") or "target"
-
-        rejection_text = ""
-        if rejection_feedbacks:
-            rejection_text = "\n\nPrevious plan rejection feedback from human:\n"
-            for i, fb in enumerate(rejection_feedbacks, 1):
-                rejection_text += f"  Rejection {i}: {fb}\n"
-            rejection_text += "Incorporate this feedback into your revised plan.\n"
 
         force_text = (
             "\nIMPORTANT: You have sufficient information. "
@@ -128,20 +120,19 @@ or (only when usage is BELOW the warning threshold and no errors):
             "- DRILL DEEPER before concluding: if a command reveals one path is significantly larger than "
             "the others, run ONE more command to look inside that specific path "
             "(e.g. du -sh /thatpath/* 2>/dev/null | sort -rh | head -20) so you know exactly what is "
-            "large inside it. Do NOT propose an approach targeting a path without first understanding "
-            "what is inside it.\n"
+            "large inside it.\n"
             "- Once you have drilled into the top contributors and know what is inside, declare diagnosis_complete.\n"
-            "BRANCHING RULES for diagnosis_complete:\n"
-            "1. Identify the 2-3 biggest contributors to the problem from your actual command output.\n"
-            "2. Each approach must target a DIFFERENT contributor — not sub-paths of the same one.\n"
-            "3. Order approaches: safest/lowest-risk FIRST, highest-risk LAST.\n"
-            "4. Use ACTUAL names, paths, and sizes from your output — do NOT invent or guess values.\n"
-            "The human will PICK which approach to run — they cannot see intermediate steps, only the final approaches.\n"
+            "RULES for diagnosis_complete targets array:\n"
+            "- List every significant contributor to the problem as a targets array.\n"
+            "- Use ONLY actual paths and sizes from your command output — never invent values.\n"
+            "- Order by size descending.\n"
+            "- Each target: { path, size, type, description } where type is one of: "
+            "system_logs, package_cache, temp_files, app_data, app_logs, core_dumps, other\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
         user_prompt = f"""Issue to diagnose: {issue_description}
-Server: {server}{rejection_text}
+Server: {server}
 Steps completed so far (all read-only on {server}):
 {self._format_history(history)}{force_text}
 
@@ -154,8 +145,7 @@ Respond with ONE of:
   "reasoning": "what you are looking for and why"
 }}
 
-2. Declare diagnosis complete with 2–3 alternative approaches (NO steps — steps are generated separately).
-   Use ONLY real directory names and sizes from your command output — NO invented or example values:
+2. Declare diagnosis complete with all significant contributors:
 {{
   "action": "diagnosis_complete",
   "findings": {{
@@ -163,136 +153,47 @@ Respond with ONE of:
     "evidence": ["key fact 1 with actual values from output", "key fact 2"],
     "confidence": "high|medium|low"
   }},
-  "approaches": [
+  "targets": [
     {{
-      "id": "A",
-      "title": "<ACTUAL resource/component name from your output> (<ACTUAL metric/size> — what you found)",
-      "rationale": "<why this is the safest option based on what you found>",
-      "risk": "low|medium|high",
-      "target": "<ACTUAL path, service, or resource from your output>"
-    }},
-    {{
-      "id": "B",
-      "title": "<SECOND contributor from your output> (<ACTUAL metric/size>)",
-      "rationale": "<why this is the next option>",
-      "risk": "low|medium|high",
-      "target": "<ACTUAL path, service, or resource from your output>"
+      "path": "/actual/path/from/output",
+      "size": "actual size from output (e.g. 4.2G)",
+      "type": "system_logs|package_cache|temp_files|app_data|app_logs|core_dumps|other",
+      "description": "what this is and why it contributes to the problem"
     }}
   ]
 }}
 RULES:
-- The <ACTUAL ...> placeholders above are instructions to YOU — replace them with real values from your command output.
-- Each approach targets a DIFFERENT contributor — do NOT create sub-variations of the same thing.
-- Do NOT invent or copy example values — use ONLY what YOUR commands returned.
-- Order: safest first, most invasive last. Minimum 2 approaches.
-- Do NOT include steps — steps are generated after the human picks an approach."""
+- Use ONLY real paths and sizes from your command output — do NOT invent values.
+- Order targets by size descending (largest first).
+- Include every significant contributor, not just the top one."""
 
-        logger.info("Diagnose LLM call (history=%d, rejections=%d)", len(history), len(rejection_feedbacks))
+        logger.info("Diagnose LLM call (history=%d)", len(history))
         raw = await asyncio.wait_for(
             self._llm._chat_once_with_system(system_prompt, user_prompt),
             timeout=60.0,
         )
         return self._parse_llm_response(raw)
 
-    async def _llm_plan_generate(
-        self,
-        approach: Dict[str, Any],
-        diagnosis: Dict[str, Any],
-        diagnosis_history: List[Dict],
-        connection_config: Dict[str, Any],
-        issue_description: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Second LLM call: given a chosen approach and full diagnosis context,
-        produce a complete multi-step remediation plan for that ONE approach.
-        """
-        server = connection_config.get("host") or connection_config.get("server_name") or "target"
-
-        system_prompt = (
-            "You are an SRE agent generating a detailed remediation plan. "
-            "The human has already run a diagnosis and chosen which approach to take. "
-            "Your job is to produce a complete, step-by-step plan for that ONE approach. "
-            "Each step must be a real, executable shell command. "
-            "PLAN COMPLETENESS RULES:\n"
-            "- Think about ALL the actions needed to fully resolve the issue, not just one command.\n"
-            "- Cover every relevant sub-cause under the chosen target: "
-            "a thorough plan typically has 3-6 steps.\n"
-            "- Include a final verification step that re-checks the alerting metric "
-            "(e.g. df -h for disk, free -h for memory, systemctl status <svc> for services). "
-            "The verification MUST check the actual metric — not just inspect a directory size.\n"
-            "- Use ONLY the target and paths from the chosen approach — do NOT touch unrelated areas.\n"
-            "CRITICAL RULES — COMMANDS MUST BE IMMEDIATELY EXECUTABLE:\n"
-            "1. Use ONLY concrete, literal values from the diagnostic output provided. "
-            "   Copy exact paths, filenames, and values — do NOT guess or invent them.\n"
-            "2. Do NOT use {{placeholder}}, <variable>, or any template syntax. "
-            "   Every command must run as-is without any substitution.\n"
-            "3. The first step MUST be a remediation action — do NOT start with a read-only check.\n"
-            "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
-        )
-
-        history_text = self._format_history(diagnosis_history)
-        root_cause   = (diagnosis or {}).get("root_cause", "")
-        evidence     = "\n".join(f"  - {e}" for e in (diagnosis or {}).get("evidence", []))
-
-        user_prompt = f"""Issue: {issue_description}
-Server: {server}
-
-Diagnosis findings:
-  Root cause: {root_cause}
-  Evidence:
-{evidence}
-
-Diagnostic commands already run — EXTRACT EXACT VALUES FROM THIS OUTPUT:
-{history_text}
-
-Chosen approach:
-  ID: {approach.get('id')}
-  Title: {approach.get('title')}
-  Target: {approach.get('target', '')}
-  Rationale: {approach.get('rationale')}
-  Risk: {approach.get('risk')}
-
-Generate a complete multi-step plan for this approach. Rules:
-1. Read the diagnostic output above carefully — it shows exactly what is large/broken inside the target.
-2. Write cleanup/fix commands that target the SPECIFIC files, directories, or services found in that output.
-   Do NOT write generic commands that ignore what was actually found.
-3. Cover all significant sub-causes visible in the diagnostic output — a thorough plan has 3-6 steps.
-4. End with a verification step that re-checks the original symptom (e.g. re-run the metric command).
-
-EXAMPLE of CORRECT step: {{"step": 1, "intent": "what this step achieves", "command": "actual-command --with real-values", "risk": "low"}}
-EXAMPLE of WRONG step:   {{"step": 1, "intent": "what this step achieves", "command": "command --flag {{{{some_placeholder}}}}", "risk": "low"}}
-
-Respond with:
-{{
-  "steps": [
-    {{"step": 1, "intent": "what this achieves", "command": "exact literal shell command with no placeholders", "risk": "low|medium|high"}},
-    {{"step": 2, "intent": "...", "command": "...", "risk": "..."}}
-  ]
-}}"""
-
-        logger.info("Plan generate LLM call for approach %s", approach.get("id"))
-        raw = await asyncio.wait_for(
-            self._llm._chat_once_with_system(system_prompt, user_prompt),
-            timeout=60.0,
-        )
-        parsed = self._parse_llm_response(raw)
-        return parsed.get("steps") or []
-
     async def _llm_execute(
         self,
         issue_description: str,
         connection_config: Dict[str, Any],
-        proposed_plan: List[Dict],
+        approved_targets: List[Dict],
+        excluded_targets: List[str],
         history: List[Dict],
         resolved_inputs: Dict[str, str],
     ) -> Dict[str, Any]:
         """LLM call for the execute phase."""
         server = connection_config.get("host") or connection_config.get("server_name") or "target"
 
-        plan_text = "\n".join(
-            f"  Step {p.get('step', i+1)}: [{p.get('risk','?').upper()}] "
-            f"{p.get('intent','?')} → {p.get('command','?')}"
-            for i, p in enumerate(proposed_plan)
+        approved_text = "\n".join(
+            f"  - [{t.get('type', '?').upper()}] {t.get('path', '?')} ({t.get('size', '?')}): {t.get('description', '')}"
+            for t in approved_targets
+        ) or "  (none specified — use best judgment based on diagnosis)"
+
+        excluded_text = (
+            "\n".join(f"  - {p}" for p in excluded_targets)
+            if excluded_targets else "  (none)"
         )
 
         resolved_text = (
@@ -303,18 +204,13 @@ Respond with:
         system_prompt = (
             "You are an SRE agent in the EXECUTION phase. "
             "You are already connected to the target server — every command runs directly on it. "
-            "Execute the approved plan step by step. "
+            "The human has approved a set of targets for cleanup. Reason freely within that approved scope. "
             "Adapt if a step fails — read the error output carefully and reason about why it failed "
             "before choosing an alternative. The cause is always visible in the output.\n"
-            "MANDATORY VERIFICATION:\n"
-            "After completing all remediation steps, you MUST run a metric verification command that "
-            "DIRECTLY shows the alerting metric's current level:\n"
-            "  - Disk issue   → `df -h`  (shows current disk % usage — NOT `du -sh <dir>`)\n"
-            "  - Memory issue → `free -h`\n"
-            "  - Service down → `systemctl status <service-name>`\n"
-            "Only AFTER seeing this verification output should you respond with done.\n"
+            "MANDATORY VERIFICATION: After all cleanup, run df -h / free -h / systemctl status to confirm "
+            "the metric is resolved.\n"
             "VERIFICATION RULES:\n"
-            "- `du -sh <directory>` is NOT a verification command — it shows directory size, not disk usage %.\n"
+            "- du -sh <dir> is NOT a verification command — it shows directory size, not disk usage %.\n"
             "- Read the df/free/status output carefully. If the metric has NOT returned to a healthy level, "
             "  the issue is NOT resolved — continue with more remediation steps.\n"
             "- Do NOT declare done with resolved=true if the metric is still critical.\n"
@@ -327,8 +223,11 @@ Respond with:
         user_prompt = f"""Issue: {issue_description}
 Server: {server}{resolved_text}
 
-Approved plan:
-{plan_text}
+Approved targets (clean these):
+{approved_text}
+
+Excluded paths (DO NOT TOUCH these):
+{excluded_text}
 
 Execution history so far:
 {self._format_history(history)}
@@ -339,7 +238,7 @@ Respond with ONE of:
 {{
   "action": "command",
   "command": "exact shell command",
-  "reasoning": "which plan step this implements and expected outcome"
+  "reasoning": "what this does within the approved scope and expected outcome"
 }}
 
 2. Mark complete when the issue is verified resolved:

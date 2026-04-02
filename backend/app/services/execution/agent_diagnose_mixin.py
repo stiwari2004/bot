@@ -1,5 +1,5 @@
 """
-_AgentDiagnoseMixin — Phase 1 (diagnose) and Phase 2 (plan approval) for AgentExecutor.
+_AgentDiagnoseMixin — Phase 1 (diagnose) and exclusion wait for AgentExecutor.
 """
 import asyncio
 from typing import Any, Dict, List
@@ -9,19 +9,17 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.logging import get_logger
 from app.models.execution_session import ExecutionSession
-from app.services.infrastructure import get_connector
 
 logger = get_logger(__name__)
 
 _MAX_DIAGNOSE_ITERATIONS = 8    # 2-4 commands typical; 8 is the hard ceiling
-_MAX_REPLAN_COMMANDS     = 3
 _MAX_OUTPUT_CHARS        = 800  # enough for full du -sh /* output
-_APPROVAL_POLL_INTERVAL  = 2
-_PLAN_APPROVAL_TIMEOUT_S = 1800
+_EXCLUSION_POLL_INTERVAL = 2
+_EXCLUSION_TIMEOUT_S     = 1800
 
 
 class _AgentDiagnoseMixin:
-    """Phase 1: read-only diagnosis loop. Phase 2: plan approval wait + re-plan."""
+    """Phase 1: read-only diagnosis loop. Exclusion wait before execute."""
 
     async def _diagnose_phase(
         self,
@@ -33,21 +31,18 @@ class _AgentDiagnoseMixin:
     ) -> None:
         """
         Run read-only discovery commands until LLM declares diagnosis_complete.
-        Stores findings + proposed_plan in session.meta_data and transitions
-        the session to awaiting_plan_approval.
+        Stores findings + targets in session.meta_data and transitions
+        the session to awaiting_exclusions.
         """
         history: List[Dict] = []
         step_number = 1
 
         for iteration in range(_MAX_DIAGNOSE_ITERATIONS):
-            rejection_feedbacks = session.meta_data.get("plan_rejection_feedback", [])
-
             try:
                 action = await self._llm_diagnose(
                     issue_description=issue_description,
                     connection_config=connection_config,
                     history=history,
-                    rejection_feedbacks=rejection_feedbacks,
                     force_complete=(iteration == _MAX_DIAGNOSE_ITERATIONS - 1),
                 )
             except Exception as e:
@@ -66,48 +61,32 @@ class _AgentDiagnoseMixin:
                 break
 
             if action.get("action") == "diagnosis_complete":
-                findings   = action.get("findings") or {}
-                approaches = action.get("approaches") or []
+                findings = action.get("findings") or {}
+                targets  = action.get("targets") or []
 
-                # Backward compat: wrap legacy proposed_plan as a single approach (no steps needed)
-                if not approaches:
-                    legacy = action.get("proposed_plan") or []
-                    if legacy:
-                        approaches = [{
-                            "id": "A",
-                            "title": "Proposed Plan",
-                            "rationale": "Agent-generated plan",
-                            "risk": "medium",
-                            "target": "",
-                        }]
-                        # Store legacy steps as generated_plan directly
-                        session.meta_data["generated_plan"] = legacy
-
-                if not approaches:
+                if not targets:
                     history.append({
                         "step": step_number,
                         "command": "(diagnosis_complete)",
-                        "output": "[ERROR] diagnosis_complete must include an approaches array. Provide at least one approach.",
+                        "output": "[ERROR] diagnosis_complete must include a non-empty targets array. Provide at least one target.",
                         "success": False,
                     })
                     step_number += 1
                     continue
 
                 session.meta_data["diagnosis"]         = findings
-                session.meta_data["approaches"]        = approaches
-                session.meta_data["proposed_plan"]     = None  # set after user selects approach + plan generated
-                session.meta_data["generated_plan"]    = session.meta_data.get("generated_plan")  # preserve if set above
+                session.meta_data["targets"]           = targets
                 session.meta_data["diagnosis_history"] = history
-                session.meta_data["phase"]             = "awaiting_plan_approval"
-                session.status = "awaiting_plan_approval"
+                session.meta_data["phase"]             = "awaiting_exclusions"
+                session.status = "awaiting_exclusions"
                 flag_modified(session, "meta_data")
                 db.commit()
 
                 await self.event_publisher.publish_raw(db, session, {
-                    "event_type": "agent.plan_ready",
-                    "diagnosis":  findings,
-                    "approaches": approaches,
-                    "message":    "Diagnosis complete. Select an approach to generate the remediation plan.",
+                    "event_type": "agent.targets_ready",
+                    "targets":    targets,
+                    "findings":   findings,
+                    "message":    "Diagnosis complete. Review the discovered targets and exclude anything you want to protect.",
                 })
                 return
 
@@ -167,241 +146,27 @@ class _AgentDiagnoseMixin:
         session.status = "abandoned"
         db.commit()
 
-    async def _wait_for_plan_approval(
-        self,
-        db: Session,
-        session: ExecutionSession,
-        connector,
-        connection_config: Dict[str, Any],
-        issue_description: str,
-    ) -> bool:
+    async def _wait_for_exclusions(self, db: Session, session: ExecutionSession) -> bool:
         """
-        Poll for plan_approved / plan_rejected flags set by the HTTP endpoints.
-        On rejection: run one LLM re-plan call and loop back to wait.
-        Returns True if approved, False on timeout or abandon.
+        Poll until the human submits exclusions and status transitions to 'executing'.
+        Returns True when executing, False on timeout or abandon.
         """
         elapsed = 0
-        while elapsed < _PLAN_APPROVAL_TIMEOUT_S:
-            await asyncio.sleep(_APPROVAL_POLL_INTERVAL)
-            elapsed += _APPROVAL_POLL_INTERVAL
+        while elapsed < _EXCLUSION_TIMEOUT_S:
+            await asyncio.sleep(_EXCLUSION_POLL_INTERVAL)
+            elapsed += _EXCLUSION_POLL_INTERVAL
 
             db.refresh(session)
             if session.status == "abandoned":
                 return False
 
-            meta = session.meta_data or {}
-
-            # ── Human picked an approach — run targeted discovery then generate plan ──
-            pending_approach_id = meta.get("pending_discovery_approach_id")
-            if pending_approach_id and not meta.get("generated_plan"):
-                await self._discover_and_generate_plan(
-                    db=db, session=session,
-                    approach_id=pending_approach_id,
-                    connector=connector,
-                    connection_config=connection_config,
-                    issue_description=issue_description,
-                )
-                elapsed = 0  # reset — human now needs time to review the generated plan
-                continue
-
-            if meta.get("plan_approved") is True:
-                session.meta_data["phase"] = "executing"
-                flag_modified(session, "meta_data")
-                db.commit()
+            if session.status == "executing":
                 return True
 
-            if meta.get("plan_rejected") is True:
-                session.meta_data["plan_rejected"] = False
-                session.meta_data["plan_approved"] = None
-                flag_modified(session, "meta_data")
-                db.commit()
-
-                await self._replan(db, session, connection_config, issue_description)
-                elapsed = 0   # reset timeout — human gets full window to review new plan
-                continue
-
         await self.event_publisher.publish_raw(db, session, {
-            "event_type": "agent.plan_approval_timeout",
-            "message":    "Plan approval timed out. Session abandoned.",
+            "event_type": "agent.error",
+            "message":    "Exclusion review timed out. Session abandoned.",
         })
         session.status = "abandoned"
         db.commit()
         return False
-
-    async def _discover_and_generate_plan(
-        self,
-        db: Session,
-        session: ExecutionSession,
-        approach_id: str,
-        connector,
-        connection_config: Dict[str, Any],
-        issue_description: str,
-    ) -> None:
-        """
-        After the human picks an approach, run 2 targeted SSH commands on the
-        chosen target to understand its contents, then call _llm_plan_generate
-        with that enriched context so the plan targets specific files/dirs found.
-        """
-        meta       = session.meta_data or {}
-        approaches = meta.get("approaches") or []
-        approach   = next((a for a in approaches if a.get("id") == approach_id), None)
-        if not approach:
-            logger.warning("_discover_and_generate_plan: approach %s not found", approach_id)
-            return
-
-        target = (approach.get("target") or "").strip()
-        diagnosis_history = list(meta.get("diagnosis_history") or [])
-        step_num = len(diagnosis_history) + 1
-
-        await self.event_publisher.publish_raw(db, session, {
-            "event_type": "agent.discovery",
-            "message":    f"Running targeted investigation on {target or 'selected area'}…",
-        })
-
-        # Run deterministic discovery commands on the chosen target
-        discovery_cmds = []
-        if target:
-            discovery_cmds = [
-                f"du -sh {target}/* 2>/dev/null | sort -rh | head -20",
-                f"ls -lah {target}/ 2>/dev/null | head -30",
-            ]
-        else:
-            # No specific target — re-run top-level survey
-            discovery_cmds = ["du -sh /* 2>/dev/null | sort -rh | head -20"]
-
-        enriched_history = list(diagnosis_history)
-        for cmd in discovery_cmds:
-            try:
-                result = await connector.execute_command(
-                    command=cmd,
-                    connection_config=connection_config,
-                    timeout=30,
-                )
-                output = (result.get("output") or result.get("error") or "")[:_MAX_OUTPUT_CHARS]
-                enriched_history.append({
-                    "step":    step_num,
-                    "command": cmd,
-                    "output":  output,
-                    "success": result.get("success", False),
-                })
-                step_num += 1
-                logger.info("Targeted discovery: %s → %d chars output", cmd, len(output))
-            except Exception as e:
-                logger.warning("Targeted discovery command failed: %s — %s", cmd, e)
-
-        # Generate plan with enriched context
-        steps = await self._llm_plan_generate(
-            approach          = approach,
-            diagnosis         = meta.get("diagnosis") or {},
-            diagnosis_history = enriched_history,
-            connection_config = connection_config,
-            issue_description = issue_description,
-        )
-
-        session.meta_data["generated_plan"]                = steps
-        session.meta_data["pending_discovery_approach_id"] = None
-        session.meta_data["selected_approach_id"]          = approach_id
-        flag_modified(session, "meta_data")
-        db.commit()
-
-        await self.event_publisher.publish_raw(db, session, {
-            "event_type":  "agent.plan_generated",
-            "approach_id": approach_id,
-            "step_count":  len(steps),
-            "message":     f"Plan ready — {len(steps)} steps generated. Review and approve.",
-        })
-        logger.info(
-            "Targeted discovery + plan generation complete for session %d approach %s: %d steps",
-            session.id, approach_id, len(steps),
-        )
-
-    async def _replan(
-        self,
-        db: Session,
-        session: ExecutionSession,
-        connection_config: Dict[str, Any],
-        issue_description: str,
-    ) -> None:
-        """
-        One LLM call (force_complete=True) to produce a new plan using the
-        existing diagnosis history + all accumulated rejection feedback.
-        Optionally allows up to _MAX_REPLAN_COMMANDS extra read-only commands
-        if the LLM genuinely needs a new fact before it can re-plan.
-        """
-        meta                = session.meta_data or {}
-        history: List[Dict] = list(meta.get("diagnosis_history") or [])
-        rejection_feedbacks = meta.get("plan_rejection_feedback", [])
-        step_number         = len(history) + 1
-
-        connector_type = (connection_config.get("connector_type") or "local").lower()
-        connector      = get_connector(connector_type)
-
-        for attempt in range(_MAX_REPLAN_COMMANDS + 1):
-            force = (attempt == _MAX_REPLAN_COMMANDS)
-            try:
-                action = await self._llm_diagnose(
-                    issue_description=issue_description,
-                    connection_config=connection_config,
-                    history=history,
-                    rejection_feedbacks=rejection_feedbacks,
-                    force_complete=force,
-                )
-            except Exception as e:
-                logger.error("Re-plan LLM call failed: %s", e)
-                break
-
-            if action.get("action") == "diagnosis_complete":
-                findings   = action.get("findings") or meta.get("diagnosis") or {}
-                approaches = action.get("approaches") or []
-
-                if not approaches:
-                    legacy = action.get("proposed_plan") or []
-                    if legacy:
-                        approaches = [{
-                            "id": "A",
-                            "title": "Revised Plan",
-                            "rationale": "Agent-revised plan based on feedback",
-                            "risk": "medium",
-                            "target": "",
-                        }]
-
-                if not approaches:
-                    continue
-
-                rejection_count = meta.get("plan_rejection_count", 0)
-                session.meta_data["diagnosis"]         = findings
-                session.meta_data["approaches"]        = approaches
-                session.meta_data["proposed_plan"]     = None
-                session.meta_data["generated_plan"]    = None  # clear previous generated plan
-                session.meta_data["diagnosis_history"] = history
-                session.meta_data["phase"]             = "awaiting_plan_approval"
-                session.status = "awaiting_plan_approval"
-                flag_modified(session, "meta_data")
-                db.commit()
-
-                await self.event_publisher.publish_raw(db, session, {
-                    "event_type":      "agent.plan_revised",
-                    "diagnosis":       findings,
-                    "approaches":      approaches,
-                    "revision_number": rejection_count,
-                    "message":         "Approaches revised based on your feedback. Select one to generate the plan.",
-                })
-                return
-
-            # LLM wants one more read-only command before committing
-            command   = (action.get("command") or "").strip()
-            reasoning = (action.get("reasoning") or "")
-
-            if not command or not self.classifier.is_readonly(command):
-                continue
-
-            step_db = self._create_step(db, session, step_number, command, reasoning, phase="diagnose")
-            result  = await self._execute_step(connector, connection_config, command, step_db, db, session)
-            output  = result.get("output") or result.get("error") or ""
-            history.append({
-                "step":    step_number,
-                "command": command,
-                "output":  output[:_MAX_OUTPUT_CHARS],
-                "success": result.get("success", False),
-            })
-            step_number += 1

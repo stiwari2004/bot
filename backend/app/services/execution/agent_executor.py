@@ -66,43 +66,6 @@ class AgentExecutor(
 
     # ── Public entry points ───────────────────────────────────────────────────
 
-    async def generate_plan_for_approach(
-        self,
-        db: Session,
-        session_id: int,
-        approach_id: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Given an awaiting_plan_approval session and a chosen approach id,
-        call the LLM to generate a detailed step-by-step plan for that approach.
-        Stores the result as generated_plan in session meta_data and returns the steps.
-        """
-        session = db.query(ExecutionSession).filter(ExecutionSession.id == session_id).first()
-        if not session:
-            raise ValueError(f"Session {session_id} not found")
-
-        meta      = session.meta_data or {}
-        approaches: list = meta.get("approaches") or []
-        approach  = next((a for a in approaches if a.get("id") == approach_id), None)
-        if not approach:
-            raise ValueError(f"Approach '{approach_id}' not found in session {session_id}")
-
-        connection_config = meta.get("connection_config") or {}
-        steps = await self._llm_plan_generate(
-            approach          = approach,
-            diagnosis         = meta.get("diagnosis") or {},
-            diagnosis_history = meta.get("diagnosis_history") or [],
-            connection_config = connection_config,
-            issue_description = meta.get("issue_description") or "",
-        )
-
-        session.meta_data["generated_plan"]       = steps
-        session.meta_data["selected_approach_id"] = approach_id
-        flag_modified(session, "meta_data")
-        db.commit()
-
-        return steps
-
     async def run(
         self,
         db: Session,
@@ -134,22 +97,21 @@ class AgentExecutor(
         session.started_at = datetime.now(timezone.utc)
         session.meta_data  = {
             **existing_meta,
-            "agent_session":           True,
-            "issue_description":       issue_description,
-            "connection_config":       connection_config,  # stored so plan generation can reuse it
-            "phase":                   "precheck",
-            "precheck":                {},
-            "diagnosis_history":       [],
-            "diagnosis":               None,
-            "proposed_plan":           None,
-            "plan_approved":           None,
-            "plan_rejected":           False,
-            "plan_rejection_count":    0,
-            "plan_rejection_feedback": [],
-            "resolved_inputs":         {},
-            "agent_summary":           "",
-            "agent_resolved":          False,
-            "pending_review":          False,
+            "agent_session":     True,
+            "issue_description": issue_description,
+            "connection_config": connection_config,
+            "phase":             "precheck",
+            "precheck":          {},
+            "diagnosis_history": [],
+            "diagnosis":         None,
+            "targets":           [],
+            "approved_targets":  [],
+            "excluded_targets":  [],
+            "delete_log":        [],
+            "resolved_inputs":   {},
+            "agent_summary":     "",
+            "agent_resolved":    False,
+            "pending_review":    False,
         }
         db.commit()
 
@@ -183,10 +145,8 @@ class AgentExecutor(
         if session.status == "abandoned":
             return self._abandoned_result(session)
 
-        # ── Phase 2: Plan approval (with re-plan loop on rejection) ──────────
-        approved = await self._wait_for_plan_approval(
-            db, session, connector, connection_config, issue_description
-        )
+        # ── Phase 2: Wait for human exclusion review ─────────────────────────
+        approved = await self._wait_for_exclusions(db, session)
         if not approved:
             return self._abandoned_result(session)
 

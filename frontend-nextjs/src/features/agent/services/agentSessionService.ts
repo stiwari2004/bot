@@ -4,7 +4,6 @@
  */
 import { apiConfig } from '@/lib/api-config';
 import { authFetch } from '@/lib/auth-fetch';
-import type { PlanStep } from '../types';
 
 async function post<T = unknown>(url: string, body: unknown): Promise<T> {
   const res = await authFetch(url, {
@@ -21,25 +20,20 @@ async function post<T = unknown>(url: string, body: unknown): Promise<T> {
 
 export async function fetchSessionPlan(sessionId: number) {
   const res = await authFetch(apiConfig.endpoints.executions.agentSessionPlan(sessionId));
-  if (!res.ok) throw new Error('Failed to load plan');
+  if (!res.ok) throw new Error('Failed to load session status');
   return res.json();
 }
 
-export function selectApproach(sessionId: number, approachId: string) {
-  return post(apiConfig.endpoints.executions.agentSessionPlanSelectApproach(sessionId), {
-    approach_id: approachId,
-  });
+export function setExclusions(sessionId: number, exclusions: string[]) {
+  return post(apiConfig.endpoints.executions.agentSessionSetExclusions(sessionId), { exclusions });
 }
 
-export function approvePlan(sessionId: number, selectedApproachId: string, steps: PlanStep[]) {
-  return post(apiConfig.endpoints.executions.agentSessionPlanApprove(sessionId), {
-    selected_approach_id: selectedApproachId,
-    proposed_plan: steps,
-  });
+export function escalateSession(sessionId: number, reason?: string) {
+  return post(apiConfig.endpoints.executions.agentSessionEscalate(sessionId), { reason: reason || null });
 }
 
-export function rejectPlan(sessionId: number, feedback: string) {
-  return post(apiConfig.endpoints.executions.agentSessionPlanReject(sessionId), { feedback });
+export function confirmResolution(sessionId: number, resolved: boolean) {
+  return post(apiConfig.endpoints.executions.agentSessionConfirmResolution(sessionId), { resolved });
 }
 
 export function reviewSession(sessionId: number, saveAsRunbook: boolean, runbookTitle?: string) {
@@ -59,10 +53,6 @@ export function retrySession(sessionId: number, userDirection?: string) {
     apiConfig.endpoints.executions.agentSessionRetry(sessionId),
     userDirection?.trim() ? { user_direction: userDirection.trim() } : {},
   );
-}
-
-export function confirmResolution(sessionId: number, resolved: boolean) {
-  return post(apiConfig.endpoints.executions.agentSessionConfirmResolution(sessionId), { resolved });
 }
 
 export function flagRunbookForReview(runbookId: number) {

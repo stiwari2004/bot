@@ -7,10 +7,10 @@ import { formatDate, formatDuration, formatShortDuration } from '../services/uti
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { PlanApprovalPanel } from './PlanApprovalPanel';
+import { ExclusionPanel } from './ExclusionPanel';
 import { SessionReviewPanel } from './SessionReviewPanel';
 import { FlagForReviewButton } from './FlagForReviewButton';
-import { submitFeedback, retrySession, confirmResolution } from '../services/agentSessionService';
+import { submitFeedback, retrySession, confirmResolution, escalateSession } from '../services/agentSessionService';
 
 interface Props {
   session: ExecutionSessionDetail;
@@ -29,14 +29,17 @@ export function SessionDetailView({
   stepActionBusy, stepActionError, onControlAction, onStepApproval, onRetry,
 }: Props) {
   const status = (session.status || '').toLowerCase();
-  const isAwaitingPlan         = status === 'awaiting_plan_approval';
+  const isAwaitingExclusions   = status === 'awaiting_exclusions';
   const isAwaitingConfirmation = status === 'awaiting_human_confirmation';
   const isFailedOrErrors       = status === 'completed_with_errors' || status === 'failed';
 
-  const [planKey, setPlanKey] = useState(0);
+  const [exclusionKey, setExclusionKey] = useState(0);
   const [reviewDone, setReviewDone] = useState(false);
   const [confirmDone, setConfirmDone] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState<'yes' | 'no' | null>(null);
+  const [showNotFixed, setShowNotFixed] = useState(false);
+  const [escalateLoading, setEscalateLoading] = useState(false);
+  const [escalateDone, setEscalateDone] = useState(false);
   const [direction, setDirection] = useState('');
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
@@ -53,6 +56,19 @@ export function SessionDetailView({
       setActionError(e instanceof Error ? e.message : 'Failed to confirm');
     } finally {
       setConfirmLoading(null);
+    }
+  };
+
+  const handleEscalate = async () => {
+    setEscalateLoading(true);
+    setActionError(null);
+    try {
+      await escalateSession(session.id, direction.trim() || undefined);
+      setEscalateDone(true);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to escalate');
+    } finally {
+      setEscalateLoading(false);
     }
   };
 
@@ -103,7 +119,7 @@ export function SessionDetailView({
             <div><dt className="text-neutral-500 font-semibold mb-1">Started</dt><dd className="text-neutral-900 font-medium">{formatDate(session.started_at)}</dd></div>
             <div><dt className="text-neutral-500 font-semibold mb-1">Completed</dt><dd className="text-neutral-900 font-medium">{formatDate(session.completed_at ?? undefined)}</dd></div>
           </dl>
-          {!isAwaitingPlan && (
+          {!isAwaitingExclusions && (
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="warning" size="sm" onClick={() => onControlAction('pause')}
                 disabled={controlBusy !== null || status === 'paused' || status === 'rollback_requested'}
@@ -126,18 +142,20 @@ export function SessionDetailView({
         </CardContent>
       </Card>
 
-      {/* Plan approval */}
-      {isAwaitingPlan && (
+      {/* Exclusion panel */}
+      {isAwaitingExclusions && (
         <Card variant="elevated">
           <CardHeader>
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-              <h3 className="text-lg font-semibold text-neutral-800">Awaiting Your Approval</h3>
+              <h3 className="text-lg font-semibold text-neutral-800">Review Cleanup Targets</h3>
             </div>
-            <p className="text-xs text-neutral-500 mt-0.5">Review the proposed plan below. Edit steps if needed, then approve to begin execution.</p>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              The agent has identified these folders. Uncheck any you want to protect, then confirm to start cleanup.
+            </p>
           </CardHeader>
           <CardContent padding="md">
-            <PlanApprovalPanel key={planKey} sessionId={session.id} onApproved={() => setPlanKey(k => k + 1)} />
+            <ExclusionPanel key={exclusionKey} sessionId={session.id} onExclusionsSubmitted={() => setExclusionKey(k => k + 1)} />
           </CardContent>
         </Card>
       )}
@@ -162,16 +180,46 @@ export function SessionDetailView({
               </div>
             )}
             {actionError && <p className="text-xs text-red-600 font-medium mb-3">{actionError}</p>}
-            <div className="flex gap-3">
-              <Button variant="success" size="sm" onClick={() => handleConfirm(true)}
-                isLoading={confirmLoading === 'yes'} disabled={confirmLoading !== null}>
-                Yes — issue is fixed
-              </Button>
-              <Button variant="danger" size="sm" onClick={() => handleConfirm(false)}
-                isLoading={confirmLoading === 'no'} disabled={confirmLoading !== null}>
-                No — still broken
-              </Button>
-            </div>
+
+            {!showNotFixed ? (
+              <div className="flex gap-3">
+                <Button variant="success" size="sm" onClick={() => handleConfirm(true)}
+                  isLoading={confirmLoading === 'yes'} disabled={confirmLoading !== null}>
+                  Yes — issue is fixed
+                </Button>
+                <Button variant="danger" size="sm" onClick={() => setShowNotFixed(true)}
+                  disabled={confirmLoading !== null}>
+                  No — still broken
+                </Button>
+              </div>
+            ) : escalateDone ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 font-medium">
+                Session escalated — the ticket has been flagged for the next support level.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-neutral-700">What would you like to do?</p>
+                <textarea value={direction} onChange={e => setDirection(e.target.value)} rows={2}
+                  placeholder="Optional: describe what to try differently or why you're escalating…"
+                  className="w-full px-3 py-2 text-sm border border-neutral-300 rounded-lg bg-white text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-blue-400 focus:border-blue-400" />
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant="warning" size="sm" onClick={handleRetry}
+                    isLoading={retryLoading} disabled={retryLoading || escalateLoading}
+                    leftIcon={<ArrowPathIcon className="h-4 w-4" />}>
+                    Retry with agent
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleEscalate}
+                    isLoading={escalateLoading} disabled={escalateLoading || retryLoading}
+                    className="border-red-300 text-red-700 hover:bg-red-50">
+                    Escalate to next level
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setShowNotFixed(false)}
+                    disabled={retryLoading || escalateLoading}>
+                    Back
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -283,7 +331,7 @@ export function SessionDetailView({
       </Card>
 
       {/* Execution Steps */}
-      {!isAwaitingPlan && session.steps.length > 0 && (
+      {!isAwaitingExclusions && session.steps.length > 0 && (
         <Card variant="elevated">
           <CardHeader><h3 className="text-lg font-semibold text-neutral-800">Steps</h3></CardHeader>
           <CardContent padding="md">

@@ -104,108 +104,59 @@ class AgentSessionController(BaseController):
             raise self.not_found("Session", session_id)
         meta = session.meta_data or {}
         return {
-            "session_id":    session_id,
-            "status":        session.status,
-            "phase":         meta.get("phase", "unknown"),
-            "diagnosis":     meta.get("diagnosis"),
-            "approaches":    meta.get("approaches") or [],
-            "proposed_plan": meta.get("proposed_plan"),
-            "generated_plan": meta.get("generated_plan"),   # populated after targeted discovery
-            "discovering":   bool(meta.get("pending_discovery_approach_id")),
-            "plan_approved": meta.get("plan_approved"),
-            "plan_rejection_count": meta.get("plan_rejection_count", 0),
-            "plan_rejection_feedback": meta.get("plan_rejection_feedback", []),
+            "session_id":       session_id,
+            "status":           session.status,
+            "phase":            meta.get("phase", "unknown"),
+            "diagnosis":        meta.get("diagnosis"),
+            "targets":          meta.get("targets") or [],
+            "approved_targets": meta.get("approved_targets") or [],
+            "excluded_targets": meta.get("excluded_targets") or [],
         }
 
-    def select_approach(self, session_id: int, approach_id: str) -> Dict[str, Any]:
-        """
-        Human selected an approach — store the selection and signal the agent loop
-        to run targeted discovery on the chosen target before generating the plan.
-        The frontend should poll GET /plan until `generated_plan` appears.
-        """
+    def set_exclusions(self, session_id: int, exclusions: List[str]) -> Dict[str, Any]:
         from sqlalchemy.orm.attributes import flag_modified
         session = self.execution_repo.get_by_id(session_id)
         if not session:
             raise self.not_found("Session", session_id)
-        if session.status != "awaiting_plan_approval":
-            raise self.bad_request(
-                f"Session is not awaiting plan approval (current status: {session.status})"
-            )
-        # Clear any previous generated plan so the agent loop knows to regenerate
-        session.meta_data["pending_discovery_approach_id"] = approach_id
-        session.meta_data["generated_plan"] = None
+        if session.status != "awaiting_exclusions":
+            raise self.bad_request(f"Session is not awaiting exclusions (current status: {session.status})")
+        targets = session.meta_data.get("targets") or []
+        approved = [t for t in targets if t.get("path") not in exclusions]
+        session.meta_data["approved_targets"] = approved
+        session.meta_data["excluded_targets"] = exclusions
+        session.status = "executing"
         flag_modified(session, "meta_data")
         self.db.commit()
         return {
-            "session_id":  session_id,
-            "approach_id": approach_id,
-            "status":      "discovering",
-            "message":     "Running targeted investigation on the selected area — poll GET /plan for steps.",
+            "session_id":     session_id,
+            "approved_count": len(approved),
+            "excluded_count": len(exclusions),
+            "status":         "executing",
+            "message":        f"Execution starting — {len(approved)} targets approved, {len(exclusions)} excluded.",
         }
 
-    def approve_agent_plan(
-        self,
-        session_id: int,
-        selected_approach_id: Optional[str] = None,
-        proposed_plan: Optional[List] = None,
-    ) -> Dict[str, Any]:
+    def escalate_session(self, session_id: int, reason: Optional[str] = None) -> Dict[str, Any]:
         from sqlalchemy.orm.attributes import flag_modified
+        from datetime import datetime, timezone
         session = self.execution_repo.get_by_id(session_id)
         if not session:
             raise self.not_found("Session", session_id)
-        if session.status != "awaiting_plan_approval":
-            raise self.bad_request(
-                f"Session is not awaiting plan approval (current status: {session.status})"
-            )
-
-        # Use human-edited steps if provided, otherwise use the LLM-generated plan
-        if proposed_plan is not None:
-            session.meta_data["proposed_plan"] = proposed_plan
-        elif session.meta_data.get("generated_plan"):
-            session.meta_data["proposed_plan"] = session.meta_data["generated_plan"]
-        else:
-            raise self.bad_request(
-                "No plan to approve. Select an approach first to generate the plan."
-            )
-
-        if selected_approach_id:
-            session.meta_data["selected_approach_id"] = selected_approach_id
-
-        session.meta_data["plan_approved"] = True
-        session.meta_data["plan_rejected"] = False
+        session.status = "escalated"
+        session.meta_data["escalation_reason"] = reason
+        session.meta_data["escalated_at"] = datetime.now(timezone.utc).isoformat()
         flag_modified(session, "meta_data")
         self.db.commit()
-        return {
-            "session_id": session_id,
-            "approved": True,
-            "selected_approach_id": selected_approach_id,
-            "message": "Plan approved — execution will begin shortly.",
-        }
-
-    def reject_agent_plan(self, session_id: int, feedback: str) -> Dict[str, Any]:
-        from sqlalchemy.orm.attributes import flag_modified
-        session = self.execution_repo.get_by_id(session_id)
-        if not session:
-            raise self.not_found("Session", session_id)
-        if session.status != "awaiting_plan_approval":
-            raise self.bad_request(
-                f"Session is not awaiting plan approval (current status: {session.status})"
-            )
-        feedbacks = list(session.meta_data.get("plan_rejection_feedback") or [])
-        feedbacks.append(feedback)
-        session.meta_data["plan_rejection_feedback"] = feedbacks
-        session.meta_data["plan_rejection_count"] = len(feedbacks)
-        session.meta_data["plan_rejected"] = True
-        session.meta_data["plan_approved"] = None
-        flag_modified(session, "meta_data")
-        self.db.commit()
-        return {
-            "session_id": session_id,
-            "rejected": True,
-            "feedback_recorded": feedback,
-            "rejection_count": len(feedbacks),
-            "message": "Feedback recorded — agent is revising the plan.",
-        }
+        if session.ticket_id:
+            try:
+                from app.services.ticket_status_service import get_ticket_status_service
+                get_ticket_status_service().update_ticket_on_execution_complete(
+                    db=self.db, ticket_id=session.ticket_id,
+                    execution_status="failed", issue_resolved=False,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Could not escalate ticket %d: %s", session.ticket_id, e)
+        return {"session_id": session_id, "status": "escalated", "message": "Session escalated to next level."}
 
     async def review_agent_session(
         self,
