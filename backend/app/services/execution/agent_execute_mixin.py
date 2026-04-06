@@ -2,7 +2,6 @@
 _AgentExecuteMixin — Phase 3 (execute) for AgentExecutor.
 """
 import asyncio
-import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -44,7 +43,7 @@ class _AgentExecuteMixin:
           Level 4 (BLOCKED)     → refused
 
         Returns (resolved, final_summary) — resolved reflects what the LLM
-        declared AND passes the code-level _verify_resolution gate.
+        declared AND is confirmed by the LLM resolution verification gate.
         """
         meta             = session.meta_data or {}
         approved_targets = meta.get("approved_targets") or []
@@ -89,26 +88,34 @@ class _AgentExecuteMixin:
                 claimed       = bool(action.get("resolved", False))
                 final_summary = action.get("summary", "Execution complete.")
 
-                # Code-level gate: verify the claim is supported by actual output
-                if claimed and not self._verify_resolution(history, final_summary):
-                    logger.warning(
-                        "Execute: LLM claimed resolved=true but metric still critical — "
-                        "injecting feedback and continuing"
+                # LLM-driven resolution gate: verify the claim is supported by actual output
+                if claimed:
+                    check = await self._llm_check_resolution(
+                        history=history,
+                        summary=final_summary,
+                        issue_description=issue_description,
                     )
-                    # Feed back to the LLM as a failed verification so it continues
-                    history.append({
-                        "step":    step_number,
-                        "command": "[VERIFICATION GATE]",
-                        "output":  (
-                            "Your last verification output still shows the issue as critical. "
-                            "Do NOT declare resolved=true yet. "
-                            "Run df -h (or free -h / systemctl status) to check the current metric, "
-                            "then continue remediation if it has not improved."
-                        ),
-                        "success": False,
-                    })
-                    step_number += 1
-                    continue
+                    if not check.get("resolved", False):
+                        logger.warning(
+                            "Execute: resolution gate rejected resolved=true — %s",
+                            check.get("reasoning", ""),
+                        )
+                        next_step = (
+                            check.get("next_step")
+                            or "Run the appropriate verification command for this issue type."
+                        )
+                        history.append({
+                            "step":    step_number,
+                            "command": "[VERIFICATION GATE]",
+                            "output":  (
+                                f"Your claim of resolved=true was not supported by the evidence. "
+                                f"Reasoning: {check.get('reasoning', '')}. "
+                                f"Do NOT declare resolved=true yet. {next_step}"
+                            ),
+                            "success": False,
+                        })
+                        step_number += 1
+                        continue
 
                 resolved = claimed
                 break
@@ -236,65 +243,6 @@ class _AgentExecuteMixin:
         result = _re.sub(r'\s*\{\{\w+\}\}\s*', ' ', result).strip()
         return result
 
-    @staticmethod
-    def _verify_resolution(history: List[Dict], summary: str) -> bool:
-        """
-        Heuristic gate: returns False if obvious still-critical signals exist
-        in recent output or the summary — even if the LLM claims resolved=true.
-        Scans the last 5 real commands so a df -h earlier in verification still counts.
-        """
-        _METRIC_RE = re.compile(
-            r'^(df|free|systemctl\s+status|ps\s+aux|ps\s+-ef|service\s+\S+\s+status)',
-            re.IGNORECASE,
-        )
-
-        real_entries = [
-            e for e in history
-            if (e.get("command") or "").strip() and e.get("command") != "[SYSTEM]"
-               and e.get("command") != "[VERIFICATION GATE]"
-        ]
-        recent = real_entries[-5:]
-
-        # If any remediation step failed, require a metric check in recent history
-        plan_failures = sum(
-            1 for e in history
-            if not e.get("success", True) and "[BLOCKED" not in (e.get("output") or "")
-               and e.get("command") not in ("[SYSTEM]", "[VERIFICATION GATE]")
-        )
-        if plan_failures > 0:
-            has_metric_check = any(_METRIC_RE.match(e.get("command") or "") for e in recent)
-            if not has_metric_check:
-                logger.warning(
-                    "_verify_resolution: %d step(s) failed, no metric check in last 5 — "
-                    "refusing resolved=true", plan_failures
-                )
-                return False
-
-        # Scan recent outputs for still-critical signals
-        for entry in recent:
-            output = (entry.get("output") or "").lower()
-            if re.search(r'\b(100|9[5-9])%', output):
-                return False
-            if re.search(r'\bactive\s*\(failed\)|\bfailed\b.*\.service', output):
-                return False
-            if re.search(r'no space left on device|write error.*28', output):
-                return False
-
-        # Memory near-zero: check only the most recent real output
-        for entry in reversed(real_entries):
-            output = (entry.get("output") or "").lower()
-            if re.search(r'avail\s+\d+[mk]\b', output, re.IGNORECASE):
-                return False
-            break
-
-        bad_phrases = [
-            "still full", "still at 100", "no space", "not resolved",
-            "could not free", "unable to free", "issue persists", "write error",
-        ]
-        if any(p in summary.lower() for p in bad_phrases):
-            return False
-
-        return True
 
     async def _auto_crystallise(self, db: Session, session: ExecutionSession) -> None:
         steps = (

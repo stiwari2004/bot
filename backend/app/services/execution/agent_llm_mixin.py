@@ -204,18 +204,22 @@ RULES:
         system_prompt = (
             "You are an SRE agent in the EXECUTION phase. "
             "You are already connected to the target server — every command runs directly on it. "
-            "The human has approved a set of targets for cleanup. Reason freely within that approved scope. "
-            "Adapt if a step fails — read the error output carefully and reason about why it failed "
-            "before choosing an alternative. The cause is always visible in the output.\n"
-            "MANDATORY VERIFICATION: After all cleanup, run df -h / free -h / systemctl status to confirm "
-            "the metric is resolved.\n"
+            "The human has approved a set of targets for remediation. "
+            "You MUST attempt remediation on EVERY approved target before running verification or declaring done. "
+            "Do not stop early after acting on only some targets — work through the full approved list first, "
+            "then verify. Adapt if a step fails — read the error output carefully and reason about why it "
+            "failed before choosing an alternative. The cause is always visible in the output.\n"
+            "MANDATORY VERIFICATION: After ALL approved targets have been acted on, run the single most "
+            "direct command that confirms whether the original symptom is now gone "
+            "(e.g. df -h for disk, free -h for memory, systemctl status <service> for service issues, "
+            "top/ps for CPU or process issues). Choose the command based on what the issue actually is.\n"
             "VERIFICATION RULES:\n"
-            "- du -sh <dir> is NOT a verification command — it shows directory size, not disk usage %.\n"
-            "- Read the df/free/status output carefully. If the metric has NOT returned to a healthy level, "
-            "  the issue is NOT resolved — continue with more remediation steps.\n"
-            "- Do NOT declare done with resolved=true if the metric is still critical.\n"
-            "- Only declare resolved=true when the verification output confirms the problem is gone.\n"
-            "- If you have genuinely exhausted all options and the issue persists, "
+            "- Run a command that directly measures the symptom — not one that shows intermediate state.\n"
+            "- Read the verification output carefully: if it still shows the problem condition, "
+            "  continue with more remediation steps.\n"
+            "- Do NOT declare done with resolved=true unless the verification output explicitly confirms "
+            "  the issue is no longer present.\n"
+            "- If you have genuinely exhausted all approved targets and the issue persists, "
             "  declare done with resolved=false.\n"
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
@@ -261,6 +265,74 @@ If the issue cannot be resolved after best efforts:
             timeout=60.0,
         )
         return self._parse_llm_response(raw)
+
+    async def _llm_check_resolution(
+        self,
+        history: List[Dict],
+        summary: str,
+        issue_description: str = "",
+    ) -> Dict[str, Any]:
+        """
+        LLM-driven resolution verification gate.
+        Called when the executing agent declares resolved=true — challenges that claim
+        based solely on actual command outputs in the history.
+        Returns {"resolved": bool, "reasoning": str, "next_step": str}.
+        Defaults to resolved=False on any failure (conservative).
+        """
+        system_prompt = (
+            "You are a strict SRE verification judge. "
+            "The executing agent has claimed the issue is resolved. "
+            "Your job is to validate or challenge that claim based ONLY on the actual command "
+            "outputs provided — not on what the agent says it did. "
+            "Be conservative: if verification evidence is missing, ambiguous, or the most recent "
+            "output still shows a problem condition, return resolved=false. "
+            "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
+        )
+
+        user_prompt = f"""Original issue: {issue_description or "(not specified)"}
+
+Agent's final summary: {summary}
+
+Recent execution history (last 5 steps):
+{self._format_history(history[-5:])}
+
+Based solely on the command outputs above, has this issue been genuinely resolved?
+
+Respond with:
+{{
+  "resolved": true or false,
+  "reasoning": "one sentence citing the specific output that supports this verdict",
+  "next_step": "if resolved=false: the single most direct command to verify current state or continue remediation (based on the issue type); if resolved=true: empty string"
+}}
+
+Rules:
+- resolved=true ONLY if a verification command output explicitly confirms the symptom is now gone
+- resolved=false if no verification command was run after the last remediation step
+- resolved=false if the output still shows the problem condition
+- resolved=false if the last command failed or produced an error"""
+
+        logger.info("Resolution check LLM call (history=%d)", len(history))
+        try:
+            raw = await asyncio.wait_for(
+                self._llm._chat_once_with_system(system_prompt, user_prompt),
+                timeout=60.0,
+            )
+            result = self._parse_llm_response(raw)
+            if result.get("_parse_error"):
+                logger.warning("_llm_check_resolution: parse error — defaulting resolved=False")
+                return {
+                    "resolved": False,
+                    "reasoning": "could not parse verification response",
+                    "next_step": "Run the appropriate verification command for this issue type.",
+                }
+            return result
+        except Exception as e:
+            logger.warning("_llm_check_resolution failed (%s) — defaulting resolved=False", e)
+            return {
+                "resolved": False,
+                "reasoning": str(e),
+                "next_step": "Run the appropriate verification command for this issue type.",
+            }
 
     # ── Parsing / formatting ───────────────────────────────────────────────────
 

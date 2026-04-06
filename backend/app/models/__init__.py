@@ -212,9 +212,7 @@ except ImportError:  # pragma: no cover - optional dependency
     ReportFormat = None
     ReportType = None
 if ScheduledReport:
-    __all__.extend(["ScheduledReport", "ReportFrequency", "ReportFormat", "ReportType"])
-
-# Inquiry model (trial intake)
+    __all__.extend(["ScheduledReport", "ReportFrequency", "ReportFormat", "ReportType"])# Inquiry model (trial intake)
 try:
     from app.models.inquiry import Inquiry
 except ImportError:  # pragma: no cover - optional dependency
