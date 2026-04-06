@@ -73,7 +73,7 @@ class _AgentPrecheckMixin:
             "message":    "Verifying whether the reported symptom is currently present on the server...",
         })
 
-        verdict, evidence, commands_run = await self._verify_symptom(
+        verdict, evidence, commands_run, thresholds = await self._verify_symptom(
             db, session, connector, connection_config, issue_description
         )
 
@@ -82,6 +82,7 @@ class _AgentPrecheckMixin:
             "evidence":     evidence,
             "commands_run": commands_run,
         }
+        session.meta_data["thresholds"] = thresholds
 
         if verdict == "false_positive":
             session.status       = "closed_false_positive"
@@ -133,7 +134,7 @@ class _AgentPrecheckMixin:
         connector,
         connection_config: Dict[str, Any],
         issue_description: str,
-    ) -> Tuple[str, str, List[str]]:
+    ) -> Tuple[str, str, List[str], Dict]:
         """
         Run up to _MAX_VERIFY_COMMANDS read-only commands to confirm the symptom.
 
@@ -181,7 +182,7 @@ class _AgentPrecheckMixin:
                 )
             except Exception as e:
                 logger.error("Verify LLM call failed: %s", e)
-                return ("uncertain", f"LLM call failed during verification: {e}", commands_run)
+                return ("uncertain", f"LLM call failed during verification: {e}", commands_run, thresholds)
 
             if action.get("action") == "verdict":
                 confirmed = bool(action.get("confirmed", True))
@@ -190,6 +191,7 @@ class _AgentPrecheckMixin:
                     "true_positive" if confirmed else "false_positive",
                     evidence,
                     commands_run,
+                    thresholds,
                 )
 
             command   = (action.get("command") or "").strip()
@@ -229,4 +231,4 @@ class _AgentPrecheckMixin:
             step_number += 1
 
         # Could not determine — safe default is to treat as true positive
-        return ("uncertain", "Could not confirm or deny symptom — treating as true positive.", commands_run)
+        return ("uncertain", "Could not confirm or deny symptom — treating as true positive.", commands_run, thresholds)

@@ -180,6 +180,8 @@ RULES:
         connection_config: Dict[str, Any],
         approved_targets: List[Dict],
         excluded_targets: List[str],
+        diagnosis_findings: Dict[str, Any],
+        thresholds: Dict[str, Any],
         history: List[Dict],
         resolved_inputs: Dict[str, str],
     ) -> Dict[str, Any]:
@@ -189,7 +191,7 @@ RULES:
         approved_text = "\n".join(
             f"  - [{t.get('type', '?').upper()}] {t.get('path', '?')} ({t.get('size', '?')}): {t.get('description', '')}"
             for t in approved_targets
-        ) or "  (none specified — use best judgment based on diagnosis)"
+        )
 
         excluded_text = (
             "\n".join(f"  - {p}" for p in excluded_targets)
@@ -224,10 +226,36 @@ RULES:
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
+        diagnosis_text = ""
+        if diagnosis_findings:
+            root_cause = diagnosis_findings.get("root_cause") or ""
+            evidence   = diagnosis_findings.get("evidence") or []
+            evidence_lines = "\n".join(f"  - {e}" for e in evidence) if evidence else "  (none)"
+            diagnosis_text = f"""
+Diagnosis findings (from read-only investigation phase):
+  Root cause: {root_cause}
+  Evidence:
+{evidence_lines}
+"""
+
+        threshold_text = ""
+        if thresholds:
+            lines = []
+            for metric, t in thresholds.items():
+                w, c = t.get("warning", 80), t.get("critical", 90)
+                lines.append(f"  {metric}: warning={w}%, critical={c}%")
+            threshold_text = (
+                "\nResolution targets (from configured thresholds):\n"
+                + "\n".join(lines)
+                + "\n  Goal: bring the relevant metric below its WARNING threshold."
+                + "\n  Minimum acceptable: below CRITICAL threshold (moves alert from critical to warning)."
+            )
+
         user_prompt = f"""Issue: {issue_description}
 Server: {server}{resolved_text}
+{diagnosis_text}{threshold_text}
 
-Approved targets (clean these):
+Approved targets for remediation:
 {approved_text}
 
 Excluded paths (DO NOT TOUCH these):
@@ -271,44 +299,62 @@ If the issue cannot be resolved after best efforts:
         history: List[Dict],
         summary: str,
         issue_description: str = "",
+        initial_evidence: str = "",
+        thresholds: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         LLM-driven resolution verification gate.
         Called when the executing agent declares resolved=true — challenges that claim
         based solely on actual command outputs in the history.
+        Uses initial_evidence (from precheck) and configured thresholds for before/after comparison.
         Returns {"resolved": bool, "reasoning": str, "next_step": str}.
         Defaults to resolved=False on any failure (conservative).
         """
         system_prompt = (
             "You are a strict SRE verification judge. "
             "The executing agent has claimed the issue is resolved. "
-            "Your job is to validate or challenge that claim based ONLY on the actual command "
-            "outputs provided — not on what the agent says it did. "
-            "Be conservative: if verification evidence is missing, ambiguous, or the most recent "
-            "output still shows a problem condition, return resolved=false. "
+            "Your job is to validate or challenge that claim by comparing the BEFORE state "
+            "(captured at alert time) with the AFTER state (from the most recent verification output), "
+            "using the configured warning and critical thresholds as your reference points. "
+            "Be conservative: if the metric has not improved to at least below the CRITICAL threshold, "
+            "return resolved=false. "
             "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
         )
 
-        user_prompt = f"""Original issue: {issue_description or "(not specified)"}
+        before_text = f"\nInitial state at alert time: {initial_evidence}" if initial_evidence else ""
+
+        threshold_rules = ""
+        if thresholds:
+            lines = []
+            for metric, t in thresholds.items():
+                w, c = t.get("warning", 80), t.get("critical", 90)
+                lines.append(
+                    f"  {metric}: resolved=true if current < {w}% (warning); "
+                    f"resolved=false if current >= {c}% (still critical)"
+                )
+            threshold_rules = "\nConfigured thresholds:\n" + "\n".join(lines)
+
+        user_prompt = f"""Original issue: {issue_description or "(not specified)"}{before_text}{threshold_rules}
 
 Agent's final summary: {summary}
 
 Recent execution history (last 5 steps):
 {self._format_history(history[-5:])}
 
-Based solely on the command outputs above, has this issue been genuinely resolved?
+Compare the initial state with the most recent verification output against the thresholds above.
 
 Respond with:
 {{
   "resolved": true or false,
-  "reasoning": "one sentence citing the specific output that supports this verdict",
-  "next_step": "if resolved=false: the single most direct command to verify current state or continue remediation (based on the issue type); if resolved=true: empty string"
+  "reasoning": "one sentence: cite the initial reading, the current reading from the output, and the relevant threshold",
+  "next_step": "if resolved=false: the single most direct command to re-verify or continue remediation; if resolved=true: empty string"
 }}
 
 Rules:
-- resolved=true ONLY if a verification command output explicitly confirms the symptom is now gone
+- resolved=true ONLY if the verification output shows the metric is below the WARNING threshold
+- resolved=false if the metric is still at or above the CRITICAL threshold (no meaningful improvement)
+- resolved=false if the metric improved but is still between WARNING and CRITICAL — keep going if more targets remain
 - resolved=false if no verification command was run after the last remediation step
-- resolved=false if the output still shows the problem condition
 - resolved=false if the last command failed or produced an error"""
 
         logger.info("Resolution check LLM call (history=%d)", len(history))

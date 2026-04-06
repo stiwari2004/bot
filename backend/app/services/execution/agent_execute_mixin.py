@@ -45,13 +45,32 @@ class _AgentExecuteMixin:
         Returns (resolved, final_summary) — resolved reflects what the LLM
         declared AND is confirmed by the LLM resolution verification gate.
         """
-        meta             = session.meta_data or {}
-        approved_targets = meta.get("approved_targets") or []
-        excluded_targets = meta.get("excluded_targets") or []
+        meta               = session.meta_data or {}
+        approved_targets   = meta.get("approved_targets") or []
+        excluded_targets   = meta.get("excluded_targets") or []
+        diagnosis_findings = meta.get("diagnosis") or {}
+        initial_evidence   = (meta.get("precheck") or {}).get("evidence") or ""
+        thresholds         = meta.get("thresholds") or {}
         history: List[Dict] = []
         resolved_inputs: Dict[str, str] = {}
         resolved      = False
         final_summary = ""
+
+        # Guard: if the human excluded everything, there is nothing to do
+        if not approved_targets:
+            final_summary = (
+                "All targets were excluded by the human reviewer — no cleanup performed. "
+                "Escalate manually if the issue persists."
+            )
+            session.meta_data["agent_summary"]  = final_summary
+            session.meta_data["agent_resolved"] = False
+            flag_modified(session, "meta_data")
+            db.commit()
+            await self.event_publisher.publish_raw(db, session, {
+                "event_type": "agent.skipped",
+                "message":    final_summary,
+            })
+            return False, final_summary
 
         max_step = db.query(sqlfunc.max(ExecutionStep.step_number)).filter(
             ExecutionStep.session_id == session.id
@@ -69,6 +88,8 @@ class _AgentExecuteMixin:
                     connection_config=connection_config,
                     approved_targets=approved_targets,
                     excluded_targets=excluded_targets,
+                    diagnosis_findings=diagnosis_findings,
+                    thresholds=thresholds,
                     history=history,
                     resolved_inputs=resolved_inputs,
                 )
@@ -94,6 +115,8 @@ class _AgentExecuteMixin:
                         history=history,
                         summary=final_summary,
                         issue_description=issue_description,
+                        initial_evidence=initial_evidence,
+                        thresholds=thresholds,
                     )
                     if not check.get("resolved", False):
                         logger.warning(
