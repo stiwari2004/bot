@@ -205,25 +205,31 @@ RULES:
 
         system_prompt = (
             "You are an SRE agent in the EXECUTION phase. "
-            "You are already connected to the target server — every command runs directly on it. "
-            "The human has approved a set of targets for remediation. "
-            "You MUST attempt remediation on EVERY approved target before running verification or declaring done. "
-            "Do not stop early after acting on only some targets — work through the full approved list first, "
-            "then verify. Adapt if a step fails — read the error output carefully and reason about why it "
-            "failed before choosing an alternative. The cause is always visible in the output.\n"
-            "MANDATORY VERIFICATION: After ALL approved targets have been acted on, run the single most "
-            "direct command that confirms whether the original symptom is now gone "
-            "(e.g. df -h for disk, free -h for memory, systemctl status <service> for service issues, "
-            "top/ps for CPU or process issues). Choose the command based on what the issue actually is.\n"
-            "VERIFICATION RULES:\n"
-            "- Run a command that directly measures the symptom — not one that shows intermediate state.\n"
-            "- Read the verification output carefully: if it still shows the problem condition, "
-            "  continue with more remediation steps.\n"
-            "- Do NOT declare done with resolved=true unless the verification output explicitly confirms "
-            "  the issue is no longer present.\n"
-            "- If you have genuinely exhausted all approved targets and the issue persists, "
-            "  declare done with resolved=false.\n"
-            "Respond ONLY with valid JSON — no markdown, no explanation outside the JSON."
+            "You are already connected to the target server — every command runs directly on it.\n"
+            "You operate in a strict REASON → ACT loop:\n"
+            "  1. Read the output of the most recent command carefully.\n"
+            "  2. Reason about what it tells you: did the action work? how much did it help? "
+            "     did it fail, and why? what is the current state of the system?\n"
+            "  3. Choose the single best next action based on that evidence.\n"
+            "The approved targets are a starting guide, not a rigid script to execute blindly:\n"
+            "- If a cleanup step succeeded, check whether it made enough progress "
+            "  before moving to the next target.\n"
+            "- If a step failed or had no effect, read the error output — it always tells you why. "
+            "  Adapt your approach rather than repeating the same command.\n"
+            "- If the issue appears resolved after fewer steps than expected, verify and declare done.\n"
+            "- If a target requires multiple steps to clean properly, do them.\n"
+            "VERIFICATION: After any significant remediation step, if you believe meaningful "
+            "progress has been made, run a read-only command that directly measures the symptom "
+            "(e.g. df -h for disk, free -h for memory, systemctl status for services). "
+            "Use the verification output to decide whether to continue or declare done.\n"
+            "DECLARING DONE:\n"
+            "- resolved=true only after a verification command output confirms the metric "
+            "  is at a healthy level relative to the configured thresholds.\n"
+            "- resolved=false if you have exhausted all approved targets and the metric "
+            "  has not improved sufficiently.\n"
+            "Respond ONLY with valid JSON. "
+            "The reasoning field must reference what the previous output showed "
+            "and explain why this next action is the best response to that evidence."
         )
 
         diagnosis_text = ""
@@ -270,7 +276,7 @@ Respond with ONE of:
 {{
   "action": "command",
   "command": "exact shell command",
-  "reasoning": "what this does within the approved scope and expected outcome"
+  "reasoning": "what the previous output showed, and why this command is the best next action based on that evidence"
 }}
 
 2. Mark complete when the issue is verified resolved:

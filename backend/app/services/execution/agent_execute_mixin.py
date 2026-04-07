@@ -111,6 +111,32 @@ class _AgentExecuteMixin:
 
                 # LLM-driven resolution gate: verify the claim is supported by actual output
                 if claimed:
+                    # ── Deterministic pre-check: last real command must be read-only ──
+                    # If the last thing the agent did was a state-changing command (rm, truncate,
+                    # systemctl restart, etc.), it has not verified the outcome yet.
+                    # Force it to run a verification command before we ask the LLM gate.
+                    real_cmds = [
+                        e for e in history
+                        if (e.get("command") or "").strip()
+                        and e["command"] not in ("[VERIFICATION GATE]", "[SYSTEM]")
+                    ]
+                    if real_cmds and not self.classifier.is_readonly(real_cmds[-1]["command"]):
+                        history.append({
+                            "step":    step_number,
+                            "command": "[VERIFICATION GATE]",
+                            "output":  (
+                                "You declared resolved=true but your last command was a "
+                                "state-changing operation, not a verification. "
+                                "You MUST run a read-only command that directly measures "
+                                "the current state of the symptom (e.g. df -h for disk, "
+                                "free -h for memory, systemctl status for services) before "
+                                "you can declare done. Run that verification now."
+                            ),
+                            "success": False,
+                        })
+                        step_number += 1
+                        continue
+
                     check = await self._llm_check_resolution(
                         history=history,
                         summary=final_summary,
