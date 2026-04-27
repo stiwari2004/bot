@@ -90,7 +90,7 @@ services:
       - WORKER_ENVIRONMENT=production
     depends_on:
       app:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     command: ["python", "-m", "worker.main"]
