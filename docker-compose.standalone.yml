@@ -49,7 +49,7 @@ services:
     container_name: resolvify-app
     # Do NOT use env_file here so .env cannot override DATABASE_URL (fixes "ndysango1982@postgres" host error)
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/troubleshooting_ai
