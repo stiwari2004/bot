@@ -7,7 +7,7 @@
 #   3. .env is used only for variable substitution (Compose reads it on the host). Do not add DATABASE_URL to .env.
 #   4. docker load -i resolvify-app.tar   # if not already loaded
 #   5. docker compose -f docker-compose.standalone.yml up -d
-#   6. Open http://<server-ip>:8000 in your browser (app listens on 8000, not 3000/8080).
+#   6. Open http://<server-ip>:8001 in your browser (host port 8001 maps to container port 8000).
 
 services:
   postgres:
