@@ -1,0 +1,39 @@
+Test Run Summary - Mon Jan 19 18:38:28 UTC 2026
+========================================
+
+Test Plan Execution Report - Mon Jan 19 18:37:57 UTC 2026
+========================================
+
+Container: bot-dev-backend
+Timestamp: 20260119_183448
+
+Summary:
+  Tests Passed: 81
+  Tests Failed: 27
+  Errors: 74
+  Coverage: 
+
+Test Result Files:
+------------------
+./test_results/coverage_report_20260119_183448.txt (124K)
+./test_results/phase1_auth_20260119_183448.txt (5.2K)
+./test_results/phase1_execution_20260119_183448.txt (7.5K)
+./test_results/phase1_runbook_20260119_183448.txt (13K)
+./test_results/phase1_websocket_20260119_183448.txt (4.9K)
+./test_results/phase2_command_validator_20260119_183448.txt (6.2K)
+./test_results/phase2_execution_controller_20260119_183448.txt (19K)
+./test_results/phase2_runbook_controller_20260119_183448.txt (5.9K)
+./test_results/phase2_runbook_validation_20260119_183448.txt (5.0K)
+./test_results/phase2_ticket_analysis_20260119_183448.txt (11K)
+./test_results/phase2_ticket_controller_20260119_183448.txt (11K)
+./test_results/phase2_validation_20260119_183448.txt (23K)
+./test_results/phase3_auth_endpoints_20260119_183448.txt (51K)
+./test_results/phase3_execution_endpoints_20260119_183448.txt (57K)
+./test_results/phase3_runbook_endpoints_20260119_183448.txt (57K)
+./test_results/phase3_ticket_endpoints_20260119_183448.txt (57K)
+./test_results/phase4_error_handling_20260119_183448.txt (56K)
+./test_results/phase4_execution_workflow_20260119_183448.txt (41K)
+./test_results/phase4_multi_tenant_20260119_183448.txt (25K)
+./test_results/phase4_runbook_generation_20260119_183448.txt (25K)
+./test_results/phase4_ticket_analysis_20260119_183448.txt (25K)
+./test_results/test_plan_report_20260119_183448.txt (267)

@@ -1,0 +1,107 @@
+Test Breakdown by Phase
+========================================
+
+=== phase1 ===
+  phase1_auth_20260119_183448.txt:
+    Passed: 13
+    Failed: 
+    Errors: 
+
+  phase1_execution_20260119_183448.txt:
+    Passed: 2
+    Failed: 4
+    Errors: 
+
+  phase1_runbook_20260119_183448.txt:
+    Passed: 5
+    Failed: 2
+    Errors: 
+
+  phase1_websocket_20260119_183448.txt:
+    Passed: 9
+    Failed: 
+    Errors: 
+
+=== phase2 ===
+  phase2_command_validator_20260119_183448.txt:
+    Passed: 9
+    Failed: 3
+    Errors: 
+
+  phase2_execution_controller_20260119_183448.txt:
+    Passed: 3
+    Failed: 2
+    Errors: 
+
+  phase2_runbook_controller_20260119_183448.txt:
+    Passed: 6
+    Failed: 1
+    Errors: 
+
+  phase2_runbook_validation_20260119_183448.txt:
+    Passed: 2
+    Failed: 2
+    Errors: 
+
+  phase2_ticket_analysis_20260119_183448.txt:
+    Passed: 8
+    Failed: 8
+    Errors: 
+
+  phase2_ticket_controller_20260119_183448.txt:
+    Passed: 3
+    Failed: 3
+    Errors: 
+
+  phase2_validation_20260119_183448.txt:
+    Passed: 18
+    Failed: 2
+    Errors: 
+
+=== phase3 ===
+  phase3_auth_endpoints_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 9
+
+  phase3_execution_endpoints_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 10
+
+  phase3_runbook_endpoints_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 10
+
+  phase3_ticket_endpoints_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 10
+
+=== phase4 ===
+  phase4_error_handling_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 10
+
+  phase4_execution_workflow_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 7
+
+  phase4_multi_tenant_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 4
+
+  phase4_runbook_generation_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 4
+
+  phase4_ticket_analysis_20260119_183448.txt:
+    Passed: 
+    Failed: 5432
+    Errors: 4
+

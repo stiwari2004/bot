@@ -1,0 +1,661 @@
+Error Analysis
+========================================
+
+=== coverage_report_20260119_183448.txt ===
+collecting ... collected 182 items
+
+tests/e2e/test_error_handling.py::TestNetworkFailureHandling::test_llm_service_failure_handling ERROR [  0%]
+tests/e2e/test_error_handling.py::TestNetworkFailureHandling::test_database_connection_failure_handling ERROR [  1%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_runbook_id_returns_404 ERROR [  1%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_ticket_id_returns_404 ERROR [  2%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_execution_session_id_returns_404 ERROR [  2%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_malformed_request_returns_422 ERROR [  3%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_authentication_returns_401 ERROR [  3%]
+tests/e2e/test_error_handling.py::TestTimeoutHandling::test_llm_timeout_handling ERROR [  4%]
+tests/e2e/test_error_handling.py::TestConcurrentRequestHandling::test_concurrent_runbook_generation_requests ERROR [  4%]
+tests/e2e/test_error_handling.py::TestResourceExhaustionHandling::test_llm_rate_limit_handling ERROR [  5%]
+tests/e2e/test_error_handling.py::TestResourceExhaustionHandling::test_llm_budget_exceeded_handling ERROR [  6%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_complete_execution_workflow_with_approval ERROR [  6%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_rejection ERROR [  7%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_rollback ERROR [  7%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_self_healing ERROR [  8%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_error_handling ERROR [  8%]
+tests/e2e/test_execution_workflow.py::TestApprovalWorkflow::test_approval_workflow_with_multiple_steps ERROR [  9%]
+tests/e2e/test_execution_workflow.py::TestRollbackWorkflow::test_rollback_on_step_failure ERROR [  9%]
+tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_runbooks ERROR [ 10%]
+tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_tickets ERROR [ 10%]
+tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_executions ERROR [ 11%]
+tests/e2e/test_multi_tenant_isolation.py::TestTenantSpecificConfigurations::test_tenant_specific_confidence_threshold ERROR [ 12%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_complete_runbook_generation_workflow ERROR [ 12%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_runbook_generation_with_duplicate_detection ERROR [ 13%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_runbook_generation_validation_workflow ERROR [ 13%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookApprovalWorkflow::test_runbook_approval_workflow ERROR [ 14%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_complete_ticket_analysis_workflow ERROR [ 14%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_ticket_analysis_with_false_positive_detection ERROR [ 15%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_ticket_analysis_with_runbook_matching ERROR [ 15%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketToExecutionWorkflow::test_ticket_to_execution_workflow ERROR [ 16%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_valid_credentials_returns_token ERROR [ 17%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_invalid_credentials_returns_401 ERROR [ 17%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_nonexistent_user_returns_401 ERROR [ 18%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_locked_account_returns_401 ERROR [ 18%]
+tests/integration/test_auth_endpoints.py::TestLogoutEndpoint::test_logout_revokes_session ERROR [ 19%]
+tests/integration/test_auth_endpoints.py::TestForgotPasswordEndpoint::test_forgot_password_creates_reset_token ERROR [ 19%]
+tests/integration/test_auth_endpoints.py::TestResetPasswordEndpoint::test_reset_password_with_valid_token_updates_password ERROR [ 20%]
+tests/integration/test_auth_endpoints.py::TestGetCurrentUserEndpoint::test_get_current_user_with_valid_token_returns_user ERROR [ 20%]
+tests/integration/test_auth_endpoints.py::TestGetCurrentUserEndpoint::test_get_current_user_without_token_returns_401 ERROR [ 21%]
+tests/integration/test_execution_endpoints.py::TestStartExecutionEndpoint::test_start_execution_with_valid_runbook_creates_session ERROR [ 21%]
+tests/integration/test_execution_endpoints.py::TestStartExecutionEndpoint::test_start_execution_with_invalid_runbook_returns_404 ERROR [ 22%]
+tests/integration/test_execution_endpoints.py::TestStartExecutionEndpoint::test_start_execution_with_unapproved_runbook_returns_error ERROR [ 23%]
+tests/integration/test_execution_endpoints.py::TestApproveStepEndpoint::test_approve_step_with_valid_session_approves_step ERROR [ 23%]
+tests/integration/test_execution_endpoints.py::TestApproveStepEndpoint::test_reject_step_stops_execution ERROR [ 24%]
+tests/integration/test_execution_endpoints.py::TestGetExecutionStatusEndpoint::test_get_execution_status_returns_session_status ERROR [ 24%]
+tests/integration/test_execution_endpoints.py::TestGetExecutionStatusEndpoint::test_get_execution_status_with_nonexistent_session_returns_404 ERROR [ 25%]
+tests/integration/test_execution_endpoints.py::TestListExecutionSessionsEndpoint::test_list_execution_sessions_returns_sessions ERROR [ 25%]
+tests/integration/test_execution_endpoints.py::TestListExecutionSessionsEndpoint::test_list_execution_sessions_filters_by_status ERROR [ 26%]
+
+=== phase1_auth_20260119_183448.txt ===
+
+=== phase1_execution_20260119_183448.txt ===
+
+=== phase1_runbook_20260119_183448.txt ===
+
+=== phase1_websocket_20260119_183448.txt ===
+
+=== phase2_command_validator_20260119_183448.txt ===
+
+=== phase2_execution_controller_20260119_183448.txt ===
+E   fastapi.exceptions.HTTPException
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-01-19T18:35:53.852201Z", "level": "ERROR", "logger": "app.services.billing.billing_tracker", "message": "Error tracking execution session: Mock object has no attribute 'execution_sessions'", "module": "billing_tracker", "function": "track_execution_session", "line": 56, "environment": "unknown", "exception": "Traceback (most recent call last):\n  File \"/app/app/services/billing/billing_tracker.py\", line 52, in track_execution_session\n    usage.execution_sessions += 1\n    ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/unittest/mock.py\", line 653, in __getattr__\n    raise AttributeError(\"Mock object has no attribute %r\" % name)\nAttributeError: Mock object has no attribute 'execution_sessions'"}
+{"timestamp": "2026-01-19T18:35:53.853781Z", "level": "ERROR", "logger": "app.services.runbook_parser", "message": "Error parsing runbook: expected string or bytes-like object, got 'Mock'", "module": "runbook_parser", "function": "parse_runbook", "line": 45, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:53.854136Z", "level": "ERROR", "logger": "app.controllers.execution_controller", "message": "Failed to enqueue execution session: expected string or bytes-like object, got 'Mock'", "module": "execution_controller", "function": "create_execution_session", "line": 130, "environment": "unknown", "exception": "Traceback (most recent call last):\n  File \"/app/app/services/runbook_parser.py\", line 32, in parse_runbook\n    yaml_match = re.search(r'```yaml\\n(.*?)```', body_md, re.DOTALL)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/re/__init__.py\", line 176, in search\n    return _compile(pattern, flags).search(string)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: expected string or bytes-like object, got 'Mock'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/app/app/controllers/execution_controller.py\", line 87, in create_execution_session\n    session = await execution_orchestrator.enqueue_session(\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/execution/orchestrator.py\", line 59, in enqueue_session\n    session = await self.engine.create_execution_session(\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/execution/execution_engine.py\", line 68, in create_execution_session\n    return await self.session_service.create_execution_session(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/execution/session_service.py\", line 148, in create_execution_session\n    parsed = self.parser.parse_runbook(runbook.body_md)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/runbook_parser.py\", line 46, in parse_runbook\n    return self._parse_markdown_fallback(body_md)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/runbook_parser.py\", line 116, in _parse_markdown_fallback\n    bash_matches = re.findall(r'```bash\\n(.*?)```', body_md, re.DOTALL)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/re/__init__.py\", line 216, in findall\n    return _compile(pattern, flags).findall(string)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: expected string or bytes-like object, got 'Mock'"}
+{"timestamp": "2026-01-19T18:35:53.855517Z", "level": "ERROR", "logger": "app.controllers.base_controller", "message": "Failed to create execution session: expected string or bytes-like object, got 'Mock'", "module": "base_controller", "function": "handle_error", "line": 18, "environment": "unknown", "exception": "Traceback (most recent call last):\n  File \"/app/app/services/runbook_parser.py\", line 32, in parse_runbook\n    yaml_match = re.search(r'```yaml\\n(.*?)```', body_md, re.DOTALL)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/re/__init__.py\", line 176, in search\n    return _compile(pattern, flags).search(string)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: expected string or bytes-like object, got 'Mock'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/app/app/controllers/execution_controller.py\", line 87, in create_execution_session\n    session = await execution_orchestrator.enqueue_session(\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/execution/orchestrator.py\", line 59, in enqueue_session\n    session = await self.engine.create_execution_session(\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/execution/execution_engine.py\", line 68, in create_execution_session\n    return await self.session_service.create_execution_session(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/execution/session_service.py\", line 148, in create_execution_session\n    parsed = self.parser.parse_runbook(runbook.body_md)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/runbook_parser.py\", line 46, in parse_runbook\n    return self._parse_markdown_fallback(body_md)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/app/services/runbook_parser.py\", line 116, in _parse_markdown_fallback\n    bash_matches = re.findall(r'```bash\\n(.*?)```', body_md, re.DOTALL)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/re/__init__.py\", line 216, in findall\n    return _compile(pattern, flags).findall(string)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: expected string or bytes-like object, got 'Mock'"}
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.billing.billing_tracker:billing_tracker.py:56 Error tracking execution session: Mock object has no attribute 'execution_sessions'
+Traceback (most recent call last):
+  File "/app/app/services/billing/billing_tracker.py", line 52, in track_execution_session
+    usage.execution_sessions += 1
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/unittest/mock.py", line 653, in __getattr__
+    raise AttributeError("Mock object has no attribute %r" % name)
+AttributeError: Mock object has no attribute 'execution_sessions'
+ERROR    app.services.runbook_parser:runbook_parser.py:45 Error parsing runbook: expected string or bytes-like object, got 'Mock'
+ERROR    app.controllers.execution_controller:execution_controller.py:130 Failed to enqueue execution session: expected string or bytes-like object, got 'Mock'
+Traceback (most recent call last):
+  File "/app/app/services/runbook_parser.py", line 32, in parse_runbook
+    yaml_match = re.search(r'```yaml\n(.*?)```', body_md, re.DOTALL)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/re/__init__.py", line 176, in search
+--
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: expected string or bytes-like object, got 'Mock'
+ERROR    app.controllers.base_controller:base_controller.py:18 Failed to create execution session: expected string or bytes-like object, got 'Mock'
+Traceback (most recent call last):
+  File "/app/app/services/runbook_parser.py", line 32, in parse_runbook
+    yaml_match = re.search(r'```yaml\n(.*?)```', body_md, re.DOTALL)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/re/__init__.py", line 176, in search
+
+=== phase2_runbook_controller_20260119_183448.txt ===
+
+=== phase2_runbook_validation_20260119_183448.txt ===
+
+=== phase2_ticket_analysis_20260119_183448.txt ===
+
+=== phase2_ticket_controller_20260119_183448.txt ===
+E   AssertionError: assert None == 'false_positive'
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-01-19T18:35:34.226520Z", "level": "ERROR", "logger": "app.services.monitoring_connectors.prometheus", "message": "Error normalizing Prometheus webhook: list index out of range", "module": "prometheus", "function": "normalize_webhook", "line": 86, "environment": "unknown", "exception": "Traceback (most recent call last):\n  File \"/app/app/services/monitoring_connectors/prometheus.py\", line 81, in normalize_webhook\n    alert = firing_alerts[0] if firing_alerts else alerts[0]\n                                                   ~~~~~~^^^\nIndexError: list index out of range"}
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.monitoring_connectors.prometheus:prometheus.py:86 Error normalizing Prometheus webhook: list index out of range
+Traceback (most recent call last):
+  File "/app/app/services/monitoring_connectors/prometheus.py", line 81, in normalize_webhook
+    alert = firing_alerts[0] if firing_alerts else alerts[0]
+                                                   ~~~~~~^^^
+IndexError: list index out of range
+--
+{"timestamp": "2026-01-19T18:35:41.281156Z", "level": "INFO", "logger": "sentence_transformers.SentenceTransformer", "message": "Use pytorch device_name: cpu", "module": "SentenceTransformer", "function": "__init__", "line": 219, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:41.282648Z", "level": "INFO", "logger": "app.core.vector_store", "message": "\u2705 Embedding model sentence-transformers/all-MiniLM-L6-v2 loaded successfully", "module": "vector_store", "function": "get_shared_embedding_model", "line": 69, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:41.285054Z", "level": "ERROR", "logger": "app.services.runbook_search", "message": "Error searching similar runbooks: 'Mock' object is not subscriptable", "module": "runbook_search", "function": "search_similar_runbooks", "line": 118, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:41.285590Z", "level": "WARNING", "logger": "app.services.ticket.runbook_matching_service", "message": "Keyword matching failed: 'Mock' object is not iterable", "module": "runbook_matching_service", "function": "_keyword_match_runbooks", "line": 103, "environment": "unknown"}
+----------------------------- Captured stderr call -----------------------------
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches:   0%|          | 0/1 [00:00<?, ?it/s]
+------------------------------ Captured log call -------------------------------
+INFO     app.core.vector_store:vector_store.py:63 Loading embedding model sentence-transformers/all-MiniLM-L6-v2 in background thread...
+--
+INFO     sentence_transformers.SentenceTransformer:SentenceTransformer.py:219 Use pytorch device_name: cpu
+INFO     app.core.vector_store:vector_store.py:69 ✅ Embedding model sentence-transformers/all-MiniLM-L6-v2 loaded successfully
+ERROR    app.services.runbook_search:runbook_search.py:118 Error searching similar runbooks: 'Mock' object is not subscriptable
+WARNING  app.services.ticket.runbook_matching_service:runbook_matching_service.py:103 Keyword matching failed: 'Mock' object is not iterable
+_____ TestAnalyzeTicket.test_analyze_ticket_updates_ticket_classification ______
+tests/unit/controllers/test_ticket_controller.py:254: in test_analyze_ticket_updates_ticket_classification
+    assert sample_ticket.classification == "false_positive"
+E   AssertionError: assert None == 'false_positive'
+E    +  where None = <Mock spec='Ticket' id='139089906177616'>.classification
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-01-19T18:35:41.343229Z", "level": "ERROR", "logger": "app.services.ticket_status_service", "message": "Error updating ticket <Mock name='mock.query().filter().options().first().id' id='139089902763536'> status to closed: 'Mock' object is not subscriptable", "module": "ticket_status_service", "function": "update_ticket_on_false_positive", "line": 162, "environment": "unknown"}
+------------------------------ Captured log call -------------------------------
+ERROR    app.services.ticket_status_service:ticket_status_service.py:162 Error updating ticket <Mock name='mock.query().filter().options().first().id' id='139089902763536'> status to closed: 'Mock' object is not subscriptable
+=============================== warnings summary ===============================
+../usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:268: 17 warnings
+  /usr/local/lib/python3.11/site-packages/pydantic/_internal/_config.py:268: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.5/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+
+=== phase2_validation_20260119_183448.txt ===
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-01-19T18:35:25.138749Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.139655Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.379147Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.379952Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.640142Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.640974Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.885669Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:25.886557Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.127576Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.128247Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.390637Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.391422Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.636909Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.637580Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.876062Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:26.877118Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.115723Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.116360Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.355534Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.356153Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.605250Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.605789Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.848900Z", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.perplexity.ai/chat/completions \"HTTP/1.1 400 Bad Request\"", "module": "_client", "function": "_send_single_request", "line": 1729, "environment": "unknown"}
+{"timestamp": "2026-01-19T18:35:27.849438Z", "level": "ERROR", "logger": "app.services.llm_service", "message": "Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={\"error\":{\"message\":\"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.\",\"type\":\"invalid_model\"", "module": "llm_service", "function": "_chat_once_with_system", "line": 558, "environment": "unknown"}
+------------------------------ Captured log call -------------------------------
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+INFO     httpx:_client.py:1729 HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 400 Bad Request"
+ERROR    app.services.llm_service:llm_service.py:558 Perplexity: non-200 from https://api.perplexity.ai/chat/completions status=400 body={"error":{"message":"Invalid model 'llama-3.1-sonar-large-128k-online'. Permitted models can be found in the documentation at https://docs.perplexity.ai/getting-started/models.","type":"invalid_model"
+
+=== phase3_auth_endpoints_20260119_183448.txt ===
+collecting ... collected 9 items
+
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_valid_credentials_returns_token ERROR [ 11%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_invalid_credentials_returns_401 ERROR [ 22%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_nonexistent_user_returns_401 ERROR [ 33%]
+tests/integration/test_auth_endpoints.py::TestLoginEndpoint::test_login_with_locked_account_returns_401 ERROR [ 44%]
+tests/integration/test_auth_endpoints.py::TestLogoutEndpoint::test_logout_revokes_session ERROR [ 55%]
+tests/integration/test_auth_endpoints.py::TestForgotPasswordEndpoint::test_forgot_password_creates_reset_token ERROR [ 66%]
+tests/integration/test_auth_endpoints.py::TestResetPasswordEndpoint::test_reset_password_with_valid_token_updates_password ERROR [ 77%]
+tests/integration/test_auth_endpoints.py::TestGetCurrentUserEndpoint::test_get_current_user_with_valid_token_returns_user ERROR [ 88%]
+tests/integration/test_auth_endpoints.py::TestGetCurrentUserEndpoint::test_get_current_user_without_token_returns_401 ERROR [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestLoginEndpoint.test_login_with_valid_credentials_returns_token _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestLoginEndpoint.test_login_with_invalid_credentials_returns_401 _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestLoginEndpoint.test_login_with_nonexistent_user_returns_401 _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestLoginEndpoint.test_login_with_locked_account_returns_401 _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_______ ERROR at setup of TestLogoutEndpoint.test_logout_revokes_session _______
+
+=== phase3_execution_endpoints_20260119_183448.txt ===
+collecting ... collected 11 items
+
+tests/integration/test_execution_endpoints.py::TestStartExecutionEndpoint::test_start_execution_with_valid_runbook_creates_session ERROR [  9%]
+tests/integration/test_execution_endpoints.py::TestStartExecutionEndpoint::test_start_execution_with_invalid_runbook_returns_404 ERROR [ 18%]
+tests/integration/test_execution_endpoints.py::TestStartExecutionEndpoint::test_start_execution_with_unapproved_runbook_returns_error ERROR [ 27%]
+tests/integration/test_execution_endpoints.py::TestApproveStepEndpoint::test_approve_step_with_valid_session_approves_step ERROR [ 36%]
+tests/integration/test_execution_endpoints.py::TestApproveStepEndpoint::test_reject_step_stops_execution ERROR [ 45%]
+tests/integration/test_execution_endpoints.py::TestGetExecutionStatusEndpoint::test_get_execution_status_returns_session_status ERROR [ 54%]
+tests/integration/test_execution_endpoints.py::TestGetExecutionStatusEndpoint::test_get_execution_status_with_nonexistent_session_returns_404 ERROR [ 63%]
+tests/integration/test_execution_endpoints.py::TestListExecutionSessionsEndpoint::test_list_execution_sessions_returns_sessions ERROR [ 72%]
+tests/integration/test_execution_endpoints.py::TestListExecutionSessionsEndpoint::test_list_execution_sessions_filters_by_status ERROR [ 81%]
+tests/integration/test_execution_endpoints.py::TestCancelExecutionEndpoint::test_cancel_execution_cancels_session ERROR [ 90%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestStartExecutionEndpoint.test_start_execution_with_valid_runbook_creates_session _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestStartExecutionEndpoint.test_start_execution_with_invalid_runbook_returns_404 _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestStartExecutionEndpoint.test_start_execution_with_unapproved_runbook_returns_error _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestApproveStepEndpoint.test_approve_step_with_valid_session_approves_step _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+=== phase3_runbook_endpoints_20260119_183448.txt ===
+collecting ... collected 13 items
+
+tests/integration/test_runbook_endpoints.py::TestListRunbooksEndpoint::test_list_runbooks_returns_runbooks ERROR [  7%]
+tests/integration/test_runbook_endpoints.py::TestListRunbooksEndpoint::test_list_runbooks_respects_pagination ERROR [ 15%]
+tests/integration/test_runbook_endpoints.py::TestListRunbooksEndpoint::test_list_runbooks_only_shows_tenant_runbooks ERROR [ 23%]
+tests/integration/test_runbook_endpoints.py::TestGetRunbookEndpoint::test_get_runbook_returns_runbook ERROR [ 30%]
+tests/integration/test_runbook_endpoints.py::TestGetRunbookEndpoint::test_get_runbook_with_nonexistent_id_returns_404 ERROR [ 38%]
+tests/integration/test_runbook_endpoints.py::TestGetRunbookEndpoint::test_get_runbook_from_different_tenant_returns_404 ERROR [ 46%]
+tests/integration/test_runbook_endpoints.py::TestUpdateRunbookEndpoint::test_update_runbook_updates_title ERROR [ 53%]
+tests/integration/test_runbook_endpoints.py::TestUpdateRunbookEndpoint::test_update_runbook_updates_body ERROR [ 61%]
+tests/integration/test_runbook_endpoints.py::TestUpdateRunbookEndpoint::test_update_runbook_with_nonexistent_id_returns_404 ERROR [ 69%]
+tests/integration/test_runbook_endpoints.py::TestDeleteRunbookEndpoint::test_delete_runbook_soft_deletes_runbook ERROR [ 76%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestListRunbooksEndpoint.test_list_runbooks_returns_runbooks _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestListRunbooksEndpoint.test_list_runbooks_respects_pagination _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestListRunbooksEndpoint.test_list_runbooks_only_shows_tenant_runbooks _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+__ ERROR at setup of TestGetRunbookEndpoint.test_get_runbook_returns_runbook ___
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+=== phase3_ticket_endpoints_20260119_183448.txt ===
+collecting ... collected 11 items
+
+tests/integration/test_ticket_endpoints.py::TestListTicketsEndpoint::test_list_tickets_returns_tickets ERROR [  9%]
+tests/integration/test_ticket_endpoints.py::TestListTicketsEndpoint::test_list_tickets_filters_by_status ERROR [ 18%]
+tests/integration/test_ticket_endpoints.py::TestListTicketsEndpoint::test_list_tickets_respects_limit ERROR [ 27%]
+tests/integration/test_ticket_endpoints.py::TestGetTicketEndpoint::test_get_ticket_returns_ticket_details ERROR [ 36%]
+tests/integration/test_ticket_endpoints.py::TestGetTicketEndpoint::test_get_ticket_with_nonexistent_id_returns_404 ERROR [ 45%]
+tests/integration/test_ticket_endpoints.py::TestGetTicketEndpoint::test_get_ticket_includes_matched_runbooks ERROR [ 54%]
+tests/integration/test_ticket_endpoints.py::TestCreateDemoTicketEndpoint::test_create_demo_ticket_creates_ticket ERROR [ 63%]
+tests/integration/test_ticket_endpoints.py::TestCreateDemoTicketEndpoint::test_create_demo_ticket_suppresses_during_change_window ERROR [ 72%]
+tests/integration/test_ticket_endpoints.py::TestAnalyzeTicketEndpoint::test_analyze_ticket_returns_recommendation ERROR [ 81%]
+tests/integration/test_ticket_endpoints.py::TestAnalyzeTicketEndpoint::test_analyze_ticket_with_no_matches_suggests_generate_new ERROR [ 90%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestListTicketsEndpoint.test_list_tickets_returns_tickets __
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestListTicketsEndpoint.test_list_tickets_filters_by_status _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+__ ERROR at setup of TestListTicketsEndpoint.test_list_tickets_respects_limit __
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestGetTicketEndpoint.test_get_ticket_returns_ticket_details _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+=== phase4_error_handling_20260119_183448.txt ===
+collecting ... collected 11 items
+
+tests/e2e/test_error_handling.py::TestNetworkFailureHandling::test_llm_service_failure_handling ERROR [  9%]
+tests/e2e/test_error_handling.py::TestNetworkFailureHandling::test_database_connection_failure_handling ERROR [ 18%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_runbook_id_returns_404 ERROR [ 27%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_ticket_id_returns_404 ERROR [ 36%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_execution_session_id_returns_404 ERROR [ 45%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_malformed_request_returns_422 ERROR [ 54%]
+tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_authentication_returns_401 ERROR [ 63%]
+tests/e2e/test_error_handling.py::TestTimeoutHandling::test_llm_timeout_handling ERROR [ 72%]
+tests/e2e/test_error_handling.py::TestConcurrentRequestHandling::test_concurrent_runbook_generation_requests ERROR [ 81%]
+tests/e2e/test_error_handling.py::TestResourceExhaustionHandling::test_llm_rate_limit_handling ERROR [ 90%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestNetworkFailureHandling.test_llm_service_failure_handling _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestNetworkFailureHandling.test_database_connection_failure_handling _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestInvalidInputHandling.test_invalid_runbook_id_returns_404 _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestInvalidInputHandling.test_invalid_ticket_id_returns_404 _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+=== phase4_execution_workflow_20260119_183448.txt ===
+collecting ... collected 7 items
+
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_complete_execution_workflow_with_approval ERROR [ 14%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_rejection ERROR [ 28%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_rollback ERROR [ 42%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_self_healing ERROR [ 57%]
+tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_error_handling ERROR [ 71%]
+tests/e2e/test_execution_workflow.py::TestApprovalWorkflow::test_approval_workflow_with_multiple_steps ERROR [ 85%]
+tests/e2e/test_execution_workflow.py::TestRollbackWorkflow::test_rollback_on_step_failure ERROR [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestCompleteExecutionWorkflow.test_complete_execution_workflow_with_approval _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestCompleteExecutionWorkflow.test_execution_workflow_with_rejection _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestCompleteExecutionWorkflow.test_execution_workflow_with_rollback _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestCompleteExecutionWorkflow.test_execution_workflow_with_self_healing _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestCompleteExecutionWorkflow.test_execution_workflow_error_handling _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+
+=== phase4_multi_tenant_20260119_183448.txt ===
+collecting ... collected 4 items
+
+tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_runbooks ERROR [ 25%]
+tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_tickets ERROR [ 50%]
+tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_executions ERROR [ 75%]
+tests/e2e/test_multi_tenant_isolation.py::TestTenantSpecificConfigurations::test_tenant_specific_confidence_threshold ERROR [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestMultiTenantIsolation.test_tenant_cannot_access_other_tenant_runbooks _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestMultiTenantIsolation.test_tenant_cannot_access_other_tenant_tickets _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestMultiTenantIsolation.test_tenant_cannot_access_other_tenant_executions _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestTenantSpecificConfigurations.test_tenant_specific_confidence_threshold _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_runbooks
+ERROR tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_tickets
+ERROR tests/e2e/test_multi_tenant_isolation.py::TestMultiTenantIsolation::test_tenant_cannot_access_other_tenant_executions
+ERROR tests/e2e/test_multi_tenant_isolation.py::TestTenantSpecificConfigurations::test_tenant_specific_confidence_threshold
+======================== 26 warnings, 4 errors in 1.44s ========================
+
+=== phase4_runbook_generation_20260119_183448.txt ===
+collecting ... collected 4 items
+
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_complete_runbook_generation_workflow ERROR [ 25%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_runbook_generation_with_duplicate_detection ERROR [ 50%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_runbook_generation_validation_workflow ERROR [ 75%]
+tests/e2e/test_runbook_generation_workflow.py::TestRunbookApprovalWorkflow::test_runbook_approval_workflow ERROR [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestRunbookGenerationWorkflow.test_complete_runbook_generation_workflow _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestRunbookGenerationWorkflow.test_runbook_generation_with_duplicate_detection _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestRunbookGenerationWorkflow.test_runbook_generation_validation_workflow _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestRunbookApprovalWorkflow.test_runbook_approval_workflow _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_complete_runbook_generation_workflow
+ERROR tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_runbook_generation_with_duplicate_detection
+ERROR tests/e2e/test_runbook_generation_workflow.py::TestRunbookGenerationWorkflow::test_runbook_generation_validation_workflow
+ERROR tests/e2e/test_runbook_generation_workflow.py::TestRunbookApprovalWorkflow::test_runbook_approval_workflow
+======================== 26 warnings, 4 errors in 1.43s ========================
+
+=== phase4_ticket_analysis_20260119_183448.txt ===
+collecting ... collected 4 items
+
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_complete_ticket_analysis_workflow ERROR [ 25%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_ticket_analysis_with_false_positive_detection ERROR [ 50%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_ticket_analysis_with_runbook_matching ERROR [ 75%]
+tests/e2e/test_ticket_analysis_workflow.py::TestTicketToExecutionWorkflow::test_ticket_to_execution_workflow ERROR [100%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestTicketAnalysisWorkflow.test_complete_ticket_analysis_workflow _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestTicketAnalysisWorkflow.test_ticket_analysis_with_false_positive_detection _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestTicketAnalysisWorkflow.test_ticket_analysis_with_runbook_matching _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+_ ERROR at setup of TestTicketToExecutionWorkflow.test_ticket_to_execution_workflow _
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:145: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py:3292: in raw_connection
+    return self.pool.connect()
+/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py:452: in connect
+--
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_complete_ticket_analysis_workflow
+ERROR tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_ticket_analysis_with_false_positive_detection
+ERROR tests/e2e/test_ticket_analysis_workflow.py::TestTicketAnalysisWorkflow::test_ticket_analysis_with_runbook_matching
+ERROR tests/e2e/test_ticket_analysis_workflow.py::TestTicketToExecutionWorkflow::test_ticket_to_execution_workflow
+======================== 26 warnings, 4 errors in 1.45s ========================
+

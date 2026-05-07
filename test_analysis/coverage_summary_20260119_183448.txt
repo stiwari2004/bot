@@ -1,0 +1,53 @@
+Coverage Summary
+========================================
+
+TOTAL                                                           28406  20413    28%
+Coverage HTML written to dir /tmp/htmlcov/full
+
+FAIL Required test coverage of 70% not reached. Total coverage: 28.14%
+=========================== short test summary info ============================
+FAILED tests/unit/test_command_validator.py::TestSQLCommandValidation::test_sql_command_chaining_detected
+FAILED tests/unit/test_command_validator.py::TestPowerShellCommandValidation::test_dangerous_powershell_commands_detected
+FAILED tests/unit/test_command_validator.py::TestCommandSanitization::test_empty_commands
+FAILED tests/unit/test_execution_controller.py::TestCreateExecutionSession::test_create_session_with_valid_runbook
+FAILED tests/unit/test_execution_controller.py::TestGetPendingApprovals::test_get_pending_approvals
+FAILED tests/unit/test_runbook_validation.py::test_requires_three_remediation_steps
+FAILED tests/unit/test_runbook_validation.py::test_valid_spec_passes - assert...
+FAILED tests/unit/controllers/test_runbook_controller.py::TestAssociateWithTicket::test_associate_with_ticket_prevents_duplicate_association
+FAILED tests/unit/controllers/test_ticket_controller.py::TestReceiveWebhook::test_receive_webhook_analyzes_ticket
+FAILED tests/unit/controllers/test_ticket_controller.py::TestCreateDemoTicket::test_create_demo_ticket_creates_ticket
+FAILED tests/unit/controllers/test_ticket_controller.py::TestAnalyzeTicket::test_analyze_ticket_updates_ticket_classification
+FAILED tests/unit/services/test_execution_engine.py::TestApproveStep::test_approve_step_with_valid_session
+FAILED tests/unit/services/test_execution_engine.py::TestApproveStep::test_approve_step_rejects_step
+FAILED tests/unit/services/test_execution_engine.py::TestStartExecution::test_start_execution_creates_steps
+FAILED tests/unit/services/test_execution_engine.py::TestStartExecution::test_start_execution_with_already_running_session
+FAILED tests/unit/services/test_runbook_generator.py::TestGenerateRunbook::test_generate_runbook_with_valid_description
+FAILED tests/unit/services/test_runbook_generator.py::TestGenerateAgentRunbook::test_generate_agent_runbook_creates_yaml
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_with_true_positive
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_with_false_positive
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_with_uncertain_classification
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_handles_rate_limit_exception
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_handles_budget_exceeded_exception
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_handles_generic_exception
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_uses_tenant_id_from_parameter
+FAILED tests/unit/services/test_ticket_analysis.py::TestAnalyzeTicket::test_analyze_ticket_uses_tenant_id_from_ticket_data
+FAILED tests/unit/services/test_validation_services.py::TestRunbookQualityValidator::test_validate_with_valid_spec
+FAILED tests/unit/services/test_validation_services.py::TestRunbookCommandValidator::test_validate_runbook_commands_handles_missing_llm_service
+ERROR tests/e2e/test_error_handling.py::TestNetworkFailureHandling::test_llm_service_failure_handling
+ERROR tests/e2e/test_error_handling.py::TestNetworkFailureHandling::test_database_connection_failure_handling
+ERROR tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_runbook_id_returns_404
+ERROR tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_ticket_id_returns_404
+ERROR tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_execution_session_id_returns_404
+ERROR tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_malformed_request_returns_422
+ERROR tests/e2e/test_error_handling.py::TestInvalidInputHandling::test_invalid_authentication_returns_401
+ERROR tests/e2e/test_error_handling.py::TestTimeoutHandling::test_llm_timeout_handling
+ERROR tests/e2e/test_error_handling.py::TestConcurrentRequestHandling::test_concurrent_runbook_generation_requests
+ERROR tests/e2e/test_error_handling.py::TestResourceExhaustionHandling::test_llm_rate_limit_handling
+ERROR tests/e2e/test_error_handling.py::TestResourceExhaustionHandling::test_llm_budget_exceeded_handling
+ERROR tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_complete_execution_workflow_with_approval
+ERROR tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_rejection
+ERROR tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_rollback
+ERROR tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_with_self_healing
+ERROR tests/e2e/test_execution_workflow.py::TestCompleteExecutionWorkflow::test_execution_workflow_error_handling
+ERROR tests/e2e/test_execution_workflow.py::TestApprovalWorkflow::test_approval_workflow_with_multiple_steps
+ERROR tests/e2e/test_execution_workflow.py::TestRollbackWorkflow::test_rollback_on_step_failure

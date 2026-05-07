@@ -71,3 +71,4 @@ logs/
 # Claude Code local settings (may contain tokens/secrets)
 .claude/
 
+resolvify-website/
